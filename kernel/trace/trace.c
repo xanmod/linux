@@ -2578,6 +2578,15 @@ enum print_line_t trace_handle_return(struct trace_seq *s)
 }
 EXPORT_SYMBOL_GPL(trace_handle_return);
 
+static unsigned short migration_disable_value(void)
+{
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+	return current->migration_disabled;
+#else
+	return 0;
+#endif
+}
+
 unsigned int _tracing_gen_ctx_flags(unsigned long irqflags)
 {
 	unsigned int trace_flags = 0;
@@ -2603,7 +2612,8 @@ unsigned int _tracing_gen_ctx_flags(unsigned long irqflags)
 		trace_flags |= TRACE_FLAG_NEED_RESCHED;
 	if (test_preempt_need_resched())
 		trace_flags |= TRACE_FLAG_PREEMPT_RESCHED;
-	return (trace_flags << 16) | (pc & 0xff);
+	return (trace_flags << 16) | (pc & 0xff) |
+		(migration_disable_value() & 0xff) << 8;
 }
 
 unsigned int tracing_gen_ctx_flags(void)
@@ -3836,9 +3846,10 @@ static void print_lat_help_header(struct seq_file *m)
 		    "#                  | / _----=> need-resched    \n"
 		    "#                  || / _---=> hardirq/softirq \n"
 		    "#                  ||| / _--=> preempt-depth   \n"
-		    "#                  |||| /     delay            \n"
-		    "#  cmd     pid     ||||| time  |   caller      \n"
-		    "#     \\   /        |||||  \\    |   /         \n");
+		    "#                  |||| / _-=> migrate-disable \n"
+		    "#                  ||||| /     delay           \n"
+		    "#  cmd     pid     |||||| time  |   caller     \n"
+		    "#     \\   /        ||||||  \\    |    /       \n");
 }
 
 static void print_event_info(struct array_buffer *buf, struct seq_file *m)
@@ -3876,9 +3887,10 @@ static void print_func_help_header_irq(struct array_buffer *buf, struct seq_file
 	seq_printf(m, "#                            %.*s / _----=> need-resched\n", prec, space);
 	seq_printf(m, "#                            %.*s| / _---=> hardirq/softirq\n", prec, space);
 	seq_printf(m, "#                            %.*s|| / _--=> preempt-depth\n", prec, space);
-	seq_printf(m, "#                            %.*s||| /     delay\n", prec, space);
-	seq_printf(m, "#           TASK-PID  %.*s CPU#  ||||   TIMESTAMP  FUNCTION\n", prec, "     TGID   ");
-	seq_printf(m, "#              | |    %.*s   |   ||||      |         |\n", prec, "       |    ");
+	seq_printf(m, "#                            %.*s||| / _-=> migrate-disable\n", prec, space);
+	seq_printf(m, "#                            %.*s|||| /     delay\n", prec, space);
+	seq_printf(m, "#           TASK-PID  %.*s CPU#  |||||  TIMESTAMP  FUNCTION\n", prec, "     TGID   ");
+	seq_printf(m, "#              | |    %.*s   |   |||||     |         |\n", prec, "       |    ");
 }
 
 void
