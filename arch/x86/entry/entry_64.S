@@ -1074,6 +1074,7 @@ SYM_CODE_START_LOCAL_NOALIGN(.Lbad_gs)
 SYM_CODE_END(.Lbad_gs)
 	.previous
 
+#ifndef CONFIG_PREEMPT_RT
 /* Call softirq on interrupt stack. Interrupts are off. */
 SYM_FUNC_START(do_softirq_own_stack)
 	pushq	%rbp
@@ -1084,6 +1085,7 @@ SYM_FUNC_START(do_softirq_own_stack)
 	leaveq
 	ret
 SYM_FUNC_END(do_softirq_own_stack)
+#endif
 
 #ifdef CONFIG_XEN_PV
 idtentry hypervisor_callback xen_do_hypervisor_callback has_error_code=0
