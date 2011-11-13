@@ -604,6 +604,7 @@ static void blk_mq_trigger_softirq(struct request *rq)
 	if (list->next == &rq->ipi_list)
 		raise_softirq_irqoff(BLOCK_SOFTIRQ);
 	local_irq_restore(flags);
+	preempt_check_resched_rt();
 }
 
 static int blk_softirq_cpu_dead(unsigned int cpu)
@@ -617,6 +618,7 @@ static int blk_softirq_cpu_dead(unsigned int cpu)
 			 this_cpu_ptr(&blk_cpu_done));
 	raise_softirq_irqoff(BLOCK_SOFTIRQ);
 	local_irq_enable();
+	preempt_check_resched_rt();
 
 	return 0;
 }
