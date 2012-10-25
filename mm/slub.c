@@ -3775,6 +3775,11 @@ static void list_slab_objects(struct kmem_cache *s, struct page *page,
 							const char *text)
 {
 #ifdef CONFIG_SLUB_DEBUG
+#ifdef CONFIG_PREEMPT_RT
+	/* XXX move out of irq-off section */
+	slab_err(s, page, text, s->name);
+#else
+
 	void *addr = page_address(page);
 	void *p;
 	unsigned long *map;
@@ -3793,6 +3798,7 @@ static void list_slab_objects(struct kmem_cache *s, struct page *page,
 	put_map(map);
 
 	slab_unlock(page);
+#endif
 #endif
 }
 
