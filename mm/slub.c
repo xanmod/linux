@@ -3730,6 +3730,11 @@ static void list_slab_objects(struct kmem_cache *s, struct page *page,
 							const char *text)
 {
 #ifdef CONFIG_SLUB_DEBUG
+#ifdef CONFIG_PREEMPT_RT
+	/* XXX move out of irq-off section */
+	slab_err(s, page, text, s->name);
+#else
+
 	void *addr = page_address(page);
 	void *p;
 	unsigned long *map = bitmap_zalloc(page->objects, GFP_ATOMIC);
@@ -3749,7 +3754,9 @@ static void list_slab_objects(struct kmem_cache *s, struct page *page,
 	slab_unlock(page);
 	bitmap_free(map);
 #endif
+#endif
 }
+
 
 /*
  * Attempt to free all partial slabs on a node.
