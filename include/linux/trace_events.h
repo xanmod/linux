@@ -68,6 +68,7 @@ struct trace_entry {
 	unsigned char		preempt_count;
 	int			pid;
 	unsigned char		migrate_disable;
+	unsigned char		preempt_lazy_count;
 };
 
 #define TRACE_EVENT_TYPE_MAX						\
@@ -155,9 +156,10 @@ static inline void tracing_generic_entry_update(struct trace_entry *entry,
 {
 	entry->preempt_count		= trace_ctx & 0xff;
 	entry->migrate_disable		= (trace_ctx >> 8) & 0xff;
+	entry->preempt_lazy_count	= (trace_ctx >> 16) & 0xff;
 	entry->pid			= current->pid;
 	entry->type			= type;
-	entry->flags =			trace_ctx >> 16;
+	entry->flags			= trace_ctx >> 24;
 }
 
 unsigned int _tracing_gen_ctx_flags(unsigned long irqflags);
