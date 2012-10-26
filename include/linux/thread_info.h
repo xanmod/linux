@@ -178,6 +178,26 @@ static __always_inline unsigned long read_ti_thread_flags(struct thread_info *ti
 #endif /* !CONFIG_GENERIC_ENTRY */
 
 #ifdef _ASM_GENERIC_BITOPS_INSTRUMENTED_NON_ATOMIC_H
+# ifdef CONFIG_PREEMPT_LAZY
+
+static __always_inline bool tif_need_resched(void)
+{
+	return read_thread_flags() & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY);
+}
+
+static __always_inline bool tif_need_resched_now(void)
+{
+	return arch_test_bit(TIF_NEED_RESCHED,
+			     (unsigned long *)(&current_thread_info()->flags));
+}
+
+static __always_inline bool tif_need_resched_lazy(void)
+{
+	return arch_test_bit(TIF_NEED_RESCHED_LAZY,
+			     (unsigned long *)(&current_thread_info()->flags));
+}
+
+# else /* !CONFIG_PREEMPT_LAZY */
 
 static __always_inline bool tif_need_resched(void)
 {
@@ -185,7 +205,38 @@ static __always_inline bool tif_need_resched(void)
 			     (unsigned long *)(&current_thread_info()->flags));
 }
 
-#else
+static __always_inline bool tif_need_resched_now(void)
+{
+	return tif_need_resched();
+}
+
+static __always_inline bool tif_need_resched_lazy(void)
+{
+	return false;
+}
+
+# endif /* CONFIG_PREEMPT_LAZY */
+#else /* !_ASM_GENERIC_BITOPS_INSTRUMENTED_NON_ATOMIC_H */
+# ifdef CONFIG_PREEMPT_LAZY
+
+static __always_inline bool tif_need_resched(void)
+{
+	return read_thread_flags() & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY);
+}
+
+static __always_inline bool tif_need_resched_now(void)
+{
+	return test_bit(TIF_NEED_RESCHED,
+			(unsigned long *)(&current_thread_info()->flags));
+}
+
+static __always_inline bool tif_need_resched_lazy(void)
+{
+	return test_bit(TIF_NEED_RESCHED_LAZY,
+			(unsigned long *)(&current_thread_info()->flags));
+}
+
+# else /* !CONFIG_PREEMPT_LAZY */
 
 static __always_inline bool tif_need_resched(void)
 {
@@ -193,6 +244,17 @@ static __always_inline bool tif_need_resched(void)
 			(unsigned long *)(&current_thread_info()->flags));
 }
 
+static __always_inline bool tif_need_resched_now(void)
+{
+	return tif_need_resched();
+}
+
+static __always_inline bool tif_need_resched_lazy(void)
+{
+	return false;
+}
+
+# endif /* !CONFIG_PREEMPT_LAZY */
 #endif /* _ASM_GENERIC_BITOPS_INSTRUMENTED_NON_ATOMIC_H */
 
 #ifndef CONFIG_HAVE_ARCH_WITHIN_STACK_FRAMES
