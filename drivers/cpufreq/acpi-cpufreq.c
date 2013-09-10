@@ -25,6 +25,11 @@
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
 
+/*
+ * This file has been patched with Linux PHC: www.linux-phc.org
+ * Patch version: linux-phc-0.3.2
+ */
+
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/kernel.h>
@@ -60,6 +65,10 @@ enum {
 };
 
 #define INTEL_MSR_RANGE		(0xffff)
+#define INTEL_MSR_VID_MASK	(0x00ff)
+#define INTEL_MSR_FID_MASK	(0xff00)
+#define INTEL_MSR_FID_SHIFT	(0x8)
+#define PHC_VERSION_STRING	"0.3.2:3"
 #define AMD_MSR_RANGE		(0x7)
 
 #define MSR_K7_HWCR_CPB_DIS	(1ULL << 25)
@@ -71,6 +80,7 @@ struct acpi_cpufreq_data {
 	cpumask_var_t freqdomain_cpus;
 	void (*cpu_freq_write)(struct acpi_pct_register *reg, u32 val);
 	u32 (*cpu_freq_read)(struct acpi_pct_register *reg);
+	acpi_integer *original_controls;
 };
 
 /* acpi_perf_data is a pointer to percpu data. */
@@ -223,16 +233,26 @@ static unsigned extract_msr(struct cpufreq_policy *policy, u32 msr)
 	struct cpufreq_frequency_table *pos;
 	struct acpi_processor_performance *perf;
 
-	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD)
+	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD) {
 		msr &= AMD_MSR_RANGE;
-	else
+		perf = to_perf_data(data);
+
+		cpufreq_for_each_entry(pos, policy->freq_table)
+			if (msr == perf->states[pos->driver_data].status)
+				return pos->frequency;
+	}
+	else {
+		u32 fid;
 		msr &= INTEL_MSR_RANGE;
+		fid = msr & INTEL_MSR_FID_MASK;
+		perf = to_perf_data(data);
 
-	perf = to_perf_data(data);
-
-	cpufreq_for_each_entry(pos, policy->freq_table)
-		if (msr == perf->states[pos->driver_data].status)
-			return pos->frequency;
+		cpufreq_for_each_entry(pos, policy->freq_table)
+			if (fid ==
+			    (perf->states[pos->driver_data].status &
+			     INTEL_MSR_FID_MASK))
+				return pos->frequency;
+	}
 	return policy->freq_table[0].frequency;
 }
 
@@ -865,6 +885,8 @@ static int acpi_cpufreq_cpu_exit(struct cpufreq_policy *policy)
 	policy->driver_data = NULL;
 	acpi_processor_unregister_performance(data->acpi_perf_cpu);
 	free_cpumask_var(data->freqdomain_cpus);
+	if (data->original_controls)
+		kfree(data->original_controls);
 	kfree(policy->freq_table);
 	kfree(data);
 
@@ -881,27 +903,6 @@ static int acpi_cpufreq_resume(struct cpufreq_policy *policy)
 
 	return 0;
 }
-
-static struct freq_attr *acpi_cpufreq_attr[] = {
-	&cpufreq_freq_attr_scaling_available_freqs,
-	&freqdomain_cpus,
-#ifdef CONFIG_X86_ACPI_CPUFREQ_CPB
-	&cpb,
-#endif
-	NULL,
-};
-
-static struct cpufreq_driver acpi_cpufreq_driver = {
-	.verify		= cpufreq_generic_frequency_table_verify,
-	.target_index	= acpi_cpufreq_target,
-	.fast_switch	= acpi_cpufreq_fast_switch,
-	.bios_limit	= acpi_processor_get_bios_limit,
-	.init		= acpi_cpufreq_cpu_init,
-	.exit		= acpi_cpufreq_cpu_exit,
-	.resume		= acpi_cpufreq_resume,
-	.name		= "acpi-cpufreq",
-	.attr		= acpi_cpufreq_attr,
-};
 
 static enum cpuhp_state acpi_cpufreq_online;
 
@@ -933,6 +934,474 @@ static void acpi_cpufreq_boost_exit(void)
 	if (acpi_cpufreq_online > 0)
 		cpuhp_remove_state_nocalls(acpi_cpufreq_online);
 }
+
+/* sysfs interface to change operating points voltages */
+
+static unsigned int extract_fid_from_control(unsigned int control)
+{
+	return ((control & INTEL_MSR_FID_MASK) >> INTEL_MSR_FID_SHIFT);
+}
+
+static unsigned int extract_vid_from_control(unsigned int control)
+{
+	return (control & INTEL_MSR_VID_MASK);
+}
+
+/* check if the cpu we are running on is capable of setting new control data */
+static bool check_cpu_control_capability(struct acpi_cpufreq_data *data) {
+	if (unlikely(data == NULL ||
+	             to_perf_data(data) == NULL ||
+	             data->cpu_feature != SYSTEM_INTEL_MSR_CAPABLE)) {
+		return false;
+	} else {
+		return true;
+	};
+}
+
+static ssize_t check_origial_table (struct acpi_cpufreq_data *data)
+{
+	struct acpi_processor_performance *acpi_data;
+	unsigned int state_index;
+
+	acpi_data = to_perf_data(data);
+
+	if (data->original_controls == NULL) {
+		// Backup original control values
+		data->original_controls = kcalloc(acpi_data->state_count,
+						  sizeof(acpi_integer),
+						  GFP_KERNEL);
+		if (data->original_controls == NULL) {
+			printk("failed to allocate memory for original control values\n");
+			return -ENOMEM;
+		}
+		for (state_index = 0; state_index < acpi_data->state_count; state_index++) {
+			data->original_controls[state_index] = acpi_data->states[state_index].control;
+		}
+	}
+	return 0;
+}
+
+/* display phc's voltage id's */
+static ssize_t show_freq_attr_vids(struct cpufreq_policy *policy, char *buf)
+{
+	struct acpi_cpufreq_data *data = policy->driver_data;
+	struct acpi_processor_performance *acpi_data;
+	struct cpufreq_frequency_table *freq_table;
+	unsigned int i;
+	unsigned int vid;
+	ssize_t count = 0;
+
+	if (!check_cpu_control_capability(data)) return -ENODEV; //check if CPU is capable of changing controls
+
+	acpi_data = to_perf_data(data);
+	freq_table = policy->freq_table;
+
+	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
+		vid = extract_vid_from_control(acpi_data->states[freq_table[i].driver_data].control);
+		count += sprintf(&buf[count], "%u ", vid);
+	}
+	count += sprintf(&buf[count], "\n");
+
+	return count;
+}
+
+/* display acpi's default voltage id's */
+static ssize_t show_freq_attr_default_vids(struct cpufreq_policy *policy, char *buf)
+{
+	struct acpi_cpufreq_data *data = policy->driver_data;
+	struct cpufreq_frequency_table *freq_table;
+	unsigned int i;
+	unsigned int vid;
+	ssize_t count = 0;
+	ssize_t retval;
+
+	if (!check_cpu_control_capability(data)) return -ENODEV; //check if CPU is capable of changing controls
+
+	retval = check_origial_table(data);
+        if (0 != retval)
+		return retval; 
+
+	freq_table = policy->freq_table;
+
+	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
+		vid = extract_vid_from_control(data->original_controls[freq_table[i].driver_data]);
+		count += sprintf(&buf[count], "%u ", vid);
+	}
+	count += sprintf(&buf[count], "\n");
+
+	return count;
+}
+
+/* display phc's frequeny id's */
+static ssize_t show_freq_attr_fids(struct cpufreq_policy *policy, char *buf)
+{
+	struct acpi_cpufreq_data *data = policy->driver_data;
+	struct acpi_processor_performance *acpi_data;
+	struct cpufreq_frequency_table *freq_table;
+	unsigned int i;
+	unsigned int fid;
+	ssize_t count = 0;
+
+	if (!check_cpu_control_capability(data)) return -ENODEV; //check if CPU is capable of changing controls
+
+	acpi_data = to_perf_data(data);
+	freq_table = policy->freq_table;
+
+	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
+		fid = extract_fid_from_control(acpi_data->states[freq_table[i].driver_data].control);
+		count += sprintf(&buf[count], "%u ", fid);
+	}
+	count += sprintf(&buf[count], "\n");
+
+	return count;
+}
+
+/*
+ * display phc's controls for the cpu (frequency id's and related voltage id's)
+ */
+static ssize_t show_freq_attr_controls(struct cpufreq_policy *policy, char *buf)
+{
+	struct acpi_cpufreq_data *data = policy->driver_data;
+	struct acpi_processor_performance *acpi_data;
+	struct cpufreq_frequency_table *freq_table;
+	unsigned int i;
+	unsigned int fid;
+	unsigned int vid;
+	ssize_t count = 0;
+
+	if (!check_cpu_control_capability(data)) return -ENODEV; //check if CPU is capable of changing controls
+
+	acpi_data = to_perf_data(data);
+	freq_table = policy->freq_table;
+
+	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
+		fid = extract_fid_from_control(acpi_data->states[freq_table[i].driver_data].control);
+		vid = extract_vid_from_control(acpi_data->states[freq_table[i].driver_data].control);
+		count += sprintf(&buf[count], "%u:%u ", fid, vid);
+	}
+	count += sprintf(&buf[count], "\n");
+
+	return count;
+}
+
+/*
+ * display acpi's default controls for the cpu (frequency id's and related voltage id's)
+ */
+static ssize_t show_freq_attr_default_controls(struct cpufreq_policy *policy, char *buf)
+{
+	struct acpi_cpufreq_data *data = policy->driver_data;
+	struct cpufreq_frequency_table *freq_table;
+	unsigned int i;
+	unsigned int fid;
+	unsigned int vid;
+	ssize_t count = 0;
+	ssize_t retval;
+
+	if (!check_cpu_control_capability(data)) return -ENODEV; //check if CPU is capable of changing controls
+
+	retval = check_origial_table(data);
+        if (0 != retval)
+		return retval;
+
+	freq_table = policy->freq_table;
+
+	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
+		fid = extract_fid_from_control(data->original_controls[freq_table[i].driver_data]);
+		vid = extract_vid_from_control(data->original_controls[freq_table[i].driver_data]);
+		count += sprintf(&buf[count], "%u:%u ", fid, vid);
+	}
+	count += sprintf(&buf[count], "\n");
+
+	return count;
+}
+
+/*
+ * store the voltage id's for the related frequency
+ * We are going to do some sanity checks here to prevent users
+ * from setting higher voltages than the default one.
+ */
+static ssize_t store_freq_attr_vids(struct cpufreq_policy *policy, const char *buf, size_t count)
+{
+	struct acpi_cpufreq_data *data = policy->driver_data;
+	struct acpi_processor_performance *acpi_data;
+	struct cpufreq_frequency_table *freq_table;
+	unsigned int freq_index;
+	unsigned int state_index;
+	unsigned int new_vid;
+	unsigned int original_vid;
+	unsigned int new_control;
+	unsigned int original_control;
+	const char *curr_buf = buf;
+	char *next_buf;
+	ssize_t retval;
+
+	if (!check_cpu_control_capability(data)) return -ENODEV; //check if CPU is capable of changing controls
+
+	retval = check_origial_table(data);
+        if (0 != retval)
+		return retval;
+
+	acpi_data = to_perf_data(data);
+	freq_table = policy->freq_table;
+
+	/* for each value taken from the sysfs interfalce (phc_vids) get entrys and convert them to unsigned long integers*/
+	for (freq_index = 0; freq_table[freq_index].frequency != CPUFREQ_TABLE_END; freq_index++) {
+		new_vid = simple_strtoul(curr_buf, &next_buf, 10);
+		if (next_buf == curr_buf) {
+			if ((curr_buf - buf == count - 1) && (*curr_buf == '\n')) {   //end of line?
+				curr_buf++;
+				break;
+			}
+			//if we didn't got end of line but there is nothing more to read something went wrong...
+			printk("failed to parse vid value at %i (%s)\n", freq_index, curr_buf);
+			return -EINVAL;
+		}
+
+		state_index = freq_table[freq_index].driver_data;
+		original_control = data->original_controls[state_index];
+		original_vid = original_control & INTEL_MSR_VID_MASK;
+
+		/* before we store the values we do some checks to prevent
+		 * users to set up values higher than the default one
+		 */
+		if (new_vid <= original_vid) {
+			new_control = (original_control & ~INTEL_MSR_VID_MASK) | new_vid;
+			pr_debug("setting control at %i to %x (default is %x)\n",
+			        freq_index, new_control, original_control);
+			acpi_data->states[state_index].control = new_control;
+
+		} else {
+			printk("skipping vid at %i, %u is greater than default %u\n",
+			       freq_index, new_vid, original_vid);
+		}
+
+		curr_buf = next_buf;
+		/* jump over value seperators (space or comma).
+		 * There could be more than one space or comma character
+		 * to separate two values so we better do it using a loop.
+		 */
+		while ((curr_buf - buf < count) && ((*curr_buf == ' ') || (*curr_buf == ','))) {
+			curr_buf++;
+		}
+	}
+
+	/* set new voltage for current frequency */
+	data->resume = 1;
+	acpi_cpufreq_target(policy, acpi_data->state );
+
+	return curr_buf - buf;
+}
+
+/*
+ * store the controls (frequency id's and related voltage id's)
+ * We are going to do some sanity checks here to prevent users
+ * from setting higher voltages than the default one.
+ */
+static ssize_t store_freq_attr_controls(struct cpufreq_policy *policy, const char *buf, size_t count)
+{
+	struct acpi_cpufreq_data *data = policy->driver_data;
+	struct acpi_processor_performance *acpi_data;
+	struct cpufreq_frequency_table *freq_table;
+	const char   *curr_buf;
+	unsigned int  op_count;
+	unsigned int  state_index;
+	int           isok;
+	char         *next_buf;
+	ssize_t       retval;
+	unsigned int  new_vid;
+	unsigned int  original_vid;
+	unsigned int  new_fid;
+	unsigned int  old_fid;
+	unsigned int  original_control;
+	unsigned int  old_control;
+	unsigned int  new_control;
+	int           found;
+
+	if (!check_cpu_control_capability(data)) return -ENODEV;
+
+	retval = check_origial_table(data);
+        if (0 != retval)
+		return retval;
+
+	acpi_data = to_perf_data(data);
+	freq_table = policy->freq_table;
+
+	op_count = 0;
+	curr_buf = buf;
+	next_buf = NULL;
+	isok     = 1;
+
+	while ( (isok) && (curr_buf != NULL) )
+	{
+		op_count++;
+		// Parse fid
+		new_fid = simple_strtoul(curr_buf, &next_buf, 10);
+		if ((next_buf != curr_buf) && (next_buf != NULL))
+		{
+			// Parse separator between frequency and voltage
+			curr_buf = next_buf;
+			next_buf = NULL;
+			if (*curr_buf==':')
+			{
+				curr_buf++;
+				// Parse vid
+				new_vid = simple_strtoul(curr_buf, &next_buf, 10);
+				if ((next_buf != curr_buf) && (next_buf != NULL))
+				{
+					found = 0;
+					for (state_index = 0; state_index < acpi_data->state_count; state_index++) {
+						old_control = acpi_data->states[state_index].control;
+						old_fid = extract_fid_from_control(old_control);
+						if (new_fid == old_fid)
+						{
+							found = 1;
+							original_control = data->original_controls[state_index];
+							original_vid = extract_vid_from_control(original_control);
+							if (new_vid <= original_vid)
+							{
+								new_control = (original_control & ~INTEL_MSR_VID_MASK) | new_vid;
+								pr_debug("setting control at %i to %x (default is %x)\n",
+								        state_index, new_control, original_control);
+								acpi_data->states[state_index].control = new_control;
+
+							} else {
+								printk("skipping vid at %i, %u is greater than default %u\n",
+								       state_index, new_vid, original_vid);
+							}
+						}
+					}
+
+					if (found == 0)
+					{
+						printk("operating point # %u not found (FID = %u)\n", op_count, new_fid);
+						isok = 0;
+					}
+
+					// Parse seprator before next operating point, if any
+					curr_buf = next_buf;
+					next_buf = NULL;
+					if ((*curr_buf == ',') || (*curr_buf == ' '))
+						curr_buf++;
+					else
+						curr_buf = NULL;
+				}
+				else
+				{
+					printk("failed to parse VID of operating point # %u (%s)\n", op_count, curr_buf);
+					isok = 0;
+				}
+			}
+			else
+			{
+				printk("failed to parse operating point # %u (%s)\n", op_count, curr_buf);
+				isok = 0;
+			}
+		}
+		else
+		{
+			printk("failed to parse FID of operating point # %u (%s)\n", op_count, curr_buf);
+			isok = 0;
+		}
+	}
+
+	if (isok)
+	{
+		retval = count;
+		/* set new voltage at current frequency */
+		data->resume = 1;
+		acpi_cpufreq_target(policy, acpi_data->state);
+	}
+	else
+	{
+		retval = -EINVAL;
+	}
+
+	return retval;
+}
+
+/* print out the phc version string set at the beginning of that file */
+static ssize_t show_freq_attr_phc_version(struct cpufreq_policy *policy, char *buf)
+{
+	ssize_t count = 0;
+	count += sprintf(&buf[count], "%s\n", PHC_VERSION_STRING);
+	return count;
+}
+
+static struct freq_attr cpufreq_freq_attr_phc_version =
+{
+	/*display phc's version string*/
+       .attr = { .name = "phc_version", .mode = 0444 },
+       .show = show_freq_attr_phc_version,
+       .store = NULL,
+};
+
+static struct freq_attr cpufreq_freq_attr_vids =
+{
+	/*display phc's voltage id's for the cpu*/
+       .attr = { .name = "phc_vids", .mode = 0644 },
+       .show = show_freq_attr_vids,
+       .store = store_freq_attr_vids,
+};
+
+static struct freq_attr cpufreq_freq_attr_default_vids =
+{
+	/*display acpi's default frequency id's for the cpu*/
+       .attr = { .name = "phc_default_vids", .mode = 0444 },
+       .show = show_freq_attr_default_vids,
+       .store = NULL,
+};
+
+static struct freq_attr cpufreq_freq_attr_fids =
+{
+	/*display phc's default frequency id's for the cpu*/
+       .attr = { .name = "phc_fids", .mode = 0444 },
+       .show = show_freq_attr_fids,
+       .store = NULL,
+};
+
+static struct freq_attr cpufreq_freq_attr_controls =
+{
+	/*display phc's current voltage/frequency controls for the cpu*/
+       .attr = { .name = "phc_controls", .mode = 0644 },
+       .show = show_freq_attr_controls,
+       .store = store_freq_attr_controls,
+};
+
+static struct freq_attr cpufreq_freq_attr_default_controls =
+{
+	/*display acpi's default voltage/frequency controls for the cpu*/
+       .attr = { .name = "phc_default_controls", .mode = 0444 },
+       .show = show_freq_attr_default_controls,
+       .store = NULL,
+};
+
+
+static struct freq_attr *acpi_cpufreq_attr[] = {
+	&cpufreq_freq_attr_scaling_available_freqs,
+	&freqdomain_cpus,
+	&cpufreq_freq_attr_phc_version,
+	&cpufreq_freq_attr_vids,
+	&cpufreq_freq_attr_default_vids,
+	&cpufreq_freq_attr_fids,
+	&cpufreq_freq_attr_controls,
+	&cpufreq_freq_attr_default_controls,
+#ifdef CONFIG_X86_ACPI_CPUFREQ_CPB
+	&cpb,
+#endif
+	NULL,
+};
+
+static struct cpufreq_driver acpi_cpufreq_driver = {
+	.verify		= cpufreq_generic_frequency_table_verify,
+	.target_index	= acpi_cpufreq_target,
+	.fast_switch	= acpi_cpufreq_fast_switch,
+	.bios_limit	= acpi_processor_get_bios_limit,
+	.init		= acpi_cpufreq_cpu_init,
+	.exit		= acpi_cpufreq_cpu_exit,
+	.resume		= acpi_cpufreq_resume,
+	.name		= "acpi-cpufreq",
+	.attr		= acpi_cpufreq_attr,
+};
 
 static int __init acpi_cpufreq_init(void)
 {
