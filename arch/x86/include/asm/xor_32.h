@@ -564,4 +564,7 @@ do {							\
 	}						\
 } while (0)
 
+/* We doesn't prefer any block so to trigger the try */
+#define XOR_PREFER_TEMPLATE (NULL)
+
 #endif /* _ASM_X86_XOR_32_H */
