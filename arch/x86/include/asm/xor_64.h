@@ -25,4 +25,6 @@ do {						\
 	xor_speed(&xor_block_sse);		\
 } while (0)
 
+/* We prefer SSE xor pf64, AVX is optional */
+#define XOR_PREFER_TEMPLATE (&xor_block_sse_pf64)
 #endif /* _ASM_X86_XOR_64_H */
