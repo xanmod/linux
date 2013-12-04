@@ -10,6 +10,16 @@ menu "Library routines"
 config RAID6_PQ
 	tristate
 
+config RAID6_USE_PREFER_GEN
+	boolean "Use prefered raid6 gen function."
+	default n
+	depends on RAID6_PQ
+	help
+	  This option is provided for using prefered raid6 gen function
+	  directly instead of calculating the best durning boot-up.
+	  The prefered function should be the same as the best one from
+	  calculating.
+
 config BITREVERSE
 	tristate
 
