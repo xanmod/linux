@@ -150,6 +150,29 @@ static inline const struct raid6_recov_calls *raid6_choose_recov(void)
 	return best;
 }
 
+#ifdef CONFIG_RAID6_USE_PREFER_GEN
+static inline const struct raid6_calls *raid6_choose_prefer_gen(void)
+{
+	const struct raid6_calls *const *algo;
+	const struct raid6_calls *best;
+
+	for (best = NULL, algo = raid6_algos; *algo; algo++) {
+		if (!best || (*algo)->prefer >= best->prefer) {
+			if ((*algo)->valid && !(*algo)->valid())
+				continue;
+			best = *algo;
+		}
+	}
+
+	if (best) {
+		printk("raid6: using algorithm %s\n", best->name);
+		raid6_call = *best;
+	} else
+		printk("raid6: Yikes!  No algorithm found!\n");
+
+	return best;
+}
+#else
 static inline const struct raid6_calls *raid6_choose_gen(
 	void *(*const dptrs)[(65536/PAGE_SIZE)+2], const int disks)
 {
@@ -221,6 +244,7 @@ static inline const struct raid6_calls *raid6_choose_gen(
 
 	return best;
 }
+#endif
 
 
 /* Try to pick the best algorithm */
@@ -228,10 +252,11 @@ static inline const struct raid6_calls *raid6_choose_gen(
 
 int __init raid6_select_algo(void)
 {
-	const int disks = (65536/PAGE_SIZE)+2;
-
 	const struct raid6_calls *gen_best;
 	const struct raid6_recov_calls *rec_best;
+#ifndef CONFIG_RAID6_USE_PREFER_GEN
+	const int disks = (65536/PAGE_SIZE)+2;
+
 	char *syndromes;
 	void *dptrs[(65536/PAGE_SIZE)+2];
 	int i;
@@ -252,11 +277,16 @@ int __init raid6_select_algo(void)
 
 	/* select raid gen_syndrome function */
 	gen_best = raid6_choose_gen(&dptrs, disks);
+#else
+	gen_best = raid6_choose_prefer_gen();
+#endif
 
 	/* select raid recover functions */
 	rec_best = raid6_choose_recov();
 
+#ifndef CONFIG_RAID6_USE_PREFER_GEN
 	free_pages((unsigned long)syndromes, 1);
+#endif
 
 	return gen_best && rec_best ? 0 : -EINVAL;
 }
