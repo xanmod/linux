@@ -590,8 +590,16 @@ static void __blk_mq_complete_request(struct request *rq)
 	}
 
 	cpu = get_cpu_light();
+	/*
+	 * Avoid SMP function calls for completions because they acquire
+	 * sleeping spinlocks on RT.
+	 */
+#ifdef CONFIG_PREEMPT_RT
+	shared = true;
+#else
 	if (!test_bit(QUEUE_FLAG_SAME_FORCE, &q->queue_flags))
 		shared = cpus_share_cache(cpu, ctx->cpu);
+#endif
 
 	if (cpu != ctx->cpu && !shared && cpu_online(ctx->cpu)) {
 		rq->csd.func = __blk_mq_complete_request_remote;
