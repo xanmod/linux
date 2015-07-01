@@ -161,6 +161,30 @@ static const unsigned short atkbd_unxlate_table[128] = {
 #define ATKBD_KEY_UNKNOWN	0
 #define ATKBD_KEY_NULL		255
 
+#define ATKBD_KEY_IGNORE	0x8000
+#define ATKBD_KEY_WIN		0x5b
+#define ATKBD_KEY_CAPSL		0x3a
+#define ATKBD_KEY_ALT_R		0x38
+#define ATKBD_KEY_BS		0x0e
+#define ATKBD_KEY_F6		0x40
+#define ATKBD_KEY_F7		0x41
+#define ATKBD_KEY_F8		0x42
+#define ATKBD_KEY_F9		0x43
+#define ATKBD_KEY_F10		0x44
+#define ATKBD_KEY_DEL		0x53	/* actually E0 53 - same for the rest here */
+#define ATKBD_KEY_CTRL_R	0x1d
+#define ATKBD_KEY_VOL_MUTE	0x20
+#define ATKBD_KEY_VOL_DOWN	0x2e
+#define ATKBD_KEY_VOL_UP	0x30
+#define ATKBD_KEY_HOME		0x47
+#define ATKBD_KEY_UP		0x48
+#define ATKBD_KEY_PGUP		0x49
+#define ATKBD_KEY_LEFT		0x4b
+#define ATKBD_KEY_RIGHT		0x4d
+#define ATKBD_KEY_END		0x4f
+#define ATKBD_KEY_DOWN		0x50
+#define ATKBD_KEY_PGDN		0x51
+
 #define ATKBD_SCR_1		0xfffe
 #define ATKBD_SCR_2		0xfffd
 #define ATKBD_SCR_4		0xfffc
@@ -218,6 +242,7 @@ struct atkbd {
 	bool softraw;
 	bool scroll;
 	bool enabled;
+	bool fake_fn;
 
 	/* Accessed only from interrupt */
 	unsigned char emul;
@@ -242,6 +267,7 @@ struct atkbd {
 static void (*atkbd_platform_fixup)(struct atkbd *, const void *data);
 static void *atkbd_platform_fixup_data;
 static unsigned int (*atkbd_platform_scancode_fixup)(struct atkbd *, unsigned int);
+static unsigned int (*atkbd_fake_fn_fixup)(struct atkbd *, unsigned int);
 
 /*
  * Certain keyboards to not like ATKBD_CMD_RESET_DIS and stop responding
@@ -403,6 +429,13 @@ static irqreturn_t atkbd_interrupt(struct serio *serio, unsigned char data,
 
 	if (!atkbd->enabled)
 		goto out;
+
+	if (atkbd_fake_fn_fixup) {
+		code = atkbd_fake_fn_fixup(atkbd, code);
+		if (code == ATKBD_KEY_IGNORE)
+			/* fake Fn key pressed - ignore */
+			goto out;
+	}
 
 	input_event(dev, EV_MSC, MSC_RAW, code);
 
@@ -995,6 +1028,70 @@ static unsigned int atkbd_oqo_01plus_scancode_fixup(struct atkbd *atkbd,
 
 	return code;
 }
+
+/*
+ * Google Chromebook Pixel is lacking an Fn key. In order to use as a regular
+ * Linux laptop we steal the right Ctrl key and turn it into an Fn key
+ * Additional, replace Search key(Win key) as CapsLock and right Alt as Win
+ */
+static unsigned int atkbd_pixel_fake_fn_fixup(struct atkbd *atkbd, unsigned int code)
+{
+	if (atkbd->emul != 1) {
+		/* handle backspace here as it's the only one w/o
+		 * a leading E0/E1 (i.e., emul == 0) */
+		if (atkbd->emul == 0 && atkbd->fake_fn) {
+			if ((code & 0x7f) == ATKBD_KEY_BS) {
+				/* when pretending that Delete was pressed we need
+				 * to set emul as well as Delete is E0 53 */
+				atkbd->emul = 1;
+				code = (code & 0x80) | ATKBD_KEY_DEL;
+			} else if ((code & 0x7f) == ATKBD_KEY_F6) {
+				atkbd->emul = 1;
+				code = (code & 0x80) | 0x09;
+			} else if ((code & 0x7f) == ATKBD_KEY_F7) {
+				atkbd->emul = 1;
+				code = (code & 0x80) | 0x08;
+			} else if ((code & 0x7f) == ATKBD_KEY_F8) {
+				atkbd->emul = 1;
+				code = (code & 0x80) | ATKBD_KEY_VOL_MUTE;
+			} else if ((code & 0x7f) == ATKBD_KEY_F9) {
+				atkbd->emul = 1;
+				code = (code & 0x80) | ATKBD_KEY_VOL_DOWN;
+			} else if ((code & 0x7f) == ATKBD_KEY_F10) {
+				atkbd->emul = 1;
+				code = (code & 0x80) | ATKBD_KEY_VOL_UP;
+			}
+		}
+	} else if ((code & 0x7f) == ATKBD_KEY_ALT_R) {
+		code = (code & 0x80) | ATKBD_KEY_WIN;
+	} else if((code & 0x7f) == ATKBD_KEY_WIN) {
+		atkbd->emul = 0;
+		code = (code & 0x80) | ATKBD_KEY_CAPSL;
+	} else if ((code & 0x7f) == ATKBD_KEY_CTRL_R) {
+		atkbd->fake_fn = (code & 0x80) ? 0 : 1;
+		atkbd->emul = 0;
+		code = ATKBD_KEY_IGNORE;
+	} else if (atkbd->fake_fn) {
+		unsigned int oldcode = code;
+		switch(code & 0x7f) {
+		case ATKBD_KEY_UP:
+			code = ATKBD_KEY_PGUP;
+			break;
+		case ATKBD_KEY_DOWN:
+			code = ATKBD_KEY_PGDN;
+			break;
+		case ATKBD_KEY_LEFT:
+			code = ATKBD_KEY_HOME;
+			break;
+		case ATKBD_KEY_RIGHT:
+			code = ATKBD_KEY_END;
+			break;
+		}
+		code |= oldcode & 0x80;
+	}
+	return code;
+}
+
 
 /*
  * atkbd_set_keycode_table() initializes keyboard's keycode table
@@ -1653,6 +1750,13 @@ static int __init atkbd_deactivate_fixup(const struct dmi_system_id *id)
 	return 1;
 }
 
+static int __init atkbd_setup_fake_fn_fixup(const struct dmi_system_id *id)
+{
+	atkbd_fake_fn_fixup = id->driver_data;
+
+	return 1;
+}
+
 /*
  * NOTE: do not add any more "force release" quirks to this table.  The
  * task of adjusting list of keys that should be "released" automatically
@@ -1801,6 +1905,15 @@ static const struct dmi_system_id atkbd_dmi_quirk_table[] __initconst = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LG Electronics"),
 		},
 		.callback = atkbd_deactivate_fixup,
+	},
+	{
+		/* Google Chromebook Pixel */
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "GOOGLE"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Link"),
+		},
+		.callback = atkbd_setup_fake_fn_fixup,
+		.driver_data = atkbd_pixel_fake_fn_fixup,
 	},
 	{ }
 };
