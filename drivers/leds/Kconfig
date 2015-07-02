@@ -5,6 +5,20 @@ config LEDS_GPIO_REGISTER
 	  As this function is used by arch code it must not be compiled as a
 	  module.
 
+config LEDS_CHROMEOS_KEYBOARD
+  tristate "LED support for Chrome OS keyboards"
+  depends on LEDS_CLASS && ACPI
+  help
+    This option enables support for the LEDs on Chrome OS keyboards.
+    Say Y to enable keyboard LEDs on Chrome OS systems.
+
+config LEDS_PIXEL_KEYBOARD
+  tristate "LED support for Chrome OS keyboards"
+  depends on LEDS_CHROMEOS_KEYBOARD
+  help
+    This option enables support for the LEDs on Chromebook Pixel keyboards.
+    Say Y to enable keyboard LEDs on Chromebook Pixel systems.
+
 menuconfig NEW_LEDS
 	bool "LED Support"
 	help
