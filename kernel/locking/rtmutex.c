@@ -1962,7 +1962,11 @@ EXPORT_SYMBOL_GPL(rt_mutex_timed_lock);
 
 int __sched __rt_mutex_trylock(struct rt_mutex *lock)
 {
+#ifdef CONFIG_PREEMPT_RT
+	if (WARN_ON_ONCE(in_irq() || in_nmi()))
+#else
 	if (WARN_ON_ONCE(in_irq() || in_nmi() || in_serving_softirq()))
+#endif
 		return 0;
 
 	return rt_mutex_fasttrylock(lock, rt_mutex_slowtrylock);
