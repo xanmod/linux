@@ -118,7 +118,7 @@ void intel_pipe_update_start(const struct intel_crtc_state *new_crtc_state)
 			"PSR idle timed out 0x%x, atomic update may fail\n",
 			psr_status);
 
-	local_irq_disable();
+	local_lock_irq(&crtc->pipe_update_lock);
 
 	crtc->debug.min_vbl = min;
 	crtc->debug.max_vbl = max;
@@ -143,11 +143,11 @@ void intel_pipe_update_start(const struct intel_crtc_state *new_crtc_state)
 			break;
 		}
 
-		local_irq_enable();
+		local_unlock_irq(&crtc->pipe_update_lock);
 
 		timeout = schedule_timeout(timeout);
 
-		local_irq_disable();
+		local_lock_irq(&crtc->pipe_update_lock);
 	}
 
 	finish_wait(wq, &wait);
@@ -180,7 +180,7 @@ void intel_pipe_update_start(const struct intel_crtc_state *new_crtc_state)
 	return;
 
 irq_disable:
-	local_irq_disable();
+	local_lock_irq(&crtc->pipe_update_lock);
 }
 
 /**
@@ -218,7 +218,7 @@ void intel_pipe_update_end(struct intel_crtc_state *new_crtc_state)
 		new_crtc_state->uapi.event = NULL;
 	}
 
-	local_irq_enable();
+	local_unlock_irq(&crtc->pipe_update_lock);
 
 	if (intel_vgpu_active(dev_priv))
 		return;
