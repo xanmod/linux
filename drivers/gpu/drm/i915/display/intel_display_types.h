@@ -29,7 +29,6 @@
 #include <linux/async.h>
 #include <linux/i2c.h>
 #include <linux/sched/clock.h>
-#include <linux/local_lock.h>
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_crtc.h>
@@ -1150,7 +1149,6 @@ struct intel_crtc {
 #ifdef CONFIG_DEBUG_FS
 	struct intel_pipe_crc pipe_crc;
 #endif
-	local_lock_t pipe_update_lock;
 };
 
 struct intel_plane {
