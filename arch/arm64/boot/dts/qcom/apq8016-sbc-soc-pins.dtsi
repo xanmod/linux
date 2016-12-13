@@ -1,0 +1,27 @@
+
+#include <dt-bindings/gpio/gpio.h>
+
+&msmgpio {
+
+	msmgpio_leds: msmgpio_leds {
+		pinconf {
+			pins = "gpio21", "gpio120";
+			function = "gpio";
+			output-low;
+		};
+	};
+
+	usb_id_default: usb-id-default {
+		pinmux {
+			function = "gpio";
+			pins = "gpio121";
+		};
+
+		pinconf {
+			pins = "gpio121";
+			drive-strength = <8>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
+};
