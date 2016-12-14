@@ -18,6 +18,9 @@
  *
  *  Adaptive scheduling granularity, math enhancements by Peter Zijlstra
  *  Copyright (C) 2007 Red Hat, Inc., Peter Zijlstra
+ *
+ *  Responsiveness enhancements for interactivity
+ *  by Alexandre Frade <kernel@xanmod.org>
  */
 
 #include <linux/sched.h>
@@ -37,7 +40,7 @@
 
 /*
  * Targeted preemption latency for CPU-bound tasks:
- * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
+ * (XanMod default: 0.4 msec * (1 + ilog(ncpus)), units: nanoseconds)
  *
  * NOTE: this latency value is not the same as the concept of
  * 'timeslice length' - timeslices in CFS are of variable length
@@ -47,8 +50,8 @@
  * (to see the precise effective timeslice length of your workload,
  *  run vmstat and monitor the context-switches (cs) field)
  */
-unsigned int sysctl_sched_latency = 6000000ULL;
-unsigned int normalized_sysctl_sched_latency = 6000000ULL;
+unsigned int sysctl_sched_latency = 400000ULL;
+unsigned int normalized_sysctl_sched_latency = 400000ULL;
 
 /*
  * The initial- and re-scaling of tunables is configurable
@@ -64,15 +67,15 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling
 
 /*
  * Minimal preemption granularity for CPU-bound tasks:
- * (default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * (XanMod default: 0.2 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
-unsigned int sysctl_sched_min_granularity = 750000ULL;
-unsigned int normalized_sysctl_sched_min_granularity = 750000ULL;
+unsigned int sysctl_sched_min_granularity = 200000ULL;
+unsigned int normalized_sysctl_sched_min_granularity = 200000ULL;
 
 /*
  * is kept at sysctl_sched_latency / sysctl_sched_min_granularity
  */
-static unsigned int sched_nr_latency = 8;
+static unsigned int sched_nr_latency = 2;
 
 /*
  * After fork, child runs first. If set to 0 (default) then
@@ -82,16 +85,16 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
 
 /*
  * SCHED_OTHER wake-up granularity.
- * (default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
+ * (default: 0.2 msec * (1 + ilog(ncpus)), units: nanoseconds)
  *
  * This option delays the preemption effects of decoupled workloads
  * and reduces their over-scheduling. Synchronous workloads will still
  * have immediate wakeup/sleep latencies.
  */
-unsigned int sysctl_sched_wakeup_granularity = 1000000UL;
-unsigned int normalized_sysctl_sched_wakeup_granularity = 1000000UL;
+unsigned int sysctl_sched_wakeup_granularity = 200000UL;
+unsigned int normalized_sysctl_sched_wakeup_granularity = 200000UL;
 
-const_debug unsigned int sysctl_sched_migration_cost = 500000UL;
+const_debug unsigned int sysctl_sched_migration_cost;
 
 /*
  * The exponential sliding  window over which load is averaged for shares
@@ -109,9 +112,9 @@ unsigned int __read_mostly sysctl_sched_shares_window = 10000000UL;
  * to consumption or the quota being specified to be smaller than the slice)
  * we will always only issue the remaining available time.
  *
- * default: 5 msec, units: microseconds
+ * XanMod default: 2 msec, units: microseconds
   */
-unsigned int sysctl_sched_cfs_bandwidth_slice = 5000UL;
+unsigned int sysctl_sched_cfs_bandwidth_slice = 2000UL;
 #endif
 
 /*

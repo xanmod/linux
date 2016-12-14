@@ -5,6 +5,8 @@
 # Rewritten to use lists instead of if-statements.
 #
 
+KBUILD_CFLAGS   += -O2
+
 obj-$(CONFIG_NET)		:= socket.o core/
 
 tmp-$(CONFIG_COMPAT) 		:= compat.o
