@@ -25,6 +25,7 @@ obj-$(CONFIG_MQ_IOSCHED_KYBER)	+= kyber-iosched.o
 bfq-y				:= bfq-iosched.o bfq-wf2q.o bfq-cgroup.o
 obj-$(CONFIG_IOSCHED_BFQ)	+= bfq.o
 obj-$(CONFIG_IOSCHED_BFQ_SQ)	+= bfq-sq-iosched.o
+obj-$(CONFIG_MQ_IOSCHED_BFQ)	+= bfq-mq-iosched.o
 
 obj-$(CONFIG_BLOCK_COMPAT)	+= compat_ioctl.o
 obj-$(CONFIG_BLK_CMDLINE_PARSER)	+= cmdline-parser.o

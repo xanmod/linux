@@ -96,6 +96,16 @@ config DEFAULT_IOSCHED
 	default "bfq-sq" if DEFAULT_BFQ_SQ
 	default "noop" if DEFAULT_NOOP
 
+config MQ_IOSCHED_BFQ
+	tristate "BFQ-MQ I/O Scheduler"
+	default y
+	---help---
+	BFQ I/O scheduler for BLK-MQ. BFQ-MQ distributes bandwidth
+	among all processes according to their weights, regardless of
+	the device parameters and with any workload. It also
+	guarantees a low latency to interactive and soft real-time
+	applications.  Details in Documentation/block/bfq-iosched.txt
+
 config MQ_IOSCHED_DEADLINE
 	tristate "MQ deadline I/O scheduler"
 	default y
