@@ -472,8 +472,6 @@ static struct bfq_group *bfq_find_set_group(struct bfq_data *bfqd,
 	struct bfq_group *bfqg, *parent;
 	struct bfq_entity *entity;
 
-	assert_spin_locked(bfqd->queue->queue_lock);
-
 	bfqg = bfq_lookup_bfqg(bfqd, blkcg);
 
 	if (unlikely(!bfqg))
@@ -601,8 +599,6 @@ static struct bfq_group *__bfq_bic_change_cgroup(struct bfq_data *bfqd,
 	struct bfq_queue *sync_bfqq = bic_to_bfqq(bic, 1);
 	struct bfq_group *bfqg;
 	struct bfq_entity *entity;
-
-	lockdep_assert_held(bfqd->queue->queue_lock);
 
 	bfqg = bfq_find_set_group(bfqd, blkcg);
 
