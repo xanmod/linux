@@ -17,8 +17,8 @@
 /*
  * See Documentation/block/deadline-iosched.txt
  */
-static const int read_expire = HZ / 10;  /* max time before a read is submitted. */
-static const int write_expire = HZ / 2; /* ditto for writes, these limits are SOFT! */
+static const int read_expire = HZ / 4;  /* max time before a read is submitted. */
+static const int write_expire = HZ; /* ditto for writes, these limits are SOFT! */
 static const int writes_starved = 1;    /* max times reads can starve a write */
 static const int fifo_batch = 64;       /* # of sequential requests treated as one
 				     by the above parameters. For throughput. */
