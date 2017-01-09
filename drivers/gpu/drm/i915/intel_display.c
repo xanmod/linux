@@ -13970,8 +13970,9 @@ static int intel_modeset_checks(struct drm_atomic_state *state)
 
 		DRM_DEBUG_KMS("New cdclk calculated to be atomic %u, actual %u\n",
 			      intel_state->cdclk, intel_state->dev_cdclk);
-	} else
+	} else {
 		to_intel_atomic_state(state)->cdclk = dev_priv->atomic_cdclk_freq;
+	}
 
 	intel_modeset_clear_plls(state);
 
@@ -14072,8 +14073,9 @@ static int intel_atomic_check(struct drm_device *dev,
 
 		if (ret)
 			return ret;
-	} else
-		intel_state->cdclk = dev_priv->cdclk_freq;
+	} else {
+		intel_state->cdclk = dev_priv->atomic_cdclk_freq;
+	}
 
 	ret = drm_atomic_helper_check_planes(dev, state);
 	if (ret)
@@ -16441,6 +16443,7 @@ void intel_modeset_init(struct drm_device *dev)
 
 	intel_update_czclk(dev_priv);
 	intel_update_cdclk(dev);
+	dev_priv->atomic_cdclk_freq = dev_priv->cdclk_freq;
 
 	intel_shared_dpll_init(dev);
 

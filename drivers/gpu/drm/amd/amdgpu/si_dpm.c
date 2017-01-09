@@ -3504,6 +3504,7 @@ static void si_apply_state_adjust_rules(struct amdgpu_device *adev,
 		    (adev->pdev->revision == 0x80) ||
 		    (adev->pdev->revision == 0x81) ||
 		    (adev->pdev->revision == 0x83) ||
+		    (adev->pdev->revision == 0x87) ||
 		    (adev->pdev->device == 0x6604) ||
 		    (adev->pdev->device == 0x6605)) {
 			max_sclk = 75000;
@@ -7713,6 +7714,7 @@ static int si_dpm_init_microcode(struct amdgpu_device *adev)
 		    (adev->pdev->revision == 0x80) ||
 		    (adev->pdev->revision == 0x81) ||
 		    (adev->pdev->revision == 0x83) ||
+		    (adev->pdev->revision == 0x87) ||
 		    (adev->pdev->device == 0x6604) ||
 		    (adev->pdev->device == 0x6605))
 			chip_name = "oland_k";
