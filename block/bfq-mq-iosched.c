@@ -195,7 +195,39 @@ static int device_speed_thresh[2];
 
 static void bfq_schedule_dispatch(struct bfq_data *bfqd);
 
-#include "bfq-ioc.c"
+/**
+ * icq_to_bic - convert iocontext queue structure to bfq_io_cq.
+ * @icq: the iocontext queue.
+ */
+static struct bfq_io_cq *icq_to_bic(struct io_cq *icq)
+{
+	/* bic->icq is the first member, %NULL will convert to %NULL */
+	return container_of(icq, struct bfq_io_cq, icq);
+}
+
+/**
+ * bfq_bic_lookup - search into @ioc a bic associated to @bfqd.
+ * @bfqd: the lookup key.
+ * @ioc: the io_context of the process doing I/O.
+ * @q: the request queue.
+ */
+static struct bfq_io_cq *bfq_bic_lookup(struct bfq_data *bfqd,
+					struct io_context *ioc,
+					struct request_queue *q)
+{
+	if (ioc) {
+		struct bfq_io_cq *icq;
+
+		spin_lock_irq(q->queue_lock);
+		icq = icq_to_bic(ioc_lookup_icq(ioc, q));
+		spin_unlock_irq(q->queue_lock);
+
+		return icq;
+	}
+
+	return NULL;
+}
+
 #include "bfq-sched.c"
 #include "bfq-cgroup-included.c"
 
@@ -1520,13 +1552,14 @@ static void bfq_add_request(struct request *rq)
 }
 
 static struct request *bfq_find_rq_fmerge(struct bfq_data *bfqd,
-					  struct bio *bio)
+					  struct bio *bio,
+					  struct request_queue *q)
 {
 	struct task_struct *tsk = current;
 	struct bfq_io_cq *bic;
 	struct bfq_queue *bfqq;
 
-	bic = bfq_bic_lookup(bfqd, tsk->io_context);
+	bic = bfq_bic_lookup(bfqd, tsk->io_context, q);
 	if (!bic)
 		return NULL;
 
