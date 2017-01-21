@@ -210,6 +210,18 @@ struct bfq_entity {
 struct bfq_group;
 
 /**
+ * struct bfq_ttime - per process thinktime stats.
+ */
+struct bfq_ttime {
+	u64 last_end_request; /* completion time of last request */
+
+	u64 ttime_total; /* total process thinktime */
+	unsigned long ttime_samples; /* number of thinktime samples */
+	u64 ttime_mean; /* average process thinktime */
+
+};
+
+/**
  * struct bfq_queue - leaf schedulable entity.
  *
  * A bfq_queue is a leaf request queue; it can be associated with an
@@ -269,6 +281,9 @@ struct bfq_queue {
 
 	/* node for active/idle bfqq list inside parent bfqd */
 	struct list_head bfqq_list;
+
+	/* associated @bfq_ttime struct */
+	struct bfq_ttime ttime;
 
 	/* bit vector: a 1 for each seeky requests in history */
 	u32 seek_history;
@@ -333,18 +348,6 @@ struct bfq_queue {
 };
 
 /**
- * struct bfq_ttime - per process thinktime stats.
- */
-struct bfq_ttime {
-	u64 last_end_request; /* completion time of last request */
-
-	u64 ttime_total; /* total process thinktime */
-	unsigned long ttime_samples; /* number of thinktime samples */
-	u64 ttime_mean; /* average process thinktime */
-
-};
-
-/**
  * struct bfq_io_cq - per (request_queue, io_context) structure.
  */
 struct bfq_io_cq {
@@ -352,8 +355,6 @@ struct bfq_io_cq {
 	struct io_cq icq; /* must be the first member */
 	/* array of two process queues, the sync and the async */
 	struct bfq_queue *bfqq[2];
-	/* associated @bfq_ttime struct */
-	struct bfq_ttime ttime;
 	/* per (request_queue, blkcg) ioprio */
 	int ioprio;
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
@@ -390,6 +391,7 @@ struct bfq_io_cq {
 	unsigned long saved_last_wr_start_finish;
 	unsigned long saved_wr_start_at_switch_to_srt;
 	unsigned int saved_wr_cur_max_time;
+	struct bfq_ttime saved_ttime;
 };
 
 enum bfq_device_speed {
