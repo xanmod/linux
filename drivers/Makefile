@@ -5,8 +5,6 @@
 # Rewritten to use lists instead of if-statements.
 #
 
-KBUILD_CFLAGS   += -O2
-
 obj-y				+= irqchip/
 obj-y				+= bus/
 
