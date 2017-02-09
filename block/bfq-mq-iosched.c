@@ -2279,6 +2279,7 @@ static bool bfq_allow_bio_merge(struct request_queue *q, struct request *rq,
 	if (!bic)
 		return false;
 
+	assert_spin_locked(&bfqd->lock);
 	bfqq = bic_to_bfqq(bic, is_sync);
 	/*
 	 * We take advantage of this function to perform an early merge
