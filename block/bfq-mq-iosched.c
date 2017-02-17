@@ -1746,6 +1746,8 @@ static int bfq_request_merge(struct request_queue *q, struct request **req,
 static void bfq_request_merged(struct request_queue *q, struct request *req,
 			       enum elv_merge type)
 {
+	BUG_ON(req->rq_flags & RQF_DISP_LIST);
+
 	if (type == ELEVATOR_FRONT_MERGE &&
 	    rb_prev(&req->rb_node) &&
 	    blk_rq_pos(req) <
@@ -1795,6 +1797,8 @@ static void bfq_requests_merged(struct request_queue *q, struct request *rq,
 
 	BUG_ON(!RQ_BFQQ(rq));
 	BUG_ON(!RQ_BFQQ(next));
+	BUG_ON(rq->rq_flags & RQF_DISP_LIST);
+	BUG_ON(next->rq_flags & RQF_DISP_LIST);
 
 	if (!RB_EMPTY_NODE(&rq->rb_node))
 		goto end;
@@ -3936,6 +3940,7 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 		rq = list_first_entry(&bfqd->dispatch, struct request,
 				      queuelist);
 		list_del_init(&rq->queuelist);
+		rq->rq_flags &= ~RQF_DISP_LIST;
 
 		bfq_log(bfqd,
 			"dispatch requests: picked %p from dispatch list", rq);
@@ -3950,6 +3955,17 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 			 */
 			bfqq->dispatched++;
 
+			/*
+			 * TESTING: reset DISP_LIST flag, because: 1)
+			 * this rq this request has passed through
+			 * get_rq_private, 2) then it will have
+			 * put_rq_private invoked on it, and 3) in
+			 * put_rq_private we use this flag to check
+			 * that put_rq_private is not invoked on
+			 * requests for which get_rq_private has been
+			 * invoked.
+			 */
+			rq->rq_flags &= ~RQF_DISP_LIST;
 			goto inc_in_driver_start_rq;
 		}
 
@@ -4637,6 +4653,7 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 		else
 			list_add_tail(&rq->queuelist, &bfqd->dispatch);
 
+		rq->rq_flags |= RQF_DISP_LIST;
 		if (bfqq)
 			bfq_log_bfqq(bfqd, bfqq,
 				     "insert_request %p in disp: at_head %d",
@@ -4824,6 +4841,10 @@ static void bfq_put_rq_private(struct request_queue *q, struct request *rq)
 	bfqd = bfqq->bfqd;
 	BUG_ON(!bfqd);
 
+	if (rq->rq_flags & RQF_DISP_LIST) {
+		pr_crit("putting disp rq %p for %d", rq, bfqq->pid);
+		BUG();
+	}
 	BUG_ON(rq->rq_flags & RQF_QUEUED);
 	BUG_ON(!(rq->rq_flags & RQF_ELVPRIV));
 
@@ -5015,6 +5036,7 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 
 	rq->elv.priv[0] = bic;
 	rq->elv.priv[1] = bfqq;
+	rq->rq_flags &= ~RQF_DISP_LIST;
 
 	/*
 	 * If a bfq_queue has only one process reference, it is owned
