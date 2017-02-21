@@ -233,6 +233,7 @@ static struct bfq_io_cq *bfq_bic_lookup(struct bfq_data *bfqd,
 	return NULL;
 }
 
+#define BFQ_MQ
 #include "bfq-sched.c"
 #include "bfq-cgroup-included.c"
 
@@ -1564,15 +1565,9 @@ static struct request *bfq_find_rq_fmerge(struct bfq_data *bfqd,
 					  struct bio *bio,
 					  struct request_queue *q)
 {
-	struct task_struct *tsk = current;
-	struct bfq_io_cq *bic;
-	struct bfq_queue *bfqq;
+	struct bfq_queue *bfqq = bfqd->bio_bfqq;
 
-	bic = bfq_bic_lookup(bfqd, tsk->io_context, q);
-	if (!bic)
-		return NULL;
 
-	bfqq = bic_to_bfqq(bic, op_is_sync(bio->bi_opf));
 	if (bfqq)
 		return elv_rb_find(&bfqq->sort_list, bio_end_sector(bio));
 
@@ -1693,9 +1688,26 @@ static bool bfq_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio)
 	struct request_queue *q = hctx->queue;
 	struct bfq_data *bfqd = q->elevator->elevator_data;
 	struct request *free = NULL;
+	/*
+	 * bfq_bic_lookup grabs the queue_lock: invoke it now and
+	 * store its return value for later use, to avoid nesting
+	 * queue_lock inside the bfqd->lock. We assume that the bic
+	 * returned by bfq_bic_lookup does not go away before
+	 * bfqd->lock is taken.
+	 */
+	struct bfq_io_cq *bic = bfq_bic_lookup(bfqd, current->io_context, q);
 	bool ret;
 
 	spin_lock_irq(&bfqd->lock);
+
+	if (bic)
+		bfqd->bio_bfqq = bic_to_bfqq(bic, op_is_sync(bio->bi_opf));
+	else
+		bfqd->bio_bfqq = NULL;
+	bfqd->bio_bic = bic;
+	/* Set next flag just for testing purposes */
+	bfqd->bio_bfqq_set = true;
+
 	ret = blk_mq_sched_try_merge(q, bio, &free);
 
 	/*
@@ -1706,6 +1718,7 @@ static bool bfq_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio)
 	 */
 	if (free)
 		blk_mq_free_request(free);
+	bfqd->bio_bfqq_set = false;
 	spin_unlock_irq(&bfqd->lock);
 
 	return ret;
@@ -2261,8 +2274,7 @@ static bool bfq_allow_bio_merge(struct request_queue *q, struct request *rq,
 {
 	struct bfq_data *bfqd = q->elevator->elevator_data;
 	bool is_sync = op_is_sync(bio->bi_opf);
-	struct bfq_io_cq *bic;
-	struct bfq_queue *bfqq, *new_bfqq;
+	struct bfq_queue *bfqq = bfqd->bio_bfqq, *new_bfqq;
 
 	/*
 	 * Disallow merge of a sync bio into an async request.
@@ -2273,31 +2285,40 @@ static bool bfq_allow_bio_merge(struct request_queue *q, struct request *rq,
 	/*
 	 * Lookup the bfqq that this bio will be queued with. Allow
 	 * merge only if rq is queued there.
-	 * Queue lock is held here.
 	 */
-	bic = bfq_bic_lookup(bfqd, current->io_context, q);
-	if (!bic)
+	if (!bfqq)
 		return false;
 
-	assert_spin_locked(&bfqd->lock);
-	bfqq = bic_to_bfqq(bic, is_sync);
 	/*
 	 * We take advantage of this function to perform an early merge
 	 * of the queues of possible cooperating processes.
 	 */
-	if (bfqq) {
-		new_bfqq = bfq_setup_cooperator(bfqd, bfqq, bio, false);
-		if (new_bfqq) {
-			bfq_merge_bfqqs(bfqd, bic, bfqq, new_bfqq);
-			/*
-			 * If we get here, the bio will be queued in the
-			 * shared queue, i.e., new_bfqq, so use new_bfqq
-			 * to decide whether bio and rq can be merged.
-			 */
-			bfqq = new_bfqq;
-		}
-	}
+	new_bfqq = bfq_setup_cooperator(bfqd, bfqq, bio, false);
+	if (new_bfqq) {
+		/*
+		 * bic still points to bfqq, then it has not yet been
+		 * redirected to some other bfq_queue, and a queue
+		 * merge beween bfqq and new_bfqq can be safely
+		 * fulfillled, i.e., bic can be redirected to new_bfqq
+		 * and bfqq can be put.
+		 */
+		bfq_merge_bfqqs(bfqd, bfqd->bio_bic, bfqq,
+				new_bfqq);
+		/*
+		 * If we get here, bio will be queued into new_queue,
+		 * so use new_bfqq to decide whether bio and rq can be
+		 * merged.
+		 */
+		bfqq = new_bfqq;
 
+		/*
+		 * Change also bqfd->bio_bfqq, as
+		 * bfqd->bio_bic now points to new_bfqq, and
+		 * this function may be invoked again (and then may
+		 * use again bqfd->bio_bfqq).
+		 */
+		bfqd->bio_bfqq = bfqq;
+	}
 	return bfqq == RQ_BFQQ(rq);
 }
 
@@ -3965,14 +3986,43 @@ exit:
 	return rq;
 }
 
+/*
+ * Next two functions release bfqd->lock and put the io context
+ * pointed by bfqd->ioc_to_put. This delayed put is used to not risk
+ * to take an ioc->lock while the scheduler lock is being held.
+ */
+static void bfq_unlock_put_ioc(struct bfq_data *bfqd)
+{
+	struct io_context *ioc_to_put = bfqd->ioc_to_put;
+
+	bfqd->ioc_to_put = NULL;
+	spin_unlock_irq(&bfqd->lock);
+
+	if (ioc_to_put)
+		put_io_context(ioc_to_put);
+}
+
+static void bfq_unlock_put_ioc_restore(struct bfq_data *bfqd,
+				       unsigned long flags)
+{
+	struct io_context *ioc_to_put = bfqd->ioc_to_put;
+
+	bfqd->ioc_to_put = NULL;
+	spin_unlock_irqrestore(&bfqd->lock, flags);
+
+	if (ioc_to_put)
+		put_io_context(ioc_to_put);
+}
+
 static struct request *bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 {
 	struct bfq_data *bfqd = hctx->queue->elevator->elevator_data;
 	struct request *rq;
 
 	spin_lock_irq(&bfqd->lock);
+
 	rq = __bfq_dispatch_request(hctx);
-	spin_unlock_irq(&bfqd->lock);
+	bfq_unlock_put_ioc(bfqd);
 
 	return rq;
 }
@@ -3981,7 +4031,7 @@ static struct request *bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
  * Task holds one reference to the queue, dropped when task exits.  Each rq
  * in-flight on this queue also holds a reference, dropped when rq is freed.
  *
- * Queue lock must be held here. Recall not to use bfqq after calling
+ * Scheduler lock must be held here. Recall not to use bfqq after calling
  * this function on it.
  */
 static void bfq_put_queue(struct bfq_queue *bfqq)
@@ -4066,17 +4116,23 @@ static void bfq_exit_icq_bfqq(struct bfq_io_cq *bic, bool is_sync)
 		bfqd = bfqq->bfqd; /* NULL if scheduler already exited */
 
 	if (bfqq && bfqd) {
-		spin_lock_irq(&bfqd->lock);
+		unsigned long flags;
+
+		spin_lock_irqsave(&bfqd->lock, flags);
 		/*
-		 * If the bic is using a shared queue, put the reference
-		 * taken on the io_context when the bic started using a
-		 * shared bfq_queue.
+		 * If the bic is using a shared queue, put the
+		 * reference taken on the io_context when the bic
+		 * started using a shared bfq_queue. This put cannot
+		 * make ioc->ref_count reach 0, then no ioc->lock
+		 * risks to be taken (leading to possible deadlock
+		 * scenarios).
 		 */
 		if (is_sync && bfq_bfqq_coop(bfqq))
 			put_io_context(bic->icq.ioc);
+
 		bfq_exit_bfqq(bfqd, bfqq);
 		bic_set_bfqq(bic, NULL, is_sync);
-		spin_unlock_irq(&bfqd->lock);
+		bfq_unlock_put_ioc_restore(bfqd, flags);
 	}
 }
 
@@ -4182,8 +4238,6 @@ static void bfq_init_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	INIT_LIST_HEAD(&bfqq->fifo);
 	INIT_HLIST_NODE(&bfqq->burst_list_node);
 	BUG_ON(!hlist_unhashed(&bfqq->burst_list_node));
-
-	spin_lock_init(&bfqq->lock);
 
 	bfqq->ref = 0;
 	bfqq->bfqd = bfqd;
@@ -4476,6 +4530,14 @@ static void __bfq_insert_request(struct bfq_data *bfqd, struct request *rq)
 
 			new_bfqq->ref++;
 			bfq_clear_bfqq_just_created(bfqq);
+			/*
+			 * If the bic associated with the process
+			 * issuing this request still points to bfqq
+			 * (and thus has not been already redirected
+			 * to new_bfqq or even some other bfq_queue),
+			 * then complete the merge and redirect it to
+			 * new_bfqq.
+			 */
 			if (bic_to_bfqq(RQ_BIC(rq), 1) == bfqq)
 				bfq_merge_bfqqs(bfqd, RQ_BIC(rq),
 						bfqq, new_bfqq);
@@ -4498,14 +4560,17 @@ static void __bfq_insert_request(struct bfq_data *bfqd, struct request *rq)
 }
 
 static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
-			      bool at_head)
+			       bool at_head)
 {
 	struct request_queue *q = hctx->queue;
 	struct bfq_data *bfqd = q->elevator->elevator_data;
 
 	spin_lock_irq(&bfqd->lock);
-	if (blk_mq_sched_try_insert_merge(q, rq))
-		goto done;
+	if (blk_mq_sched_try_insert_merge(q, rq)) {
+		spin_unlock_irq(&bfqd->lock);
+		return;
+	}
+
 	spin_unlock_irq(&bfqd->lock);
 
 	blk_mq_sched_request_inserted(rq);
@@ -4530,8 +4595,8 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 				q->last_merge = rq;
 		}
 	}
-done:
-	spin_unlock_irq(&bfqd->lock);
+
+	bfq_unlock_put_ioc(bfqd);
 }
 
 static void bfq_insert_requests(struct blk_mq_hw_ctx *hctx,
@@ -4724,7 +4789,7 @@ static void bfq_put_rq_private(struct request_queue *q, struct request *rq)
 		bfq_completed_request(bfqq, bfqd);
 		bfq_put_rq_priv_body(bfqq);
 
-		spin_unlock_irqrestore(&bfqd->lock, flags);
+		bfq_unlock_put_ioc_restore(bfqd, flags);
 	} else {
 		/*
 		 * Request rq may be still/already in the scheduler,
@@ -4732,10 +4797,10 @@ static void bfq_put_rq_private(struct request_queue *q, struct request *rq)
 		 * defer such a check and removal, to avoid
 		 * inconsistencies in the time interval from the end
 		 * of this function to the start of the deferred work.
-		 * Fortunately, this situation occurs only in process
-		 * context, so taking the scheduler lock does not
-		 * cause any deadlock, even if other locks are already
-		 * (correctly) held by this process.
+		 * This situation seems to occur only in process
+		 * context, as a consequence of a merge. In the
+		 * current version of the code, this implies that the
+		 * lock is held.
 		 */
 		BUG_ON(in_interrupt());
 
@@ -4758,8 +4823,6 @@ bfq_split_bfqq(struct bfq_io_cq *bic, struct bfq_queue *bfqq)
 {
 	bfq_log_bfqq(bfqq->bfqd, bfqq, "splitting queue");
 
-	put_io_context(bic->icq.ioc);
-
 	if (bfqq_process_refs(bfqq) == 1) {
 		bfqq->pid = current->pid;
 		bfq_clear_bfqq_coop(bfqq);
@@ -4775,6 +4838,41 @@ bfq_split_bfqq(struct bfq_io_cq *bic, struct bfq_queue *bfqq)
 	return NULL;
 }
 
+static struct bfq_queue *bfq_get_bfqq_handle_split(struct bfq_data *bfqd,
+						   struct bfq_io_cq *bic,
+						   struct bio *bio,
+						   bool split, bool is_sync,
+						   bool *new_queue)
+{
+	struct bfq_queue *bfqq = bic_to_bfqq(bic, is_sync);
+
+	if (likely(bfqq && bfqq != &bfqd->oom_bfqq))
+		return bfqq;
+
+	if (new_queue)
+		*new_queue = true;
+
+	if (bfqq)
+		bfq_put_queue(bfqq);
+	bfqq = bfq_get_queue(bfqd, bio, is_sync, bic);
+
+	bic_set_bfqq(bic, bfqq, is_sync);
+	if (split && is_sync) {
+		if ((bic->was_in_burst_list && bfqd->large_burst) ||
+		    bic->saved_in_large_burst)
+			bfq_mark_bfqq_in_large_burst(bfqq);
+		else {
+			bfq_clear_bfqq_in_large_burst(bfqq);
+			if (bic->was_in_burst_list)
+				hlist_add_head(&bfqq->burst_list_node,
+					       &bfqd->burst_list);
+		}
+		bfqq->split_time = jiffies;
+	}
+
+	return bfqq;
+}
+
 /*
  * Allocate bfq data structures associated with this request.
  */
@@ -4786,6 +4884,7 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 	const int is_sync = rq_is_sync(rq);
 	struct bfq_queue *bfqq;
 	bool bfqq_already_existing = false, split = false;
+	bool new_queue = false;
 
 	spin_lock_irq(&bfqd->lock);
 
@@ -4796,42 +4895,10 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 
 	bfq_bic_update_cgroup(bic, bio);
 
-new_queue:
-	bfqq = bic_to_bfqq(bic, is_sync);
-	if (!bfqq || bfqq == &bfqd->oom_bfqq) {
-		if (bfqq)
-			bfq_put_queue(bfqq);
-		bfqq = bfq_get_queue(bfqd, bio, is_sync, bic);
-		BUG_ON(!hlist_unhashed(&bfqq->burst_list_node));
+	bfqq = bfq_get_bfqq_handle_split(bfqd, bic, bio, false, is_sync,
+					 &new_queue);
 
-		bic_set_bfqq(bic, bfqq, is_sync);
-		if (split && is_sync) {
-			bfq_log_bfqq(bfqd, bfqq,
-				     "get_request: was_in_list %d "
-				     "was_in_large_burst %d "
-				     "large burst in progress %d",
-				     bic->was_in_burst_list,
-				     bic->saved_in_large_burst,
-				     bfqd->large_burst);
-
-			if ((bic->was_in_burst_list && bfqd->large_burst) ||
-			    bic->saved_in_large_burst) {
-				bfq_log_bfqq(bfqd, bfqq,
-					     "get_request: marking in "
-					     "large burst");
-				bfq_mark_bfqq_in_large_burst(bfqq);
-			} else {
-				bfq_log_bfqq(bfqd, bfqq,
-					     "get_request: clearing in "
-					     "large burst");
-				bfq_clear_bfqq_in_large_burst(bfqq);
-				if (bic->was_in_burst_list)
-					hlist_add_head(&bfqq->burst_list_node,
-						       &bfqd->burst_list);
-			}
-			bfqq->split_time = jiffies;
-		}
-	} else {
+	if (unlikely(!new_queue)) {
 		/* If the queue was seeky for too long, break it apart. */
 		if (bfq_bfqq_coop(bfqq) && bfq_bfqq_split_coop(bfqq)) {
 			bfq_log_bfqq(bfqd, bfqq, "breaking apart bfqq");
@@ -4841,9 +4908,19 @@ new_queue:
 				bic->saved_in_large_burst = true;
 
 			bfqq = bfq_split_bfqq(bic, bfqq);
-			split = true;
+			/*
+			 * A reference to bic->icq.ioc needs to be
+			 * released after a queue split. Do not do it
+			 * immediately, to not risk to possibly take
+			 * an ioc->lock while holding the scheduler
+			 * lock.
+			 */
+			bfqd->ioc_to_put = bic->icq.ioc;
+
 			if (!bfqq)
-				goto new_queue;
+				bfqq = bfq_get_bfqq_handle_split(bfqd, bic, bio,
+								 true, is_sync,
+								 NULL);
 			else
 				bfqq_already_existing = true;
 		}
@@ -4861,18 +4938,17 @@ new_queue:
 
 	/*
 	 * If a bfq_queue has only one process reference, it is owned
-	 * by only one bfq_io_cq: we can set the bic field of the
-	 * bfq_queue to the address of that structure. Also, if the
-	 * queue has just been split, mark a flag so that the
-	 * information is available to the other scheduler hooks.
+	 * by only this bic: we can then set bfqq->bic = bic. in
+	 * addition, if the queue has also just been split, we have to
+	 * resume its state.
 	 */
 	if (likely(bfqq != &bfqd->oom_bfqq) && bfqq_process_refs(bfqq) == 1) {
 		bfqq->bic = bic;
-		if (split) {
+		if (bfqd->ioc_to_put) { /* if true, then there has been a split */
 			/*
-			 * If the queue has just been split from a shared
-			 * queue, restore the idle window and the possible
-			 * weight raising period.
+			 * The queue has just been split from a shared
+			 * queue: restore the idle window and the
+			 * possible weight raising period.
 			 */
 			bfq_bfqq_resume_state(bfqq, bfqd, bic,
 					      bfqq_already_existing);
@@ -4882,7 +4958,7 @@ new_queue:
 	if (unlikely(bfq_bfqq_just_created(bfqq)))
 		bfq_handle_burst(bfqd, bfqq);
 
-	spin_unlock_irq(&bfqd->lock);
+	bfq_unlock_put_ioc(bfqd);
 
 	return 0;
 
@@ -4929,7 +5005,7 @@ static void bfq_idle_slice_timer_body(struct bfq_queue *bfqq)
 	bfq_bfqq_expire(bfqd, bfqq, true, reason);
 
 schedule_dispatch:
-	spin_unlock_irqrestore(&bfqd->lock, flags);
+	bfq_unlock_put_ioc_restore(bfqd, flags);
 	bfq_schedule_dispatch(bfqd);
 }
 
