@@ -1905,7 +1905,18 @@ static void __bfq_bfqd_reset_in_service(struct bfq_data *bfqd)
 	struct bfq_entity *entity = in_serv_entity;
 
 	if (bfqd->in_service_bic) {
+#ifdef BFQ_MQ
+		/*
+		 * Schedule the release of a reference to
+		 * bfqd->in_service_bic->icq.ioc to right after the
+		 * scheduler lock is released. This ioc is not
+		 * released immediately, to not risk to possibly take
+		 * an ioc->lock while holding the scheduler lock.
+		 */
+		bfqd->ioc_to_put = bfqd->in_service_bic->icq.ioc;
+#else
 		put_io_context(bfqd->in_service_bic->icq.ioc);
+#endif
 		bfqd->in_service_bic = NULL;
 	}
 

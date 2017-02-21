@@ -338,8 +338,6 @@ struct bfq_queue {
 	unsigned long wr_start_at_switch_to_srt;
 
 	unsigned long split_time; /* time of last split */
-
-	spinlock_t lock;
 };
 
 /**
@@ -609,6 +607,29 @@ struct bfq_data {
 	struct bfq_queue oom_bfqq;
 
 	spinlock_t lock;
+
+	/*
+	 * bic associated with the task issuing current bio for
+	 * merging. This and the next field are used as a support to
+	 * be able to perform the bic lookup, needed by bio-merge
+	 * functions, before the scheduler lock is taken, and thus
+	 * avoid taking the request-queue lock while the scheduler
+	 * lock is being held.
+	 */
+	struct bfq_io_cq *bio_bic;
+	/* bfqq associated with the task issuing current bio for merging */
+	struct bfq_queue *bio_bfqq;
+	/* Extra flag used only for TESTING */
+	bool bio_bfqq_set;
+
+	/*
+	 * io context to put right after bfqd->lock is released. This
+	 * filed is used to perform put_io_context, when needed, to
+	 * after the scheduler lock has been released, and thus
+	 * prevent an ioc->lock from being possibly taken while the
+	 * scheduler lock is being held.
+	 */
+	struct io_context *ioc_to_put;
 };
 
 enum bfqq_state_flags {
