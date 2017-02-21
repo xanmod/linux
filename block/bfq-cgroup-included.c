@@ -716,6 +716,9 @@ static void bfq_pd_offline(struct blkg_policy_data *pd)
 	struct bfq_group *bfqg;
 	struct bfq_data *bfqd;
 	struct bfq_entity *entity;
+#ifdef BFQ_MQ
+	unsigned long flags;
+#endif
 	int i;
 
 	BUG_ON(!pd);
@@ -729,6 +732,9 @@ static void bfq_pd_offline(struct blkg_policy_data *pd)
 	if (!entity) /* root group */
 		return;
 
+#ifdef BFQ_MQ
+	spin_lock_irqsave(&bfqd->lock, flags);
+#endif
 	/*
 	 * Empty all service_trees belonging to this group before
 	 * deactivating the group itself.
@@ -766,6 +772,9 @@ static void bfq_pd_offline(struct blkg_policy_data *pd)
 	__bfq_deactivate_entity(entity, false);
 	bfq_put_async_queues(bfqd, bfqg);
 
+#ifdef BFQ_MQ
+	bfq_unlock_put_ioc_restore(bfqd, flags);
+#endif
 	/*
 	 * @blkg is going offline and will be ignored by
 	 * blkg_[rw]stat_recursive_sum().  Transfer stats to the parent so
