@@ -3936,9 +3936,45 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 		rq = list_first_entry(&bfqd->dispatch, struct request,
 				      queuelist);
 		list_del_init(&rq->queuelist);
+
 		bfq_log(bfqd,
 			"dispatch requests: picked %p from dispatch list", rq);
-		goto exit;
+		bfqq = RQ_BFQQ(rq);
+
+		if (bfqq) {
+			/*
+			 * Increment counters here, because this
+			 * dispatch does not follow the standard
+			 * dispatch flow (where counters are
+			 * incremented)
+			 */
+			bfqq->dispatched++;
+
+			goto inc_in_driver_start_rq;
+		}
+
+		/*
+		 * We exploit the put_rq_private hook to decrement
+		 * rq_in_driver, but put_rq_private will not be
+		 * invoked on this request. So, to avoid unbalance,
+		 * just start this request, without incrementing
+		 * rq_in_driver. As a negative consequence,
+		 * rq_in_driver is deceptively lower than it should be
+		 * while this request is in service. This may cause
+		 * bfq_schedule_dispatch to be invoked uselessly.
+		 *
+		 * As for implementing an exact solution, the
+		 * put_request hook, if defined, is probably invoked
+		 * also on this request. So, by exploiting this hook,
+		 * we could 1) increment rq_in_driver here, and 2)
+		 * decrement it in put_request. Such a solution would
+		 * let the value of the counter be always accurate,
+		 * but it would entail using an extra interface
+		 * function. This cost seems higher than the benefit,
+		 * being the frequency of non-elevator-private
+		 * requests very low.
+		 */
+		goto start_rq;
 	}
 
 	bfq_log(bfqd, "dispatch requests: %d busy queues", bfqd->busy_queues);
@@ -3973,10 +4009,12 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 
 	BUG_ON(bfqq->next_rq == NULL &&
 	       bfqq->entity.budget < bfqq->entity.service);
-exit:
+
 	if (rq) {
-		rq->rq_flags |= RQF_STARTED;
+	inc_in_driver_start_rq:
 		bfqd->rq_in_driver++;
+	start_rq:
+		rq->rq_flags |= RQF_STARTED;
 		if (bfqq)
 			bfq_log_bfqq(bfqd, bfqq,
 				"dispatched %s request %p, rq_in_driver %d",
@@ -3992,6 +4030,7 @@ exit:
 		"returned NULL request, rq_in_driver %d",
 			bfqd->rq_in_driver);
 
+exit:
 	return rq;
 }
 
@@ -4591,15 +4630,10 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 
 	spin_lock_irq(&bfqd->lock);
 	if (at_head || blk_rq_is_passthrough(rq)) {
-		struct bfq_queue *bfqq = RQ_BFQQ(rq);
-
 		if (at_head)
 			list_add(&rq->queuelist, &bfqd->dispatch);
 		else
 			list_add_tail(&rq->queuelist, &bfqd->dispatch);
-
-		if (bfqq)
-			bfqq->dispatched++;
 	} else {
 		__bfq_insert_request(bfqd, rq);
 
@@ -4966,7 +5000,7 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 		     "get_request: new allocated %d", bfqq->allocated);
 
 	bfqq->ref++;
-	bfq_log_bfqq(bfqd, bfqq, "get_request: bfqq %p, %d", bfqq, bfqq->ref);
+	bfq_log_bfqq(bfqd, bfqq, "get_request %p: bfqq %p, %d", rq, bfqq, bfqq->ref);
 
 	rq->elv.priv[0] = bic;
 	rq->elv.priv[1] = bfqq;
