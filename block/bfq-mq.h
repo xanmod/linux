@@ -20,7 +20,7 @@
 #include <linux/blk-cgroup.h>
 
 /* see comments on CONFIG_BFQ_GROUP_IOSCHED in bfq.h */
-#ifdef CONFIG_BFQ_MQ_GROUP_IOSCHED
+#ifdef CONFIG_MQ_BFQ_GROUP_IOSCHED
 #define BFQ_GROUP_IOSCHED_ENABLED
 #endif
 
