@@ -106,6 +106,15 @@ config MQ_IOSCHED_BFQ
 	guarantees a low latency to interactive and soft real-time
 	applications.  Details in Documentation/block/bfq-iosched.txt
 
+config MQ_BFQ_GROUP_IOSCHED
+	bool "BFQ-MQ hierarchical scheduling support"
+	depends on MQ_IOSCHED_BFQ && BLK_CGROUP
+	default n
+	---help---
+
+	Enable hierarchical scheduling in BFQ-MQ, using the blkio
+	(cgroups-v1) or io (cgroups-v2) controller.
+
 config MQ_IOSCHED_DEADLINE
 	tristate "MQ deadline I/O scheduler"
 	default y
