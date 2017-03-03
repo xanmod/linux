@@ -1906,6 +1906,7 @@ static void __bfq_bfqd_reset_in_service(struct bfq_data *bfqd)
 
 	if (bfqd->in_service_bic) {
 #ifdef BFQ_MQ
+		BUG_ON(bfqd->ioc_to_put);
 		/*
 		 * Schedule the release of a reference to
 		 * bfqd->in_service_bic->icq.ioc to right after the
