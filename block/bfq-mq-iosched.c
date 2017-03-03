@@ -1567,6 +1567,7 @@ static struct request *bfq_find_rq_fmerge(struct bfq_data *bfqd,
 {
 	struct bfq_queue *bfqq = bfqd->bio_bfqq;
 
+	BUG_ON(!bfqd->bio_bfqq_set);
 
 	if (bfqq)
 		return elv_rb_find(&bfqq->sort_list, bio_end_sector(bio));
@@ -1719,6 +1720,7 @@ static bool bfq_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio)
 	if (free)
 		blk_mq_free_request(free);
 	bfqd->bio_bfqq_set = false;
+	BUG_ON(bfqd->ioc_to_put);
 	spin_unlock_irq(&bfqd->lock);
 
 	return ret;
@@ -1781,6 +1783,7 @@ static void bfq_request_merged(struct request_queue *q, struct request *req,
 			bfq_updated_next_req(bfqd, bfqq);
 			bfq_pos_tree_add_move(bfqd, bfqq);
 		}
+		BUG_ON(bfqd->ioc_to_put);
 		spin_unlock_irq(&bfqd->lock);
 	}
 }
@@ -1824,6 +1827,7 @@ static void bfq_requests_merged(struct request_queue *q, struct request *rq,
 
 	bfq_remove_request(q, next);
 
+	BUG_ON(bfqq->bfqd->ioc_to_put);
 	spin_unlock_irq(&bfqq->bfqd->lock);
 end:
 	bfqg_stats_update_io_merged(bfqq_group(bfqq), next->cmd_flags);
@@ -2195,9 +2199,11 @@ bfq_merge_bfqqs(struct bfq_data *bfqd, struct bfq_io_cq *bic,
 {
 	bfq_log_bfqq(bfqd, bfqq, "merging with queue %lu",
 		     (unsigned long) new_bfqq->pid);
+	BUG_ON(bfqq->bic && bfqq->bic == new_bfqq->bic);
 	/* Save weight raising and idle window of the merged queues */
 	bfq_bfqq_save_state(bfqq);
 	bfq_bfqq_save_state(new_bfqq);
+
 	if (bfq_bfqq_IO_bound(bfqq))
 		bfq_mark_bfqq_IO_bound(new_bfqq);
 	bfq_clear_bfqq_IO_bound(bfqq);
@@ -2276,6 +2282,7 @@ static bool bfq_allow_bio_merge(struct request_queue *q, struct request *rq,
 	bool is_sync = op_is_sync(bio->bi_opf);
 	struct bfq_queue *bfqq = bfqd->bio_bfqq, *new_bfqq;
 
+	assert_spin_locked(&bfqd->lock);
 	/*
 	 * Disallow merge of a sync bio into an async request.
 	 */
@@ -2286,6 +2293,7 @@ static bool bfq_allow_bio_merge(struct request_queue *q, struct request *rq,
 	 * Lookup the bfqq that this bio will be queued with. Allow
 	 * merge only if rq is queued there.
 	 */
+	BUG_ON(!bfqd->bio_bfqq_set);
 	if (!bfqq)
 		return false;
 
@@ -2294,6 +2302,7 @@ static bool bfq_allow_bio_merge(struct request_queue *q, struct request *rq,
 	 * of the queues of possible cooperating processes.
 	 */
 	new_bfqq = bfq_setup_cooperator(bfqd, bfqq, bio, false);
+	BUG_ON(new_bfqq == bfqq);
 	if (new_bfqq) {
 		/*
 		 * bic still points to bfqq, then it has not yet been
@@ -4040,6 +4049,8 @@ static void bfq_put_queue(struct bfq_queue *bfqq)
 	struct bfq_group *bfqg = bfqq_group(bfqq);
 #endif
 
+	assert_spin_locked(&bfqq->bfqd->lock);
+
 	BUG_ON(bfqq->ref <= 0);
 
 	if (bfqq->bfqd)
@@ -4119,6 +4130,7 @@ static void bfq_exit_icq_bfqq(struct bfq_io_cq *bic, bool is_sync)
 		unsigned long flags;
 
 		spin_lock_irqsave(&bfqd->lock, flags);
+		BUG_ON(bfqd->ioc_to_put);
 		/*
 		 * If the bic is using a shared queue, put the
 		 * reference taken on the io_context when the bic
@@ -4567,10 +4579,12 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 
 	spin_lock_irq(&bfqd->lock);
 	if (blk_mq_sched_try_insert_merge(q, rq)) {
+		BUG_ON(bfqd->ioc_to_put);
 		spin_unlock_irq(&bfqd->lock);
 		return;
 	}
 
+	BUG_ON(bfqd->ioc_to_put);
 	spin_unlock_irq(&bfqd->lock);
 
 	blk_mq_sched_request_inserted(rq);
@@ -4785,6 +4799,7 @@ static void bfq_put_rq_private(struct request_queue *q, struct request *rq)
 		unsigned long flags;
 
 		spin_lock_irqsave(&bfqd->lock, flags);
+		BUG_ON(bfqd->ioc_to_put);
 
 		bfq_completed_request(bfqq, bfqd);
 		bfq_put_rq_priv_body(bfqq);
@@ -4855,13 +4870,28 @@ static struct bfq_queue *bfq_get_bfqq_handle_split(struct bfq_data *bfqd,
 	if (bfqq)
 		bfq_put_queue(bfqq);
 	bfqq = bfq_get_queue(bfqd, bio, is_sync, bic);
+	BUG_ON(!hlist_unhashed(&bfqq->burst_list_node));
 
 	bic_set_bfqq(bic, bfqq, is_sync);
 	if (split && is_sync) {
+		bfq_log_bfqq(bfqd, bfqq,
+			     "get_request: was_in_list %d "
+			     "was_in_large_burst %d "
+			     "large burst in progress %d",
+			     bic->was_in_burst_list,
+			     bic->saved_in_large_burst,
+			     bfqd->large_burst);
+
 		if ((bic->was_in_burst_list && bfqd->large_burst) ||
-		    bic->saved_in_large_burst)
+		    bic->saved_in_large_burst) {
+			bfq_log_bfqq(bfqd, bfqq,
+				     "get_request: marking in "
+				     "large burst");
 			bfq_mark_bfqq_in_large_burst(bfqq);
-		else {
+		} else {
+			bfq_log_bfqq(bfqd, bfqq,
+				     "get_request: clearing in "
+				     "large burst");
 			bfq_clear_bfqq_in_large_burst(bfqq);
 			if (bic->was_in_burst_list)
 				hlist_add_head(&bfqq->burst_list_node,
@@ -4897,10 +4927,12 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 
 	bfqq = bfq_get_bfqq_handle_split(bfqd, bic, bio, false, is_sync,
 					 &new_queue);
+	BUG_ON(bfqd->ioc_to_put);
 
 	if (unlikely(!new_queue)) {
 		/* If the queue was seeky for too long, break it apart. */
 		if (bfq_bfqq_coop(bfqq) && bfq_bfqq_split_coop(bfqq)) {
+			BUG_ON(!is_sync);
 			bfq_log_bfqq(bfqd, bfqq, "breaking apart bfqq");
 
 			/* Update bic before losing reference to bfqq */
@@ -4923,6 +4955,9 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 								 NULL);
 			else
 				bfqq_already_existing = true;
+
+			BUG_ON(!bfqq);
+			BUG_ON(bfqq == &bfqd->oom_bfqq);
 		}
 	}
 
@@ -4976,6 +5011,8 @@ static void bfq_idle_slice_timer_body(struct bfq_queue *bfqq)
 
 	BUG_ON(!bfqd);
 	spin_lock_irqsave(&bfqd->lock, flags);
+	BUG_ON(bfqd->ioc_to_put);
+
 	bfq_log_bfqq(bfqd, bfqq, "handling slice_timer expiration");
 	bfq_clear_bfqq_wait_request(bfqq);
 
@@ -5083,6 +5120,7 @@ static void bfq_exit_queue(struct elevator_queue *e)
 	spin_lock_irq(&bfqd->lock);
 	list_for_each_entry_safe(bfqq, n, &bfqd->idle_list, bfqq_list)
 		bfq_deactivate_bfqq(bfqd, bfqq, false, false);
+	BUG_ON(bfqd->ioc_to_put);
 	spin_unlock_irq(&bfqd->lock);
 
 	hrtimer_cancel(&bfqd->idle_slice_timer);
