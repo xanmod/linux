@@ -4630,10 +4630,21 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 
 	spin_lock_irq(&bfqd->lock);
 	if (at_head || blk_rq_is_passthrough(rq)) {
+		struct bfq_queue *bfqq = RQ_BFQQ(rq);
+
 		if (at_head)
 			list_add(&rq->queuelist, &bfqd->dispatch);
 		else
 			list_add_tail(&rq->queuelist, &bfqd->dispatch);
+
+		if (bfqq)
+			bfq_log_bfqq(bfqd, bfqq,
+				     "insert_request %p in disp: at_head %d",
+				     rq, at_head);
+		else
+			bfq_log(bfqd,
+				"insert_request %p in disp: at_head %d",
+				rq, at_head);
 	} else {
 		__bfq_insert_request(bfqd, rq);
 
