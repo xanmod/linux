@@ -773,7 +773,7 @@ static void bfq_pd_offline(struct blkg_policy_data *pd)
 	bfq_put_async_queues(bfqd, bfqg);
 
 #ifdef BFQ_MQ
-	bfq_unlock_put_ioc_restore(bfqd, flags);
+	spin_unlock_irqrestore(&bfqd->lock, flags);
 #endif
 	/*
 	 * @blkg is going offline and will be ignored by
