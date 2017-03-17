@@ -458,8 +458,6 @@ struct bfq_data {
 
 	/* bfq_queue in service */
 	struct bfq_queue *in_service_queue;
-	/* bfq_io_cq (bic) associated with the @in_service_queue */
-	struct bfq_io_cq *in_service_bic;
 
 	/* on-disk position of the last served request */
 	sector_t last_position;
@@ -621,15 +619,6 @@ struct bfq_data {
 	struct bfq_queue *bio_bfqq;
 	/* Extra flag used only for TESTING */
 	bool bio_bfqq_set;
-
-	/*
-	 * io context to put right after bfqd->lock is released. This
-	 * filed is used to perform put_io_context, when needed, to
-	 * after the scheduler lock has been released, and thus
-	 * prevent an ioc->lock from being possibly taken while the
-	 * scheduler lock is being held.
-	 */
-	struct io_context *ioc_to_put;
 };
 
 enum bfqq_state_flags {
