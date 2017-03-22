@@ -2523,7 +2523,7 @@ hwp_cpu_matched:
 	if (intel_pstate_platform_pwr_mgmt_exists())
 		return -ENODEV;
 
-		pr_info("Intel P-State driver initializing\n");
+	pr_info("Intel P-State driver initializing\n");
 
 	if (intel_pstate_driver == &intel_cpufreq) {
 		no_hwp = 1;
