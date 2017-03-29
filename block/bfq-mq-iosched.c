@@ -1761,7 +1761,6 @@ static void bfq_request_merged(struct request_queue *q, struct request *req,
 		BUG_ON(RQ_BFQQ(req) != bfqq);
 		elv_rb_add(&bfqq->sort_list, req);
 
-		spin_lock_irq(&bfqd->lock);
 		/* Choose next request to be served for bfqq */
 		prev = bfqq->next_rq;
 		next_rq = bfq_choose_req(bfqd, bfqq->next_rq, req,
@@ -1783,7 +1782,6 @@ static void bfq_request_merged(struct request_queue *q, struct request *req,
 			bfq_updated_next_req(bfqd, bfqq);
 			bfq_pos_tree_add_move(bfqd, bfqq);
 		}
-		spin_unlock_irq(&bfqd->lock);
 	}
 }
 
