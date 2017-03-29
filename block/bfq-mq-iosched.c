@@ -4917,7 +4917,7 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 	bfqq = bfq_get_bfqq_handle_split(bfqd, bic, bio, false, is_sync,
 					 &new_queue);
 
-	if (unlikely(!new_queue)) {
+	if (likely(!new_queue)) {
 		/* If the queue was seeky for too long, break it apart. */
 		if (bfq_bfqq_coop(bfqq) && bfq_bfqq_split_coop(bfqq)) {
 			BUG_ON(!is_sync);
