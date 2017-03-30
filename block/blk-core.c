@@ -39,6 +39,7 @@
 
 #include "blk.h"
 #include "blk-mq.h"
+#include "blk-wbt.h"
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_bio_remap);
 EXPORT_TRACEPOINT_SYMBOL_GPL(block_rq_remap);
@@ -882,6 +883,8 @@ blk_init_allocated_queue(struct request_queue *q, request_fn_proc *rfn,
 
 fail:
 	blk_free_flush_queue(q->fq);
+	wbt_exit(q->rq_wb);
+	q->rq_wb = NULL;
 	return NULL;
 }
 EXPORT_SYMBOL(blk_init_allocated_queue);
@@ -1346,6 +1349,7 @@ void blk_requeue_request(struct request_queue *q, struct request *rq)
 	blk_delete_timer(rq);
 	blk_clear_rq_complete(rq);
 	trace_block_rq_requeue(q, rq);
+	wbt_requeue(q->rq_wb, &rq->issue_stat);
 
 	if (rq->cmd_flags & REQ_QUEUED)
 		blk_queue_end_tag(q, rq);
@@ -1435,6 +1439,8 @@ void __blk_put_request(struct request_queue *q, struct request *req)
 
 	/* this is a bio leak */
 	WARN_ON(req->bio != NULL);
+
+	wbt_done(q->rq_wb, &req->issue_stat);
 
 	/*
 	 * Request may not have originated from ll_rw_blk. if not,
@@ -1667,6 +1673,7 @@ static blk_qc_t blk_queue_bio(struct request_queue *q, struct bio *bio)
 	int el_ret, rw_flags = 0, where = ELEVATOR_INSERT_SORT;
 	struct request *req;
 	unsigned int request_count = 0;
+	unsigned int wb_acct;
 
 	/*
 	 * low level driver can indicate that it wants pages above a
@@ -1719,6 +1726,8 @@ static blk_qc_t blk_queue_bio(struct request_queue *q, struct bio *bio)
 	}
 
 get_rq:
+	wb_acct = wbt_wait(q->rq_wb, bio->bi_opf, q->queue_lock);
+
 	/*
 	 * This sync check and mask will be re-done in init_request_from_bio(),
 	 * but we need to set it earlier to expose the sync flag to the
@@ -1738,10 +1747,13 @@ get_rq:
 	 */
 	req = get_request(q, bio_data_dir(bio), rw_flags, bio, GFP_NOIO);
 	if (IS_ERR(req)) {
+		__wbt_done(q->rq_wb, wb_acct);
 		bio->bi_error = PTR_ERR(req);
 		bio_endio(bio);
 		goto out_unlock;
 	}
+
+	wbt_track(&req->issue_stat, wb_acct);
 
 	/*
 	 * After dropping the lock and possibly sleeping here, our request
@@ -2475,6 +2487,9 @@ void blk_start_request(struct request *req)
 {
 	blk_dequeue_request(req);
 
+	blk_stat_set_issue_time(&req->issue_stat);
+	wbt_issue(req->q->rq_wb, &req->issue_stat);
+
 	/*
 	 * We are now handing the request to the hardware, initialize
 	 * resid_len to full count and add the timeout handler.
@@ -2541,6 +2556,8 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 	int total_bytes;
 
 	trace_block_rq_complete(req->q, req, nr_bytes);
+
+	blk_stat_add(&req->q->rq_stats[rq_data_dir(req)], req);
 
 	if (!req->bio)
 		return false;
@@ -2709,9 +2726,10 @@ void blk_finish_request(struct request *req, int error)
 
 	blk_account_io_done(req);
 
-	if (req->end_io)
+	if (req->end_io) {
+		wbt_done(req->q->rq_wb, &req->issue_stat);
 		req->end_io(req, error);
-	else {
+	} else {
 		if (blk_bidi_rq(req))
 			__blk_put_request(req->next_rq->q, req->next_rq);
 
