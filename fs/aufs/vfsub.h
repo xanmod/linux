@@ -266,6 +266,36 @@ int vfsub_trunc(struct path *h_path, loff_t length, unsigned int attr,
 		struct file *h_file);
 int vfsub_fsync(struct file *file, struct path *path, int datasync);
 
+/*
+ * re-use branch fs's ioctl(FICLONE) while aufs itself doesn't support such
+ * ioctl.
+ */
+static inline int vfsub_clone_file_range(struct file *src, struct file *dst,
+					 u64 len)
+{
+	int err;
+
+	lockdep_off();
+	err = vfs_clone_file_range(src, 0, dst, 0, len);
+	lockdep_on();
+
+	return err;
+}
+
+/* copy_file_range(2) is a systemcall */
+static inline ssize_t vfsub_copy_file_range(struct file *src, loff_t src_pos,
+					    struct file *dst, loff_t dst_pos,
+					    size_t len, unsigned int flags)
+{
+	ssize_t ssz;
+
+	lockdep_off();
+	ssz = vfs_copy_file_range(src, src_pos, dst, dst_pos, len, flags);
+	lockdep_on();
+
+	return ssz;
+}
+
 /* ---------------------------------------------------------------------- */
 
 static inline loff_t vfsub_llseek(struct file *file, loff_t offset, int origin)

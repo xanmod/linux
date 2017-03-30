@@ -910,7 +910,8 @@ static int aufs_setattr(struct dentry *dentry, struct iattr *ia)
 		/* currently ftruncate(2) only */
 		AuDebugOn(!d_is_reg(dentry));
 		file = ia->ia_file;
-		err = au_reval_and_lock_fdi(file, au_reopen_nondir, /*wlock*/1);
+		err = au_reval_and_lock_fdi(file, au_reopen_nondir, /*wlock*/1,
+					    /*fi_lsc*/0);
 		if (unlikely(err))
 			goto out_si;
 		ia->ia_file = au_hf_top(file);

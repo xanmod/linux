@@ -418,7 +418,7 @@ static int au_do_fsync_dir(struct file *file, int datasync)
 	struct super_block *sb;
 	struct inode *inode;
 
-	err = au_reval_and_lock_fdi(file, reopen_dir, /*wlock*/1);
+	err = au_reval_and_lock_fdi(file, reopen_dir, /*wlock*/1, /*fi_lsc*/0);
 	if (unlikely(err))
 		goto out;
 
@@ -487,7 +487,7 @@ static int aufs_iterate_shared(struct file *file, struct dir_context *ctx)
 
 	sb = dentry->d_sb;
 	si_read_lock(sb, AuLock_FLUSH);
-	err = au_reval_and_lock_fdi(file, reopen_dir, /*wlock*/1);
+	err = au_reval_and_lock_fdi(file, reopen_dir, /*wlock*/1, /*fi_lsc*/0);
 	if (unlikely(err))
 		goto out;
 	err = au_alive_dir(dentry);

@@ -720,7 +720,7 @@ out:
 
 /* common function to regular file and dir */
 int au_reval_and_lock_fdi(struct file *file, int (*reopen)(struct file *file),
-			  int wlock)
+			  int wlock, unsigned int fi_lsc)
 {
 	int err;
 	unsigned int sigen, figen;
@@ -733,9 +733,12 @@ int au_reval_and_lock_fdi(struct file *file, int (*reopen)(struct file *file),
 	dentry = file->f_path.dentry;
 	inode = d_inode(dentry);
 	sigen = au_sigen(dentry->d_sb);
-	fi_write_lock(file);
+	fi_write_lock_nested(file, fi_lsc);
 	figen = au_figen(file);
-	di_write_lock_child(dentry);
+	if (!fi_lsc)
+		di_write_lock_child(dentry);
+	else
+		di_write_lock_child2(dentry);
 	btop = au_dbtop(dentry);
 	pseudo_link = (btop != au_ibtop(inode));
 	if (sigen == figen && !pseudo_link && au_fbtop(file) == btop) {

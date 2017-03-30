@@ -88,7 +88,7 @@ int au_reopen_nondir(struct file *file);
 struct au_pin;
 int au_ready_to_write(struct file *file, loff_t len, struct au_pin *pin);
 int au_reval_and_lock_fdi(struct file *file, int (*reopen)(struct file *file),
-			  int wlock);
+			  int wlock, unsigned int fi_lsc);
 int au_do_flush(struct file *file, fl_owner_t id,
 		int (*flush)(struct file *file, fl_owner_t id));
 
@@ -114,7 +114,7 @@ AuStubVoid(au_h_open_post, struct dentry *dentry, aufs_bindex_t bindex,
 extern const struct file_operations aufs_file_fop;
 int au_do_open_nondir(struct file *file, int flags, struct file *h_file);
 int aufs_release_nondir(struct inode *inode __maybe_unused, struct file *file);
-struct file *au_read_pre(struct file *file, int keep_fi);
+struct file *au_read_pre(struct file *file, int keep_fi, unsigned int lsc);
 
 /* finfo.c */
 void au_hfput(struct au_hfile *hf, int execed);
@@ -152,6 +152,45 @@ static inline struct au_finfo *au_fi(struct file *file)
  * fi_read_unlock, fi_write_unlock, fi_downgrade_lock
  */
 AuSimpleRwsemFuncs(fi, struct file *f, &au_fi(f)->fi_rwsem);
+
+/* lock subclass for finfo */
+enum {
+	AuLsc_FI_1,
+	AuLsc_FI_2
+};
+
+static inline void fi_read_lock_nested(struct file *f, unsigned int lsc)
+{
+	au_rw_read_lock_nested(&au_fi(f)->fi_rwsem, lsc);
+}
+
+static inline void fi_write_lock_nested(struct file *f, unsigned int lsc)
+{
+	au_rw_write_lock_nested(&au_fi(f)->fi_rwsem, lsc);
+}
+
+/*
+ * fi_read_lock_1, fi_write_lock_1,
+ * fi_read_lock_2, fi_write_lock_2
+ */
+#define AuReadLockFunc(name) \
+static inline void fi_read_lock_##name(struct file *f) \
+{ fi_read_lock_nested(f, AuLsc_FI_##name); }
+
+#define AuWriteLockFunc(name) \
+static inline void fi_write_lock_##name(struct file *f) \
+{ fi_write_lock_nested(f, AuLsc_FI_##name); }
+
+#define AuRWLockFuncs(name) \
+	AuReadLockFunc(name) \
+	AuWriteLockFunc(name)
+
+AuRWLockFuncs(1);
+AuRWLockFuncs(2);
+
+#undef AuReadLockFunc
+#undef AuWriteLockFunc
+#undef AuRWLockFuncs
 
 #define FiMustNoWaiters(f)	AuRwMustNoWaiters(&au_fi(f)->fi_rwsem)
 #define FiMustAnyLock(f)	AuRwMustAnyLock(&au_fi(f)->fi_rwsem)

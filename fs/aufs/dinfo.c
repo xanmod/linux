@@ -276,11 +276,11 @@ void di_write_lock2_child(struct dentry *d1, struct dentry *d2, int isdir)
 		  || d_inode(d1) == d_inode(d2)
 		  || d1->d_sb != d2->d_sb);
 
-	if (isdir && au_test_subdir(d1, d2)) {
+	if ((isdir && au_test_subdir(d1, d2))
+	    || d1 < d2) {
 		di_write_lock_child(d1);
 		di_write_lock_child2(d2);
 	} else {
-		/* there should be no races */
 		di_write_lock_child(d2);
 		di_write_lock_child2(d1);
 	}
@@ -292,11 +292,11 @@ void di_write_lock2_parent(struct dentry *d1, struct dentry *d2, int isdir)
 		  || d_inode(d1) == d_inode(d2)
 		  || d1->d_sb != d2->d_sb);
 
-	if (isdir && au_test_subdir(d1, d2)) {
+	if ((isdir && au_test_subdir(d1, d2))
+	    || d1 < d2) {
 		di_write_lock_parent(d1);
 		di_write_lock_parent2(d2);
 	} else {
-		/* there should be no races */
 		di_write_lock_parent(d2);
 		di_write_lock_parent2(d1);
 	}
