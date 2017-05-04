@@ -154,7 +154,13 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 #define for_each_entity(entity)				\
 	for (; entity ; entity = entity->parent)
 
-#define for_each_entity_safe(entity, parent) \
+/*
+ * For each iteration, compute parent in advance, so as to be safe if
+ * entity is deallocated during the iteration. Such a deallocation may
+ * happen as a consequence of a bfq_put_queue that frees the bfq_queue
+ * containing entity.
+ */
+#define for_each_entity_safe(entity, parent)				\
 	for (; entity && ({ parent = entity->parent; 1; }); entity = parent)
 
 /*
@@ -691,27 +697,31 @@ static void bfq_idle_insert(struct bfq_service_tree *st,
 }
 
 /**
- * bfq_forget_entity - remove an entity from the wfq trees.
+ * bfq_forget_entity - do not consider entity any longer for scheduling
  * @st: the service tree.
  * @entity: the entity being removed.
+ * @is_in_service: true if entity is currently the in-service entity.
  *
- * Update the device status and forget everything about @entity, putting
- * the device reference to it, if it is a queue.  Entities belonging to
- * groups are not refcounted.
+ * Forget everything about @entity. In addition, if entity represents
+ * a queue, and the latter is not in service, then release the service
+ * reference to the queue (the one taken through bfq_get_entity). In
+ * fact, in this case, there is really no more service reference to
+ * the queue, as the latter is also outside any service tree. If,
+ * instead, the queue is in service, then __bfq_bfqd_reset_in_service
+ * will take care of putting the reference when the queue finally
+ * stops being served.
  */
 static void bfq_forget_entity(struct bfq_service_tree *st,
-			      struct bfq_entity *entity)
+			      struct bfq_entity *entity,
+			      bool is_in_service)
 {
 	struct bfq_queue *bfqq = bfq_entity_to_bfqq(entity);
-	struct bfq_sched_data *sd;
-
 	BUG_ON(!entity->on_st);
 
 	entity->on_st = false;
 	st->wsum -= entity->weight;
-	if (bfqq) {
-		sd = entity->sched_data;
-		bfq_log_bfqq(bfqq->bfqd, bfqq, "forget_entity: %p %d",
+	if (bfqq && !is_in_service) {
+		bfq_log_bfqq(bfqq->bfqd, bfqq, "forget_entity (before): %p %d",
 			     bfqq, bfqq->ref);
 		bfq_put_queue(bfqq);
 	}
@@ -726,7 +736,8 @@ static void bfq_put_idle_entity(struct bfq_service_tree *st,
 				struct bfq_entity *entity)
 {
 	bfq_idle_extract(st, entity);
-	bfq_forget_entity(st, entity);
+	bfq_forget_entity(st, entity,
+			  entity == entity->sched_data->in_service_entity);
 }
 
 /**
@@ -1082,6 +1093,12 @@ static void __bfq_activate_entity(struct bfq_entity *entity,
 		 */
 		entity->start = min_vstart;
 		st->wsum += entity->weight;
+		/*
+		 * entity is about to be inserted into a service tree,
+		 * and then set in service: get a reference to make
+		 * sure entity does not disappear until it is no
+		 * longer in service or scheduled for service.
+		 */
 		bfq_get_entity(entity);
 
 		BUG_ON(entity->on_st && bfqq);
@@ -1263,28 +1280,37 @@ static bool __bfq_deactivate_entity(struct bfq_entity *entity,
 				    bool ins_into_idle_tree)
 {
 	struct bfq_sched_data *sd = entity->sched_data;
-	struct bfq_service_tree *st = bfq_entity_service_tree(entity);
-	bool was_in_service = entity == sd->in_service_entity;
+	struct bfq_service_tree *st;
+	bool is_in_service;
 
 	if (!entity->on_st) { /* entity never activated, or already inactive */
-		BUG_ON(entity == entity->sched_data->in_service_entity);
+		BUG_ON(sd && entity == sd->in_service_entity);
 		return false;
 	}
 
-	BUG_ON(was_in_service && entity->tree && entity->tree != &st->active);
+	/*
+	 * If we get here, then entity is active, which implies that
+	 * bfq_group_set_parent has already been invoked for the group
+	 * represented by entity. Therefore, the field
+	 * entity->sched_data has been set, and we can safely use it.
+	 */
+	st = bfq_entity_service_tree(entity);
+	is_in_service = entity == sd->in_service_entity;
 
-	if (was_in_service)
+	BUG_ON(is_in_service && entity->tree && entity->tree != &st->active);
+
+	if (is_in_service)
 		bfq_calc_finish(entity, entity->service);
 
 	if (entity->tree == &st->active)
 		bfq_active_extract(st, entity);
-	else if (!was_in_service && entity->tree == &st->idle)
+	else if (!is_in_service && entity->tree == &st->idle)
 		bfq_idle_extract(st, entity);
 	else if (entity->tree)
 		BUG();
 
 	if (!ins_into_idle_tree || !bfq_gt(entity->finish, st->vtime))
-		bfq_forget_entity(st, entity);
+		bfq_forget_entity(st, entity, is_in_service);
 	else
 		bfq_idle_insert(st, entity);
 
@@ -1320,8 +1346,8 @@ static void bfq_deactivate_entity(struct bfq_entity *entity,
 
 		if (!__bfq_deactivate_entity(entity, ins_into_idle_tree)) {
 			/*
-			 * Entity is not any tree any more, so, this
-			 * deactivation is a no-op, and there is
+			 * entity is not in any tree any more, so
+			 * this deactivation is a no-op, and there is
 			 * nothing to change for upper-level entities
 			 * (in case of expiration, this can never
 			 * happen).
@@ -1821,14 +1847,16 @@ static struct bfq_queue *bfq_get_next_queue(struct bfq_data *bfqd)
 
 static void __bfq_bfqd_reset_in_service(struct bfq_data *bfqd)
 {
-	struct bfq_entity *entity = &bfqd->in_service_queue->entity;
+	struct bfq_queue *in_serv_bfqq = bfqd->in_service_queue;
+	struct bfq_entity *in_serv_entity = &in_serv_bfqq->entity;
+	struct bfq_entity *entity = in_serv_entity;
 
 	if (bfqd->in_service_bic) {
 		put_io_context(bfqd->in_service_bic->icq.ioc);
 		bfqd->in_service_bic = NULL;
 	}
 
-	bfq_clear_bfqq_wait_request(bfqd->in_service_queue);
+	bfq_clear_bfqq_wait_request(in_serv_bfqq);
 	hrtimer_try_to_cancel(&bfqd->idle_slice_timer);
 	bfqd->in_service_queue = NULL;
 
@@ -1840,6 +1868,14 @@ static void __bfq_bfqd_reset_in_service(struct bfq_data *bfqd)
 	 */
 	for_each_entity(entity)
 		entity->sched_data->in_service_entity = NULL;
+
+	/*
+	 * in_serv_entity is no longer in service, so, if it is in no
+	 * service tree either, then release the service reference to
+	 * the queue it represents (taken with bfq_get_entity).
+	 */
+	if (!in_serv_entity->on_st)
+		bfq_put_queue(in_serv_bfqq);
 }
 
 static void bfq_deactivate_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq,
@@ -1904,8 +1940,6 @@ static void bfq_del_bfqq_busy(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	BUG_ON(bfqq->entity.budget < 0);
 
 	bfq_deactivate_bfqq(bfqd, bfqq, true, expiration);
-
-	BUG_ON(bfqq->entity.budget < 0);
 }
 
 /*
