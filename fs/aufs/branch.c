@@ -36,7 +36,9 @@ static void au_br_do_free(struct au_branch *br)
 
 	if (br->br_xino.xi_file)
 		fput(br->br_xino.xi_file);
-	mutex_destroy(&br->br_xino.xi_nondir_mtx);
+	for (i = br->br_xino.xi_nondir.total - 1; i >= 0; i--)
+		AuDebugOn(br->br_xino.xi_nondir.array[i]);
+	au_delayed_kfree(br->br_xino.xi_nondir.array);
 
 	AuDebugOn(au_br_count(br));
 	au_br_count_fin(br);
@@ -131,14 +133,19 @@ static struct au_branch *au_br_alloc(struct super_block *sb, int new_nbranch,
 	int err;
 
 	err = -ENOMEM;
-	root = sb->s_root;
 	add_branch = kzalloc(sizeof(*add_branch), GFP_NOFS);
 	if (unlikely(!add_branch))
 		goto out;
+	add_branch->br_xino.xi_nondir.total = 8; /* initial size */
+	add_branch->br_xino.xi_nondir.array
+		= kzalloc(sizeof(ino_t) * add_branch->br_xino.xi_nondir.total,
+			  GFP_NOFS);
+	if (unlikely(!add_branch->br_xino.xi_nondir.array))
+		goto out_br;
 
 	err = au_hnotify_init_br(add_branch, perm);
 	if (unlikely(err))
-		goto out_br;
+		goto out_xinondir;
 
 	if (au_br_writable(perm)) {
 		/* may be freed separately at changing the branch permission */
@@ -154,6 +161,7 @@ static struct au_branch *au_br_alloc(struct super_block *sb, int new_nbranch,
 			goto out_wbr;
 	}
 
+	root = sb->s_root;
 	err = au_sbr_realloc(au_sbi(sb), new_nbranch, /*may_shrink*/0);
 	if (!err)
 		err = au_di_realloc(au_di(root), new_nbranch, /*may_shrink*/0);
@@ -169,6 +177,8 @@ out_wbr:
 		au_delayed_kfree(add_branch->br_wbr);
 out_hnotify:
 	au_hnotify_fin_br(add_branch);
+out_xinondir:
+	au_delayed_kfree(add_branch->br_xino.xi_nondir.array);
 out_br:
 	au_delayed_kfree(add_branch);
 out:
@@ -382,7 +392,8 @@ static int au_br_init(struct au_branch *br, struct super_block *sb,
 	struct inode *h_inode;
 
 	err = 0;
-	mutex_init(&br->br_xino.xi_nondir_mtx);
+	spin_lock_init(&br->br_xino.xi_nondir.spin);
+	init_waitqueue_head(&br->br_xino.xi_nondir.wqh);
 	br->br_perm = add->perm;
 	br->br_path = add->path; /* set first, path_get() later */
 	spin_lock_init(&br->br_dykey_lock);

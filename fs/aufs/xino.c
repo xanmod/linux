@@ -1316,3 +1316,100 @@ int au_xino_path(struct seq_file *seq, struct file *file)
 out:
 	return err;
 }
+
+/* ---------------------------------------------------------------------- */
+
+void au_xinondir_leave(struct super_block *sb, aufs_bindex_t bindex,
+		       ino_t h_ino, int idx)
+{
+	struct au_xino_file *xino;
+
+	AuDebugOn(!au_opt_test(au_mntflags(sb), XINO));
+	xino = &au_sbr(sb, bindex)->br_xino;
+	AuDebugOn(idx < 0 || xino->xi_nondir.total <= idx);
+
+	spin_lock(&xino->xi_nondir.spin);
+	AuDebugOn(xino->xi_nondir.array[idx] != h_ino);
+	xino->xi_nondir.array[idx] = 0;
+	spin_unlock(&xino->xi_nondir.spin);
+	wake_up_all(&xino->xi_nondir.wqh);
+}
+
+static int au_xinondir_find(struct au_xino_file *xino, ino_t h_ino)
+{
+	int found, total, i;
+
+	found = -1;
+	total = xino->xi_nondir.total;
+	for (i = 0; i < total; i++) {
+		if (xino->xi_nondir.array[i] != h_ino)
+			continue;
+		found = i;
+		break;
+	}
+
+	return found;
+}
+
+static int au_xinondir_expand(struct au_xino_file *xino)
+{
+	int err, sz;
+	ino_t *p;
+
+	BUILD_BUG_ON(KMALLOC_MAX_SIZE > INT_MAX);
+
+	err = -ENOMEM;
+	sz = xino->xi_nondir.total * sizeof(ino_t);
+	if (unlikely(sz > KMALLOC_MAX_SIZE / 2))
+		goto out;
+	p = au_kzrealloc(xino->xi_nondir.array, sz, sz << 1, GFP_ATOMIC,
+			 /*may_shrink*/0);
+	if (p) {
+		xino->xi_nondir.array = p;
+		xino->xi_nondir.total <<= 1;
+		AuDbg("xi_nondir.total %d\n", xino->xi_nondir.total);
+		err = 0;
+	}
+
+out:
+	return err;
+}
+
+int au_xinondir_enter(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
+		      int *idx)
+{
+	int err, found, empty;
+	struct au_xino_file *xino;
+
+	err = 0;
+	*idx = -1;
+	if (!au_opt_test(au_mntflags(sb), XINO))
+		goto out; /* no xino */
+
+	xino = &au_sbr(sb, bindex)->br_xino;
+
+again:
+	spin_lock(&xino->xi_nondir.spin);
+	found = au_xinondir_find(xino, h_ino);
+	if (found == -1) {
+		empty = au_xinondir_find(xino, /*h_ino*/0);
+		if (empty == -1) {
+			empty = xino->xi_nondir.total;
+			err = au_xinondir_expand(xino);
+			if (unlikely(err))
+				goto out_unlock;
+		}
+		xino->xi_nondir.array[empty] = h_ino;
+		*idx = empty;
+	} else {
+		spin_unlock(&xino->xi_nondir.spin);
+		wait_event(xino->xi_nondir.wqh,
+			   xino->xi_nondir.array[found] != h_ino);
+		goto again;
+	}
+
+out_unlock:
+	spin_unlock(&xino->xi_nondir.spin);
+out:
+	return err;
+}
