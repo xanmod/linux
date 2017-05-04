@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -447,12 +447,10 @@ static int aufs_sync_fs(struct super_block *sb, int wait)
 			continue;
 
 		h_sb = au_sbr_sb(sb, bindex);
-		if (h_sb->s_op->sync_fs) {
-			e = h_sb->s_op->sync_fs(h_sb, wait);
-			if (unlikely(e && !err))
-				err = e;
-			/* go on even if an error happens */
-		}
+		e = vfsub_sync_filesystem(h_sb, wait);
+		if (unlikely(e && !err))
+			err = e;
+		/* go on even if an error happens */
 	}
 	si_read_unlock(sb);
 

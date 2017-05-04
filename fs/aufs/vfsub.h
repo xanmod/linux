@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,6 +82,8 @@ int vfsub_test_mntns(struct vfsmount *mnt, struct super_block *h_sb);
 #else
 AuStubInt0(vfsub_test_mntns, struct vfsmount *mnt, struct super_block *h_sb);
 #endif
+
+int vfsub_sync_filesystem(struct super_block *h_sb, int wait);
 
 /* ---------------------------------------------------------------------- */
 
@@ -263,6 +265,36 @@ static inline long vfsub_truncate(struct path *path, loff_t length)
 int vfsub_trunc(struct path *h_path, loff_t length, unsigned int attr,
 		struct file *h_file);
 int vfsub_fsync(struct file *file, struct path *path, int datasync);
+
+/*
+ * re-use branch fs's ioctl(FICLONE) while aufs itself doesn't support such
+ * ioctl.
+ */
+static inline int vfsub_clone_file_range(struct file *src, struct file *dst,
+					 u64 len)
+{
+	int err;
+
+	lockdep_off();
+	err = vfs_clone_file_range(src, 0, dst, 0, len);
+	lockdep_on();
+
+	return err;
+}
+
+/* copy_file_range(2) is a systemcall */
+static inline ssize_t vfsub_copy_file_range(struct file *src, loff_t src_pos,
+					    struct file *dst, loff_t dst_pos,
+					    size_t len, unsigned int flags)
+{
+	ssize_t ssz;
+
+	lockdep_off();
+	ssz = vfs_copy_file_range(src, src_pos, dst, dst_pos, len, flags);
+	lockdep_on();
+
+	return ssz;
+}
 
 /* ---------------------------------------------------------------------- */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +41,19 @@ int vfsub_test_mntns(struct vfsmount *mnt, struct super_block *h_sb)
 	return real_mount(mnt)->mnt_ns == ns->mnt_ns ? 0 : -EACCES;
 }
 #endif
+
+int vfsub_sync_filesystem(struct super_block *h_sb, int wait)
+{
+	int err;
+
+	lockdep_off();
+	down_read(&h_sb->s_umount);
+	err = __sync_filesystem(h_sb, wait);
+	up_read(&h_sb->s_umount);
+	lockdep_on();
+
+	return err;
+}
 
 /* ---------------------------------------------------------------------- */
 

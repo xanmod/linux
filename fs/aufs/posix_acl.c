@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Junjiro R. Okajima
+ * Copyright (C) 2014-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,8 @@ struct posix_acl *aufs_get_acl(struct inode *inode, int type)
 
 	/* always topmost only */
 	acl = get_acl(h_inode, type);
+	if (!IS_ERR_OR_NULL(acl))
+		set_cached_acl(inode, type, acl);
 
 out:
 	ii_read_unlock(inode);
@@ -90,8 +92,10 @@ int aufs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 	ssz = au_sxattr(dentry, inode, &arg);
 	dput(dentry);
 	err = ssz;
-	if (ssz >= 0)
+	if (ssz >= 0) {
 		err = 0;
+		set_cached_acl(inode, type, acl);
+	}
 
 out:
 	return err;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -910,7 +910,8 @@ static int aufs_setattr(struct dentry *dentry, struct iattr *ia)
 		/* currently ftruncate(2) only */
 		AuDebugOn(!d_is_reg(dentry));
 		file = ia->ia_file;
-		err = au_reval_and_lock_fdi(file, au_reopen_nondir, /*wlock*/1);
+		err = au_reval_and_lock_fdi(file, au_reopen_nondir, /*wlock*/1,
+					    /*fi_lsc*/0);
 		if (unlikely(err))
 			goto out_si;
 		ia->ia_file = au_hf_top(file);
@@ -1132,7 +1133,8 @@ static void au_refresh_iattr(struct inode *inode, struct kstat *st,
  * returns zero or negative (an error).
  * @dentry will be read-locked in success.
  */
-int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path)
+int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path,
+		      int locked)
 {
 	int err;
 	unsigned int mnt_flags, sigen;
@@ -1148,6 +1150,9 @@ int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path)
 	sb = dentry->d_sb;
 	mnt_flags = au_mntflags(sb);
 	udba_none = !!au_opt_test(mnt_flags, UDBA_NONE);
+
+	if (unlikely(locked))
+		goto body; /* skip locking dinfo */
 
 	/* support fstat(2) */
 	if (!d_unlinked(dentry) && !udba_none) {
@@ -1176,6 +1181,7 @@ int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path)
 	} else
 		di_read_lock_child(dentry, AuLock_IR);
 
+body:
 	inode = d_inode(dentry);
 	bindex = au_ibtop(inode);
 	h_path->mnt = au_sbr_mnt(sb, bindex);
@@ -1214,7 +1220,7 @@ static int aufs_getattr(struct vfsmount *mnt __maybe_unused,
 	err = si_read_lock(sb, AuLock_FLUSH | AuLock_NOPLM);
 	if (unlikely(err))
 		goto out;
-	err = au_h_path_getattr(dentry, /*force*/0, &h_path);
+	err = au_h_path_getattr(dentry, /*force*/0, &h_path, /*locked*/0);
 	if (unlikely(err))
 		goto out_si;
 	if (unlikely(!h_path.dentry))

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Junjiro R. Okajima
+ * Copyright (C) 2014-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,6 +19,8 @@
  * handling xattr functions
  */
 
+#include <linux/fs.h>
+#include <linux/posix_acl_xattr.h>
 #include <linux/xattr.h>
 #include "aufs.h"
 
@@ -191,6 +193,19 @@ out:
 
 /* ---------------------------------------------------------------------- */
 
+static int au_smack_reentering(struct super_block *sb)
+{
+#if IS_ENABLED(CONFIG_SECURITY_SMACK)
+	/*
+	 * as a part of lookup, smack_d_instantiate() is called, and it calls
+	 * i_op->getxattr(). ouch.
+	 */
+	return si_pid_test(sb);
+#else
+	return 0;
+#endif
+}
+
 enum {
 	AU_XATTR_LIST,
 	AU_XATTR_GET
@@ -214,14 +229,18 @@ struct au_lgxattr {
 static ssize_t au_lgxattr(struct dentry *dentry, struct au_lgxattr *arg)
 {
 	ssize_t err;
+	int reenter;
 	struct path h_path;
 	struct super_block *sb;
 
 	sb = dentry->d_sb;
-	err = si_read_lock(sb, AuLock_FLUSH | AuLock_NOPLM);
-	if (unlikely(err))
-		goto out;
-	err = au_h_path_getattr(dentry, /*force*/1, &h_path);
+	reenter = au_smack_reentering(sb);
+	if (!reenter) {
+		err = si_read_lock(sb, AuLock_FLUSH | AuLock_NOPLM);
+		if (unlikely(err))
+			goto out;
+	}
+	err = au_h_path_getattr(dentry, /*force*/1, &h_path, reenter);
 	if (unlikely(err))
 		goto out_si;
 	if (unlikely(!h_path.dentry))
@@ -243,9 +262,11 @@ static ssize_t au_lgxattr(struct dentry *dentry, struct au_lgxattr *arg)
 	}
 
 out_di:
-	di_read_unlock(dentry, AuLock_IR);
+	if (!reenter)
+		di_read_unlock(dentry, AuLock_IR);
 out_si:
-	si_read_unlock(sb);
+	if (!reenter)
+		si_read_unlock(sb);
 out:
 	AuTraceErr(err);
 	return err;
@@ -322,7 +343,11 @@ static const struct xattr_handler au_xattr_handler = {
 };
 
 static const struct xattr_handler *au_xattr_handlers[] = {
-	&au_xattr_handler,
+#ifdef CONFIG_FS_POSIX_ACL
+	&posix_acl_access_xattr_handler,
+	&posix_acl_default_xattr_handler,
+#endif
+	&au_xattr_handler, /* must be last */
 	NULL
 };
 
