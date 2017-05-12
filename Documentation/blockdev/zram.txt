@@ -168,6 +168,7 @@ max_comp_streams  RW    the number of possible concurrent compress operations
 comp_algorithm    RW    show and change the compression algorithm
 compact           WO    trigger memory compaction
 debug_stat        RO    this file is used for zram debugging purposes
+use_dedup	  RW	show and set deduplication feature
 
 
 User space is advised to use the following files to read the device statistics.
