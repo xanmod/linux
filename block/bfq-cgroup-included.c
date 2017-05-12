@@ -412,6 +412,7 @@ static void bfq_pd_init(struct blkg_policy_data *pd)
 	BUG_ON(!blkg);
 	bfqg = blkg_to_bfqg(blkg);
 	bfqd = blkg->q->elevator->elevator_data;
+	BUG_ON(bfqg == bfqd->root_group);
 	entity = &bfqg->entity;
 	d = blkcg_to_bfqgd(blkg->blkcg);
 

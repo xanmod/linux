@@ -123,6 +123,8 @@ typedef __u32 __bitwise req_flags_t;
 #define RQF_SPECIAL_PAYLOAD	((__force req_flags_t)(1 << 18))
 /* DEBUG: rq in bfq-mq dispatch list */
 #define RQF_DISP_LIST	((__force req_flags_t)(1 << 19))
+/* DEBUG: rq had get_rq_private executed on it */
+#define RQF_GOT	((__force req_flags_t)(1 << 20))
 
 /* flags that prevent us from merging requests: */
 #define RQF_NOMERGE_FLAGS \
