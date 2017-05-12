@@ -117,7 +117,7 @@ void print_scheduler_version(void)
  * Value is in ms and set to a minimum of 6ms.
  * Tunable via /proc interface.
  */
-int rr_interval __read_mostly = 6;
+int rr_interval __read_mostly = 2;
 
 /*
  * Tunable to choose whether to prioritise latency or throughput, simple
