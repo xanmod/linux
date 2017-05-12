@@ -995,9 +995,15 @@ bfq_create_group_hierarchy(struct bfq_data *bfqd, int node)
 	return blkg_to_bfqg(bfqd->queue->root_blkg);
 }
 
+#ifdef BFQ_MQ
+#define BFQ_CGROUP_FNAME(param) "bfq-mq."#param
+#else
+#define BFQ_CGROUP_FNAME(param) "bfq."#param
+#endif
+
 static struct cftype bfq_blkcg_legacy_files[] = {
 	{
-		.name = "bfq.weight",
+		.name = BFQ_CGROUP_FNAME(weight),
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.seq_show = bfq_io_show_weight,
 		.write_u64 = bfq_io_set_weight_legacy,
@@ -1005,106 +1011,106 @@ static struct cftype bfq_blkcg_legacy_files[] = {
 
 	/* statistics, covers only the tasks in the bfqg */
 	{
-		.name = "bfq.time",
+		.name = BFQ_CGROUP_FNAME(time),
 		.private = offsetof(struct bfq_group, stats.time),
 		.seq_show = bfqg_print_stat,
 	},
 	{
-		.name = "bfq.sectors",
+		.name = BFQ_CGROUP_FNAME(sectors),
 		.seq_show = bfqg_print_stat_sectors,
 	},
 	{
-		.name = "bfq.io_service_bytes",
+		.name = BFQ_CGROUP_FNAME(io_service_bytes),
 		.private = (unsigned long)&blkcg_policy_bfq,
 		.seq_show = blkg_print_stat_bytes,
 	},
 	{
-		.name = "bfq.io_serviced",
+		.name = BFQ_CGROUP_FNAME(io_serviced),
 		.private = (unsigned long)&blkcg_policy_bfq,
 		.seq_show = blkg_print_stat_ios,
 	},
 	{
-		.name = "bfq.io_service_time",
+		.name = BFQ_CGROUP_FNAME(io_service_time),
 		.private = offsetof(struct bfq_group, stats.service_time),
 		.seq_show = bfqg_print_rwstat,
 	},
 	{
-		.name = "bfq.io_wait_time",
+		.name = BFQ_CGROUP_FNAME(io_wait_time),
 		.private = offsetof(struct bfq_group, stats.wait_time),
 		.seq_show = bfqg_print_rwstat,
 	},
 	{
-		.name = "bfq.io_merged",
+		.name = BFQ_CGROUP_FNAME(io_merged),
 		.private = offsetof(struct bfq_group, stats.merged),
 		.seq_show = bfqg_print_rwstat,
 	},
 	{
-		.name = "bfq.io_queued",
+		.name = BFQ_CGROUP_FNAME(io_queued),
 		.private = offsetof(struct bfq_group, stats.queued),
 		.seq_show = bfqg_print_rwstat,
 	},
 
 	/* the same statictics which cover the bfqg and its descendants */
 	{
-		.name = "bfq.time_recursive",
+		.name = BFQ_CGROUP_FNAME(time_recursive),
 		.private = offsetof(struct bfq_group, stats.time),
 		.seq_show = bfqg_print_stat_recursive,
 	},
 	{
-		.name = "bfq.sectors_recursive",
+		.name = BFQ_CGROUP_FNAME(sectors_recursive),
 		.seq_show = bfqg_print_stat_sectors_recursive,
 	},
 	{
-		.name = "bfq.io_service_bytes_recursive",
+		.name = BFQ_CGROUP_FNAME(io_service_bytes_recursive),
 		.private = (unsigned long)&blkcg_policy_bfq,
 		.seq_show = blkg_print_stat_bytes_recursive,
 	},
 	{
-		.name = "bfq.io_serviced_recursive",
+		.name = BFQ_CGROUP_FNAME(io_serviced_recursive),
 		.private = (unsigned long)&blkcg_policy_bfq,
 		.seq_show = blkg_print_stat_ios_recursive,
 	},
 	{
-		.name = "bfq.io_service_time_recursive",
+		.name = BFQ_CGROUP_FNAME(io_service_time_recursive),
 		.private = offsetof(struct bfq_group, stats.service_time),
 		.seq_show = bfqg_print_rwstat_recursive,
 	},
 	{
-		.name = "bfq.io_wait_time_recursive",
+		.name = BFQ_CGROUP_FNAME(io_wait_time_recursive),
 		.private = offsetof(struct bfq_group, stats.wait_time),
 		.seq_show = bfqg_print_rwstat_recursive,
 	},
 	{
-		.name = "bfq.io_merged_recursive",
+		.name = BFQ_CGROUP_FNAME(io_merged_recursive),
 		.private = offsetof(struct bfq_group, stats.merged),
 		.seq_show = bfqg_print_rwstat_recursive,
 	},
 	{
-		.name = "bfq.io_queued_recursive",
+		.name = BFQ_CGROUP_FNAME(io_queued_recursive),
 		.private = offsetof(struct bfq_group, stats.queued),
 		.seq_show = bfqg_print_rwstat_recursive,
 	},
 	{
-		.name = "bfq.avg_queue_size",
+		.name = BFQ_CGROUP_FNAME(avg_queue_size),
 		.seq_show = bfqg_print_avg_queue_size,
 	},
 	{
-		.name = "bfq.group_wait_time",
+		.name = BFQ_CGROUP_FNAME(group_wait_time),
 		.private = offsetof(struct bfq_group, stats.group_wait_time),
 		.seq_show = bfqg_print_stat,
 	},
 	{
-		.name = "bfq.idle_time",
+		.name = BFQ_CGROUP_FNAME(idle_time),
 		.private = offsetof(struct bfq_group, stats.idle_time),
 		.seq_show = bfqg_print_stat,
 	},
 	{
-		.name = "bfq.empty_time",
+		.name = BFQ_CGROUP_FNAME(empty_time),
 		.private = offsetof(struct bfq_group, stats.empty_time),
 		.seq_show = bfqg_print_stat,
 	},
 	{
-		.name = "bfq.dequeue",
+		.name = BFQ_CGROUP_FNAME(dequeue),
 		.private = offsetof(struct bfq_group, stats.dequeue),
 		.seq_show = bfqg_print_stat,
 	},
@@ -1113,13 +1119,15 @@ static struct cftype bfq_blkcg_legacy_files[] = {
 
 static struct cftype bfq_blkg_files[] = {
 	{
-		.name = "bfq.weight",
+		.name = BFQ_CGROUP_FNAME(weight),
 		.flags = CFTYPE_NOT_ON_ROOT,
 		.seq_show = bfq_io_show_weight,
 		.write = bfq_io_set_weight,
 	},
 	{} /* terminate */
 };
+
+#undef BFQ_CGROUP_FNAME
 
 #else /* BFQ_GROUP_IOSCHED_ENABLED */
 
