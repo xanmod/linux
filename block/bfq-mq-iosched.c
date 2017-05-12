@@ -4494,6 +4494,7 @@ static void bfq_rq_enqueued(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 static void __bfq_insert_request(struct bfq_data *bfqd, struct request *rq)
 {
 	struct bfq_queue *bfqq = RQ_BFQQ(rq), *new_bfqq;
+	BUG_ON(!bfqq);
 
 	assert_spin_locked(&bfqd->lock);
 
@@ -4587,6 +4588,9 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 				"insert_request %p in disp: at_head %d",
 				rq, at_head);
 	} else {
+		BUG_ON(!(rq->rq_flags & RQF_GOT));
+		rq->rq_flags &= ~RQF_GOT;
+
 		__bfq_insert_request(bfqd, rq);
 
 		if (rq_mergeable(rq)) {
@@ -4974,6 +4978,7 @@ static int bfq_get_rq_private(struct request_queue *q, struct request *rq,
 	if (unlikely(bfq_bfqq_just_created(bfqq)))
 		bfq_handle_burst(bfqd, bfqq);
 
+	rq->rq_flags |= RQF_GOT;
 	spin_unlock_irq(&bfqd->lock);
 
 	return 0;
