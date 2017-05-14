@@ -779,12 +779,16 @@ void iwl_mvm_fw_error_dump(struct iwl_mvm *mvm)
 			struct iwl_fw_error_dump_paging *paging;
 			struct page *pages =
 				mvm->fw_paging_db[i].fw_paging_block;
+			dma_addr_t addr = mvm->fw_paging_db[i].fw_paging_phys;
 
 			dump_data->type = cpu_to_le32(IWL_FW_ERROR_DUMP_PAGING);
 			dump_data->len = cpu_to_le32(sizeof(*paging) +
 						     PAGING_BLOCK_SIZE);
 			paging = (void *)dump_data->data;
 			paging->index = cpu_to_le32(i);
+			dma_sync_single_for_cpu(mvm->trans->dev, addr,
+						PAGING_BLOCK_SIZE,
+						DMA_BIDIRECTIONAL);
 			memcpy(paging->data, page_address(pages),
 			       PAGING_BLOCK_SIZE);
 			dump_data = iwl_fw_error_next_data(dump_data);
@@ -816,11 +820,12 @@ dump_trans_data:
 				     sg_nents(sg_dump_data),
 				     fw_error_dump->op_mode_ptr,
 				     fw_error_dump->op_mode_len, 0);
-		sg_pcopy_from_buffer(sg_dump_data,
-				     sg_nents(sg_dump_data),
-				     fw_error_dump->trans_ptr->data,
-				     fw_error_dump->trans_ptr->len,
-				     fw_error_dump->op_mode_len);
+		if (fw_error_dump->trans_ptr)
+			sg_pcopy_from_buffer(sg_dump_data,
+					     sg_nents(sg_dump_data),
+					     fw_error_dump->trans_ptr->data,
+					     fw_error_dump->trans_ptr->len,
+					     fw_error_dump->op_mode_len);
 		dev_coredumpsg(mvm->trans->dev, sg_dump_data, file_len,
 			       GFP_KERNEL);
 	}

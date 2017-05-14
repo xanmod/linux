@@ -57,8 +57,8 @@ MODULE_PARM_DESC(mfg_mode, "manufacturing mode enable:1, disable:0");
  * In case of any errors during inittialization, this function also ensures
  * proper cleanup before exiting.
  */
-static int mwifiex_register(void *card, struct mwifiex_if_ops *if_ops,
-			    void **padapter)
+static int mwifiex_register(void *card, struct device *dev,
+			    struct mwifiex_if_ops *if_ops, void **padapter)
 {
 	struct mwifiex_adapter *adapter;
 	int i;
@@ -68,6 +68,7 @@ static int mwifiex_register(void *card, struct mwifiex_if_ops *if_ops,
 		return -ENOMEM;
 
 	*padapter = adapter;
+	adapter->dev = dev;
 	adapter->card = card;
 
 	/* Save interface specific operations in adapter */
@@ -1569,13 +1570,13 @@ static void mwifiex_probe_of(struct mwifiex_adapter *adapter)
 	struct device *dev = adapter->dev;
 
 	if (!dev->of_node)
-		return;
+		goto err_exit;
 
 	adapter->dt_node = dev->of_node;
 	adapter->irq_wakeup = irq_of_parse_and_map(adapter->dt_node, 0);
 	if (!adapter->irq_wakeup) {
-		dev_info(dev, "fail to parse irq_wakeup from device tree\n");
-		return;
+		dev_dbg(dev, "fail to parse irq_wakeup from device tree\n");
+		goto err_exit;
 	}
 
 	ret = devm_request_irq(dev, adapter->irq_wakeup,
@@ -1595,7 +1596,7 @@ static void mwifiex_probe_of(struct mwifiex_adapter *adapter)
 	return;
 
 err_exit:
-	adapter->irq_wakeup = 0;
+	adapter->irq_wakeup = -1;
 }
 
 /*
@@ -1618,12 +1619,11 @@ mwifiex_add_card(void *card, struct completion *fw_done,
 {
 	struct mwifiex_adapter *adapter;
 
-	if (mwifiex_register(card, if_ops, (void **)&adapter)) {
+	if (mwifiex_register(card, dev, if_ops, (void **)&adapter)) {
 		pr_err("%s: software init failed\n", __func__);
 		goto err_init_sw;
 	}
 
-	adapter->dev = dev;
 	mwifiex_probe_of(adapter);
 
 	adapter->iface_type = iface_type;

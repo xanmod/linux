@@ -453,13 +453,9 @@ static int qedi_iscsi_update_conn(struct qedi_ctx *qedi,
 	if (rval) {
 		rval = -ENXIO;
 		QEDI_ERR(&qedi->dbg_ctx, "Could not update connection\n");
-		goto update_conn_err;
 	}
 
 	kfree(conn_info);
-	rval = 0;
-
-update_conn_err:
 	return rval;
 }
 
@@ -836,7 +832,7 @@ qedi_ep_connect(struct Scsi_Host *shost, struct sockaddr *dst_addr,
 		return ERR_PTR(ret);
 	}
 
-	if (do_not_recover) {
+	if (qedi_do_not_recover) {
 		ret = -ENOMEM;
 		return ERR_PTR(ret);
 	}
@@ -960,7 +956,7 @@ static int qedi_ep_poll(struct iscsi_endpoint *ep, int timeout_ms)
 	struct qedi_endpoint *qedi_ep;
 	int ret = 0;
 
-	if (do_not_recover)
+	if (qedi_do_not_recover)
 		return 1;
 
 	qedi_ep = ep->dd_data;
@@ -1028,7 +1024,7 @@ static void qedi_ep_disconnect(struct iscsi_endpoint *ep)
 		}
 
 		if (test_bit(QEDI_IN_RECOVERY, &qedi->flags)) {
-			if (do_not_recover) {
+			if (qedi_do_not_recover) {
 				QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_INFO,
 					  "Do not recover cid=0x%x\n",
 					  qedi_ep->iscsi_cid);
@@ -1042,7 +1038,7 @@ static void qedi_ep_disconnect(struct iscsi_endpoint *ep)
 		}
 	}
 
-	if (do_not_recover)
+	if (qedi_do_not_recover)
 		goto ep_exit_recover;
 
 	switch (qedi_ep->state) {
