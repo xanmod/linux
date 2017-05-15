@@ -695,23 +695,17 @@ static struct bfq_group *bfqq_group(struct bfq_queue *bfqq);
 static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
 
 #define bfq_log_bfqq(bfqd, bfqq, fmt, args...)	do {			\
-	char __pbuf[128];						\
-									\
-	blkg_path(bfqg_to_blkg(bfqq_group(bfqq)), __pbuf, sizeof(__pbuf)); \
 	pr_crit("%s bfq%d%c %s " fmt "\n", 				\
 		checked_dev_name((bfqd)->queue->backing_dev_info->dev),	\
 		(bfqq)->pid,						\
 		bfq_bfqq_sync((bfqq)) ? 'S' : 'A',			\
-		__pbuf, ##args);					\
+		bfqq_group(bfqq)->blkg_path, ##args);			\
 } while (0)
 
 #define bfq_log_bfqg(bfqd, bfqg, fmt, args...)	do {			\
-	char __pbuf[128];						\
-									\
-	blkg_path(bfqg_to_blkg(bfqg), __pbuf, sizeof(__pbuf));		\
 	pr_crit("%s %s " fmt "\n",					\
 	checked_dev_name((bfqd)->queue->backing_dev_info->dev),		\
-	__pbuf, ##args);						\
+	bfqg->blkg_path, ##args);					\
 } while (0)
 
 #else /* BFQ_GROUP_IOSCHED_ENABLED */
@@ -736,20 +730,14 @@ static struct bfq_group *bfqq_group(struct bfq_queue *bfqq);
 static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
 
 #define bfq_log_bfqq(bfqd, bfqq, fmt, args...)	do {			\
-	char __pbuf[128];						\
-									\
-	blkg_path(bfqg_to_blkg(bfqq_group(bfqq)), __pbuf, sizeof(__pbuf)); \
 	blk_add_trace_msg((bfqd)->queue, "bfq%d%c %s " fmt, \
 			  (bfqq)->pid,			  \
 			  bfq_bfqq_sync((bfqq)) ? 'S' : 'A',	\
-			  __pbuf, ##args);				\
+			  bfqq_group(bfqq)->blkg_path, ##args);		\
 } while (0)
 
 #define bfq_log_bfqg(bfqd, bfqg, fmt, args...)	do {			\
-	char __pbuf[128];						\
-									\
-	blkg_path(bfqg_to_blkg(bfqg), __pbuf, sizeof(__pbuf));		\
-	blk_add_trace_msg((bfqd)->queue, "%s " fmt, __pbuf, ##args);	\
+	blk_add_trace_msg((bfqd)->queue, "%s " fmt, bfqg->blkg_path, ##args);\
 } while (0)
 
 #else /* BFQ_GROUP_IOSCHED_ENABLED */
@@ -859,6 +847,12 @@ struct bfq_group_data {
 struct bfq_group {
 	/* must be the first member */
 	struct blkg_policy_data pd;
+
+	/* cached path for this blkg (see comments in bfq_bic_update_cgroup) */
+	char blkg_path[128];
+
+	/* reference counter (see comments in bfq_bic_update_cgroup) */
+	int ref;
 
 	struct bfq_entity entity;
 	struct bfq_sched_data sched_data;
