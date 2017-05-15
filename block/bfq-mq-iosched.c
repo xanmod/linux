@@ -4073,7 +4073,7 @@ static void bfq_put_queue(struct bfq_queue *bfqq)
 
 	kmem_cache_free(bfq_pool, bfqq);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
-	bfqg_put(bfqg);
+	bfqg_and_blkg_put(bfqg);
 #endif
 }
 
