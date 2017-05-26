@@ -321,7 +321,7 @@ static void xhci_handle_stopped_cmd_ring(struct xhci_hcd *xhci,
 		if (i_cmd->status != COMP_COMMAND_ABORTED)
 			continue;
 
-		i_cmd->status = COMP_STOPPED;
+		i_cmd->status = COMP_COMMAND_RING_STOPPED;
 
 		xhci_dbg(xhci, "Turn aborted command %p to no-op\n",
 			 i_cmd->command_trb);
@@ -1342,7 +1342,7 @@ static void handle_cmd_completion(struct xhci_hcd *xhci,
 	cmd_comp_code = GET_COMP_CODE(le32_to_cpu(event->status));
 
 	/* If CMD ring stopped we own the trbs between enqueue and dequeue */
-	if (cmd_comp_code == COMP_STOPPED) {
+	if (cmd_comp_code == COMP_COMMAND_RING_STOPPED) {
 		complete_all(&xhci->cmd_ring_stop_completion);
 		return;
 	}
@@ -1397,8 +1397,8 @@ static void handle_cmd_completion(struct xhci_hcd *xhci,
 		break;
 	case TRB_CMD_NOOP:
 		/* Is this an aborted command turned to NO-OP? */
-		if (cmd->status == COMP_STOPPED)
-			cmd_comp_code = COMP_STOPPED;
+		if (cmd->status == COMP_COMMAND_RING_STOPPED)
+			cmd_comp_code = COMP_COMMAND_RING_STOPPED;
 		break;
 	case TRB_RESET_EP:
 		WARN_ON(slot_id != TRB_TO_SLOT_ID(
@@ -2616,11 +2616,12 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
 	union xhci_trb *event_ring_deq;
 	irqreturn_t ret = IRQ_NONE;
+	unsigned long flags;
 	dma_addr_t deq;
 	u64 temp_64;
 	u32 status;
 
-	spin_lock(&xhci->lock);
+	spin_lock_irqsave(&xhci->lock, flags);
 	/* Check if the xHC generated the interrupt, or the irq is shared */
 	status = readl(&xhci->op_regs->status);
 	if (status == 0xffffffff) {
@@ -2695,7 +2696,7 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 	ret = IRQ_HANDLED;
 
 out:
-	spin_unlock(&xhci->lock);
+	spin_unlock_irqrestore(&xhci->lock, flags);
 
 	return ret;
 }

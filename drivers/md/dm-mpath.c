@@ -111,7 +111,8 @@ typedef int (*action_fn) (struct pgpath *pgpath);
 
 static struct workqueue_struct *kmultipathd, *kmpath_handlerd;
 static void trigger_event(struct work_struct *work);
-static void activate_path(struct work_struct *work);
+static void activate_or_offline_path(struct pgpath *pgpath);
+static void activate_path_work(struct work_struct *work);
 static void process_queued_bios(struct work_struct *work);
 
 /*-----------------------------------------------
@@ -136,7 +137,7 @@ static struct pgpath *alloc_pgpath(void)
 
 	if (pgpath) {
 		pgpath->is_active = true;
-		INIT_DELAYED_WORK(&pgpath->activate_path, activate_path);
+		INIT_DELAYED_WORK(&pgpath->activate_path, activate_path_work);
 	}
 
 	return pgpath;
@@ -321,13 +322,16 @@ static int __pg_init_all_paths(struct multipath *m)
 	return atomic_read(&m->pg_init_in_progress);
 }
 
-static void pg_init_all_paths(struct multipath *m)
+static int pg_init_all_paths(struct multipath *m)
 {
+	int ret;
 	unsigned long flags;
 
 	spin_lock_irqsave(&m->lock, flags);
-	__pg_init_all_paths(m);
+	ret = __pg_init_all_paths(m);
 	spin_unlock_irqrestore(&m->lock, flags);
+
+	return ret;
 }
 
 static void __switch_pg(struct multipath *m, struct priority_group *pg)
@@ -484,11 +488,11 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 				   struct request **__clone)
 {
 	struct multipath *m = ti->private;
-	int r = DM_MAPIO_REQUEUE;
 	size_t nr_bytes = blk_rq_bytes(rq);
 	struct pgpath *pgpath;
 	struct block_device *bdev;
 	struct dm_mpath_io *mpio = get_mpio(map_context);
+	struct request_queue *q;
 	struct request *clone;
 
 	/* Do we need to select a new pgpath? */
@@ -502,8 +506,9 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 		return -EIO;	/* Failed */
 	} else if (test_bit(MPATHF_QUEUE_IO, &m->flags) ||
 		   test_bit(MPATHF_PG_INIT_REQUIRED, &m->flags)) {
-		pg_init_all_paths(m);
-		return r;
+		if (pg_init_all_paths(m))
+			return DM_MAPIO_DELAY_REQUEUE;
+		return DM_MAPIO_REQUEUE;
 	}
 
 	memset(mpio, 0, sizeof(*mpio));
@@ -511,13 +516,19 @@ static int multipath_clone_and_map(struct dm_target *ti, struct request *rq,
 	mpio->nr_bytes = nr_bytes;
 
 	bdev = pgpath->path.dev->bdev;
-
-	clone = blk_get_request(bdev_get_queue(bdev),
-			rq->cmd_flags | REQ_NOMERGE,
-			GFP_ATOMIC);
+	q = bdev_get_queue(bdev);
+	clone = blk_get_request(q, rq->cmd_flags | REQ_NOMERGE, GFP_ATOMIC);
 	if (IS_ERR(clone)) {
 		/* EBUSY, ENODEV or EWOULDBLOCK: requeue */
-		return r;
+		bool queue_dying = blk_queue_dying(q);
+		DMERR_LIMIT("blk_get_request() returned %ld%s - requeuing",
+			    PTR_ERR(clone), queue_dying ? " (path offline)" : "");
+		if (queue_dying) {
+			atomic_inc(&m->pg_init_in_progress);
+			activate_or_offline_path(pgpath);
+			return DM_MAPIO_REQUEUE;
+		}
+		return DM_MAPIO_DELAY_REQUEUE;
 	}
 	clone->bio = clone->biotail = NULL;
 	clone->rq_disk = bdev->bd_disk;
@@ -1437,16 +1448,22 @@ out:
 	spin_unlock_irqrestore(&m->lock, flags);
 }
 
-static void activate_path(struct work_struct *work)
+static void activate_or_offline_path(struct pgpath *pgpath)
 {
-	struct pgpath *pgpath =
-		container_of(work, struct pgpath, activate_path.work);
 	struct request_queue *q = bdev_get_queue(pgpath->path.dev->bdev);
 
 	if (pgpath->is_active && !blk_queue_dying(q))
 		scsi_dh_activate(q, pg_init_done, pgpath);
 	else
 		pg_init_done(pgpath, SCSI_DH_DEV_OFFLINED);
+}
+
+static void activate_path_work(struct work_struct *work)
+{
+	struct pgpath *pgpath =
+		container_of(work, struct pgpath, activate_path.work);
+
+	activate_or_offline_path(pgpath);
 }
 
 static int noretry_error(int error)
