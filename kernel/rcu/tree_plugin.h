@@ -287,10 +287,14 @@ void rcu_note_context_switch(bool preempt)
 	struct task_struct *t = current;
 	struct rcu_data *rdp = this_cpu_ptr(&rcu_data);
 	struct rcu_node *rnp;
+	int sleeping_l = 0;
 
 	trace_rcu_utilization(TPS("Start context switch"));
 	lockdep_assert_irqs_disabled();
-	WARN_ON_ONCE(!preempt && rcu_preempt_depth() > 0);
+#if defined(CONFIG_PREEMPT_RT)
+	sleeping_l = t->sleeping_lock;
+#endif
+	WARN_ON_ONCE(!preempt && rcu_preempt_depth() > 0 && !sleeping_l);
 	if (rcu_preempt_depth() > 0 &&
 	    !t->rcu_read_unlock_special.b.blocked) {
 

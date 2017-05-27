@@ -354,6 +354,23 @@ static inline void preempt_notifier_init(struct preempt_notifier *notifier,
 
 #endif
 
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+
+extern void migrate_disable(void);
+extern void migrate_enable(void);
+
+int __migrate_disabled(struct task_struct *p);
+
+#elif !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+
+extern void migrate_disable(void);
+extern void migrate_enable(void);
+static inline int __migrate_disabled(struct task_struct *p)
+{
+	return 0;
+}
+
+#else
 /**
  * migrate_disable - Prevent migration of the current task
  *
@@ -384,4 +401,9 @@ static __always_inline void migrate_enable(void)
 	preempt_enable();
 }
 
+static inline int __migrate_disabled(struct task_struct *p)
+{
+	return 0;
+}
+#endif
 #endif /* __LINUX_PREEMPT_H */

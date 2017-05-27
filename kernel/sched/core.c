@@ -1483,7 +1483,7 @@ static inline bool is_cpu_allowed(struct task_struct *p, int cpu)
 	if (!cpumask_test_cpu(cpu, p->cpus_ptr))
 		return false;
 
-	if (is_per_cpu_kthread(p))
+	if (is_per_cpu_kthread(p) || __migrate_disabled(p))
 		return cpu_online(cpu);
 
 	return cpu_active(cpu);
@@ -1607,8 +1607,17 @@ static int migration_cpu_stop(void *data)
 void set_cpus_allowed_common(struct task_struct *p, const struct cpumask *new_mask)
 {
 	cpumask_copy(&p->cpus_mask, new_mask);
-	p->nr_cpus_allowed = cpumask_weight(new_mask);
+	if (p->cpus_ptr == &p->cpus_mask)
+		p->nr_cpus_allowed = cpumask_weight(new_mask);
 }
+
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+int __migrate_disabled(struct task_struct *p)
+{
+	return p->migrate_disable;
+}
+EXPORT_SYMBOL_GPL(__migrate_disabled);
+#endif
 
 void do_set_cpus_allowed(struct task_struct *p, const struct cpumask *new_mask)
 {
@@ -1698,7 +1707,8 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 	}
 
 	/* Can the task run on the task's current CPU? If so, we're done */
-	if (cpumask_test_cpu(task_cpu(p), new_mask))
+	if (cpumask_test_cpu(task_cpu(p), new_mask) ||
+	    p->cpus_ptr != &p->cpus_mask)
 		goto out;
 
 	if (task_running(rq, p) || p->state == TASK_WAKING) {
@@ -4029,6 +4039,8 @@ restart:
 	BUG();
 }
 
+static void migrate_disabled_sched(struct task_struct *p);
+
 /*
  * __schedule() is the main scheduler function.
  *
@@ -4098,6 +4110,9 @@ static void __sched notrace __schedule(bool preempt)
 	 */
 	rq_lock(rq, &rf);
 	smp_mb__after_spinlock();
+
+	if (__migrate_disabled(prev))
+		migrate_disabled_sched(prev);
 
 	/* Promote REQ to ACT */
 	rq->clock_update_flags <<= 1;
@@ -6347,6 +6362,7 @@ static void migrate_tasks(struct rq *dead_rq, struct rq_flags *rf)
 			break;
 
 		next = __pick_migrate_task(rq);
+		WARN_ON_ONCE(__migrate_disabled(next));
 
 		/*
 		 * Rules for changing task_struct::cpus_mask are holding
@@ -8049,3 +8065,164 @@ const u32 sched_prio_to_wmult[40] = {
 };
 
 #undef CREATE_TRACE_POINTS
+
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+
+static inline void
+update_nr_migratory(struct task_struct *p, long delta)
+{
+	if (unlikely((p->sched_class == &rt_sched_class ||
+		      p->sched_class == &dl_sched_class) &&
+		      p->nr_cpus_allowed > 1)) {
+		if (p->sched_class == &rt_sched_class)
+			task_rq(p)->rt.rt_nr_migratory += delta;
+		else
+			task_rq(p)->dl.dl_nr_migratory += delta;
+	}
+}
+
+static inline void
+migrate_disable_update_cpus_allowed(struct task_struct *p)
+{
+	p->cpus_ptr = cpumask_of(smp_processor_id());
+	update_nr_migratory(p, -1);
+	p->nr_cpus_allowed = 1;
+}
+
+static inline void
+migrate_enable_update_cpus_allowed(struct task_struct *p)
+{
+	struct rq *rq;
+	struct rq_flags rf;
+
+	rq = task_rq_lock(p, &rf);
+	p->cpus_ptr = &p->cpus_mask;
+	p->nr_cpus_allowed = cpumask_weight(&p->cpus_mask);
+	update_nr_migratory(p, 1);
+	task_rq_unlock(rq, p, &rf);
+}
+
+void migrate_disable(void)
+{
+	preempt_disable();
+
+	if (++current->migrate_disable == 1) {
+		this_rq()->nr_pinned++;
+#ifdef CONFIG_SCHED_DEBUG
+		WARN_ON_ONCE(current->pinned_on_cpu >= 0);
+		current->pinned_on_cpu = smp_processor_id();
+#endif
+	}
+
+	preempt_enable();
+}
+EXPORT_SYMBOL(migrate_disable);
+
+static void migrate_disabled_sched(struct task_struct *p)
+{
+	if (p->migrate_disable_scheduled)
+		return;
+
+	migrate_disable_update_cpus_allowed(p);
+	p->migrate_disable_scheduled = 1;
+}
+
+void migrate_enable(void)
+{
+	struct task_struct *p = current;
+	struct rq *rq = this_rq();
+	int cpu = task_cpu(p);
+
+	WARN_ON_ONCE(p->migrate_disable <= 0);
+	if (p->migrate_disable > 1) {
+		p->migrate_disable--;
+		return;
+	}
+
+	preempt_disable();
+
+#ifdef CONFIG_SCHED_DEBUG
+	WARN_ON_ONCE(current->pinned_on_cpu != cpu);
+	current->pinned_on_cpu = -1;
+#endif
+
+	WARN_ON_ONCE(rq->nr_pinned < 1);
+
+	p->migrate_disable = 0;
+	rq->nr_pinned--;
+#ifdef CONFIG_HOTPLUG_CPU
+	if (rq->nr_pinned == 0 && unlikely(!cpu_active(cpu)) &&
+	    takedown_cpu_task)
+		wake_up_process(takedown_cpu_task);
+#endif
+
+	if (!p->migrate_disable_scheduled)
+		goto out;
+
+	p->migrate_disable_scheduled = 0;
+
+	migrate_enable_update_cpus_allowed(p);
+
+	WARN_ON(smp_processor_id() != cpu);
+	if (!is_cpu_allowed(p, cpu)) {
+		struct migration_arg arg = { p };
+		struct rq_flags rf;
+
+		rq = task_rq_lock(p, &rf);
+		update_rq_clock(rq);
+		arg.dest_cpu = select_fallback_rq(cpu, p);
+		task_rq_unlock(rq, p, &rf);
+
+		preempt_enable();
+
+		sleeping_lock_inc();
+		stop_one_cpu(task_cpu(p), migration_cpu_stop, &arg);
+		sleeping_lock_dec();
+		return;
+
+	}
+
+out:
+	preempt_enable();
+}
+EXPORT_SYMBOL(migrate_enable);
+
+int cpu_nr_pinned(int cpu)
+{
+	struct rq *rq = cpu_rq(cpu);
+
+	return rq->nr_pinned;
+}
+
+#elif !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+static void migrate_disabled_sched(struct task_struct *p)
+{
+}
+
+void migrate_disable(void)
+{
+#ifdef CONFIG_SCHED_DEBUG
+	current->migrate_disable++;
+#endif
+	barrier();
+}
+EXPORT_SYMBOL(migrate_disable);
+
+void migrate_enable(void)
+{
+#ifdef CONFIG_SCHED_DEBUG
+	struct task_struct *p = current;
+
+	WARN_ON_ONCE(p->migrate_disable <= 0);
+	p->migrate_disable--;
+#endif
+	barrier();
+}
+EXPORT_SYMBOL(migrate_enable);
+
+#else
+static void migrate_disabled_sched(struct task_struct *p)
+{
+}
+
+#endif
