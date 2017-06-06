@@ -109,7 +109,7 @@
 
 void print_scheduler_version(void)
 {
-	printk(KERN_INFO "MuQSS CPU scheduler v0.155 by Con Kolivas.\n");
+	printk(KERN_INFO "MuQSS CPU scheduler v0.156 by Con Kolivas.\n");
 }
 
 /*
@@ -154,28 +154,8 @@ static inline int timeslice(void)
 	return MS_TO_US(rr_interval);
 }
 
-/*
- * The global runqueue data that all CPUs work off. Contains either atomic
- * variables and a cpu bitmap set atomically.
- */
-struct global_rq {
 #ifdef CONFIG_SMP
-	atomic_t nr_running ____cacheline_aligned_in_smp;
-	atomic_t nr_uninterruptible ____cacheline_aligned_in_smp;
-	atomic64_t nr_switches ____cacheline_aligned_in_smp;
-	cpumask_t cpu_idle_map ____cacheline_aligned_in_smp;
-#else
-	atomic_t nr_running ____cacheline_aligned;
-	atomic_t nr_uninterruptible ____cacheline_aligned;
-	atomic64_t nr_switches ____cacheline_aligned;
-#endif
-};
-
-/* There can be only one */
-#ifdef CONFIG_SMP
-static struct global_rq grq ____cacheline_aligned_in_smp;
-#else
-static struct global_rq grq ____cacheline_aligned;
+static cpumask_t cpu_idle_map ____cacheline_aligned_in_smp;
 #endif
 
 /* CPUs with isolated domains */
@@ -808,6 +788,8 @@ static inline void finish_lock_switch(struct rq *rq, struct task_struct *prev)
 		raw_spin_unlock(&prev->pi_lock);
 	}
 #endif
+	/* Accurately set nr_running here for load average calculations */
+	rq->nr_running = rq->sl->entries + !rq_idle(rq);
 	rq_unlock(rq);
 
 	do_pending_softirq(rq, current);
@@ -854,16 +836,16 @@ static inline int ms_longest_deadline_diff(void)
 	return NS_TO_MS(longest_deadline_diff());
 }
 
-static inline int rq_load(struct rq *rq)
-{
-	return rq->sl->entries + !rq_idle(rq);
-}
-
 static inline bool rq_local(struct rq *rq);
 
 #ifndef SCHED_CAPACITY_SCALE
 #define SCHED_CAPACITY_SCALE 1024
 #endif
+
+static inline int rq_load(struct rq *rq)
+{
+	return rq->nr_running;
+}
 
 /*
  * Update the load average for feeding into cpu frequency governors. Use a
@@ -1115,7 +1097,7 @@ static inline void atomic_set_cpu(int cpu, cpumask_t *cpumask)
 static inline void set_cpuidle_map(int cpu)
 {
 	if (likely(cpu_online(cpu)))
-		atomic_set_cpu(cpu, &grq.cpu_idle_map);
+		atomic_set_cpu(cpu, &cpu_idle_map);
 }
 
 static inline void atomic_clear_cpu(int cpu, cpumask_t *cpumask)
@@ -1125,12 +1107,12 @@ static inline void atomic_clear_cpu(int cpu, cpumask_t *cpumask)
 
 static inline void clear_cpuidle_map(int cpu)
 {
-	atomic_clear_cpu(cpu, &grq.cpu_idle_map);
+	atomic_clear_cpu(cpu, &cpu_idle_map);
 }
 
 static bool suitable_idle_cpus(struct task_struct *p)
 {
-	return (cpumask_intersects(&p->cpus_allowed, &grq.cpu_idle_map));
+	return (cpumask_intersects(&p->cpus_allowed, &cpu_idle_map));
 }
 
 /*
@@ -1261,7 +1243,7 @@ static struct rq *resched_best_idle(struct task_struct *p, int cpu)
 	struct rq *rq;
 	int best_cpu;
 
-	cpumask_and(&tmpmask, &p->cpus_allowed, &grq.cpu_idle_map);
+	cpumask_and(&tmpmask, &p->cpus_allowed, &cpu_idle_map);
 	best_cpu = best_mask_cpu(cpu, task_rq(p), &tmpmask);
 	rq = cpu_rq(best_cpu);
 	if (!smt_schedule(p, rq))
@@ -1374,11 +1356,10 @@ static void activate_task(struct task_struct *p, struct rq *rq)
 
 	p->prio = effective_prio(p);
 	if (task_contributes_to_load(p))
-		atomic_dec(&grq.nr_uninterruptible);
+		rq->nr_uninterruptible--;
 
 	enqueue_task(rq, p, 0);
 	p->on_rq = TASK_ON_RQ_QUEUED;
-	atomic_inc(&grq.nr_running);
 }
 
 /*
@@ -1388,10 +1369,9 @@ static void activate_task(struct task_struct *p, struct rq *rq)
 static inline void deactivate_task(struct task_struct *p, struct rq *rq)
 {
 	if (task_contributes_to_load(p))
-		atomic_inc(&grq.nr_uninterruptible);
+		rq->nr_uninterruptible++;
 
 	p->on_rq = 0;
-	atomic_dec(&grq.nr_running);
 	sched_info_dequeued(rq, p);
 }
 
@@ -1804,7 +1784,7 @@ ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags)
 
 #ifdef CONFIG_SMP
 	if (p->sched_contributes_to_load)
-		atomic_dec(&grq.nr_uninterruptible);
+		rq->nr_uninterruptible--;
 #endif
 
 	ttwu_activate(rq, p);
@@ -2795,12 +2775,22 @@ context_switch(struct rq *rq, struct task_struct *prev,
  */
 unsigned long nr_running(void)
 {
-	return atomic_read(&grq.nr_running);
+	unsigned long i, sum = 0;
+
+	for_each_online_cpu(i)
+		sum += cpu_rq(i)->nr_running;
+
+	return sum;
 }
 
 static unsigned long nr_uninterruptible(void)
 {
-	return atomic_read(&grq.nr_uninterruptible);
+	unsigned long i, sum = 0;
+
+	for_each_online_cpu(i)
+		sum += cpu_rq(i)->nr_uninterruptible;
+
+	return sum;
 }
 
 /*
@@ -2829,7 +2819,13 @@ EXPORT_SYMBOL(single_task_running);
 
 unsigned long long nr_context_switches(void)
 {
-	return (unsigned long long)atomic64_read(&grq.nr_switches);
+	int i;
+	unsigned long long sum = 0;
+
+	for_each_possible_cpu(i)
+		sum += cpu_rq(i)->nr_switches;
+
+	return sum;
 }
 
 /*
@@ -3880,7 +3876,7 @@ static void __sched notrace __schedule(bool preempt)
 			check_siblings(rq);
 		else
 			wake_siblings(rq);
-		atomic64_inc(&grq.nr_switches);
+		rq->nr_switches++;
 		rq->curr = next;
 		++*switch_count;
 
@@ -6317,7 +6313,7 @@ static const cpumask_t *thread_cpumask(int cpu)
 /* All this CPU's SMT siblings are idle */
 static bool siblings_cpu_idle(struct rq *rq)
 {
-	return cpumask_subset(&rq->thread_mask, &grq.cpu_idle_map);
+	return cpumask_subset(&rq->thread_mask, &cpu_idle_map);
 }
 #endif
 #ifdef CONFIG_SCHED_MC
@@ -6328,7 +6324,7 @@ static const cpumask_t *core_cpumask(int cpu)
 /* All this CPU's shared cache siblings are idle */
 static bool cache_cpu_idle(struct rq *rq)
 {
-	return cpumask_subset(&rq->core_mask, &grq.cpu_idle_map);
+	return cpumask_subset(&rq->core_mask, &cpu_idle_map);
 }
 #endif
 
@@ -6531,14 +6527,11 @@ void __init sched_init(void)
 	for (i = 1 ; i < NICE_WIDTH ; i++)
 		prio_ratios[i] = prio_ratios[i - 1] * 11 / 10;
 
-	atomic_set(&grq.nr_running, 0);
-	atomic_set(&grq.nr_uninterruptible, 0);
-	atomic64_set(&grq.nr_switches, 0);
 	skiplist_node_init(&init_task.node);
 
 #ifdef CONFIG_SMP
 	init_defrootdomain();
-	cpumask_clear(&grq.cpu_idle_map);
+	cpumask_clear(&cpu_idle_map);
 #else
 	uprq = &per_cpu(runqueues, 0);
 #endif
@@ -6555,6 +6548,9 @@ void __init sched_init(void)
 		skiplist_init(&rq->node);
 		rq->sl = new_skiplist(&rq->node);
 		raw_spin_lock_init(&rq->lock);
+		rq->nr_running = 0;
+		rq->nr_uninterruptible = 0;
+		rq->nr_switches = 0;
 		rq->clock = rq->old_clock = rq->last_niffy = rq->niffies = 0;
 		rq->last_jiffy = jiffies;
 		rq->user_ns = rq->nice_ns = rq->softirq_ns = rq->system_ns =

@@ -131,10 +131,20 @@ static inline int cpupri_init(void __maybe_unused *cpupri)
  * This data should only be modified by the local cpu.
  */
 struct rq {
+	raw_spinlock_t lock;
+
 	struct task_struct *curr, *idle, *stop;
 	struct mm_struct *prev_mm;
 
-	raw_spinlock_t lock;
+	unsigned int nr_running;
+	/*
+	 * This is part of a global counter where only the total sum
+	 * over all CPUs matters. A task can increase this counter on
+	 * one CPU and if it got migrated afterwards it may decrease
+	 * it on another CPU. Always updated under the runqueue lock:
+	 */
+	unsigned long nr_uninterruptible;
+	u64 nr_switches;
 
 	/* Stored data about rq->curr to work outside rq lock */
 	u64 rq_deadline;
@@ -336,6 +346,8 @@ extern struct static_key_false sched_schedstats;
 	rcu_dereference_check((p), \
 			      lockdep_is_held(&sched_domains_mutex))
 
+#ifdef CONFIG_SMP
+
 /*
  * The domain tree (rq->sd) is protected by RCU's quiescent state transition.
  * See detach_destroy_domains: synchronize_sched for details.
@@ -458,7 +470,6 @@ static inline void unregister_sched_domain_sysctl(void)
 }
 #endif
 
-#ifdef CONFIG_SMP
 extern void sched_ttwu_pending(void);
 extern void set_cpus_allowed_common(struct task_struct *p, const struct cpumask *new_mask);
 extern void set_rq_online (struct rq *rq);
@@ -474,9 +485,12 @@ static inline void trigger_load_balance(struct rq *rq)
 }
 
 #define sched_feat(x) 0
-#else
+
+#else /* CONFIG_SMP */
+
 static inline void sched_ttwu_pending(void) { }
-#endif
+
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_CPU_IDLE
 static inline void idle_set_state(struct rq *rq,
