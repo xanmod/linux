@@ -113,6 +113,7 @@ void fsnotify_put_mark(struct fsnotify_mark *mark)
 		mark->free_mark(mark);
 	}
 }
+EXPORT_SYMBOL_GPL(fsnotify_put_mark);
 
 /* Calculate mask of events for a list of marks */
 u32 fsnotify_recalc_mask(struct hlist_head *head)
@@ -415,6 +416,7 @@ err:
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(fsnotify_destroy_mark);
 
 int fsnotify_add_mark(struct fsnotify_mark *mark, struct fsnotify_group *group,
 		      struct inode *inode, struct vfsmount *mnt, int allow_dups)
@@ -543,6 +545,7 @@ void fsnotify_mark_destroy_list(void)
 		fsnotify_put_mark(mark);
 	}
 }
+EXPORT_SYMBOL_GPL(fsnotify_add_mark);
 
 static void fsnotify_mark_destroy_workfn(struct work_struct *work)
 {
