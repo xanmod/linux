@@ -436,7 +436,7 @@ out_unlock:
 	return css;
 }
 
-static void cgroup_get(struct cgroup *cgrp)
+static void __maybe_unused cgroup_get(struct cgroup *cgrp)
 {
 	css_get(&cgrp->self);
 }
@@ -4264,6 +4264,11 @@ static void css_killed_ref_fn(struct percpu_ref *ref)
 static void kill_css(struct cgroup_subsys_state *css)
 {
 	lockdep_assert_held(&cgroup_mutex);
+
+	if (css->flags & CSS_DYING)
+		return;
+
+	css->flags |= CSS_DYING;
 
 	/*
 	 * This must happen before css is disassociated with its cgroup.
