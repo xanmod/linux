@@ -1,10 +1,10 @@
 --- fs/notify/mark.c
 +++ fs/notify/mark.c
-@@ -745,6 +748,7 @@ void fsnotify_init_mark(struct fsnotify_mark *mark,
+@@ -742,7 +739,6 @@ void fsnotify_init_mark(struct fsnotify_mark *mark,
  	fsnotify_get_group(group);
  	mark->group = group;
  }
-+EXPORT_SYMBOL_GPL(fsnotify_init_mark);
+-EXPORT_SYMBOL_GPL(fsnotify_init_mark);
  
  /*
   * Destroy all marks in destroy_list, waits for SRCU period to finish before

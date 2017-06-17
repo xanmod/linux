@@ -25,7 +25,6 @@
 #ifdef __KERNEL__
 
 #include <linux/slab.h>
-#include "debug.h"
 
 struct path;
 struct seq_file;

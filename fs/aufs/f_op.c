@@ -759,7 +759,8 @@ static int aufs_setfl(struct file *file, unsigned long arg)
 	if (IS_ERR(h_file))
 		goto out;
 
-	arg |= vfsub_file_flags(file) & FASYNC; /* stop calling h_file->fasync */
+	/* stop calling h_file->fasync */
+	arg |= vfsub_file_flags(file) & FASYNC;
 	err = setfl(/*unused fd*/-1, h_file, arg);
 	fput(h_file); /* instead of au_read_post() */
 

@@ -365,6 +365,59 @@ out:
 	return err;
 }
 
+static int au_do_copy(struct file *dst, struct file *src, loff_t len)
+{
+	int err;
+	struct super_block *h_src_sb;
+	struct inode *h_src_inode;
+
+	h_src_inode = file_inode(src);
+	h_src_sb = h_src_inode->i_sb;
+
+	/* XFS acquires inode_lock */
+	if (!au_test_xfs(h_src_sb))
+		err = au_copy_file(dst, src, len);
+	else {
+		inode_unlock(h_src_inode);
+		err = au_copy_file(dst, src, len);
+		inode_lock(h_src_inode);
+	}
+
+	return err;
+}
+
+static int au_clone_or_copy(struct file *dst, struct file *src, loff_t len)
+{
+	int err;
+	struct super_block *h_src_sb;
+	struct inode *h_src_inode;
+
+	h_src_inode = file_inode(src);
+	h_src_sb = h_src_inode->i_sb;
+	if (h_src_sb != file_inode(dst)->i_sb
+	    || !dst->f_op->clone_file_range) {
+		err = au_do_copy(dst, src, len);
+		goto out;
+	}
+
+	if (!au_test_nfs(h_src_sb)) {
+		inode_unlock(h_src_inode);
+		err = vfsub_clone_file_range(src, dst, len);
+		inode_lock(h_src_inode);
+	} else
+		err = vfsub_clone_file_range(src, dst, len);
+	/* older XFS has a condition in cloning */
+	if (unlikely(err != -EOPNOTSUPP))
+		goto out;
+
+	/* the backend fs on NFS may not support cloning */
+	err = au_do_copy(dst, src, len);
+
+out:
+	AuTraceErr(err);
+	return err;
+}
+
 /*
  * to support a sparse file which is opened with O_APPEND,
  * we need to close the file.
@@ -414,25 +467,7 @@ static int au_cp_regular(struct au_cp_generic *cpg)
 	h_src_sb = h_src_inode->i_sb;
 	if (!au_test_nfs(h_src_sb))
 		IMustLock(h_src_inode);
-
-	if (h_src_sb != file_inode(file[DST].file)->i_sb
-	    || !file[DST].file->f_op->clone_file_range)
-		err = au_copy_file(file[DST].file, file[SRC].file, cpg->len);
-	else {
-		if (!au_test_nfs(h_src_sb)) {
-			inode_unlock(h_src_inode);
-			err = vfsub_clone_file_range(file[SRC].file,
-						     file[DST].file, cpg->len);
-			inode_lock(h_src_inode);
-		} else
-			err = vfsub_clone_file_range(file[SRC].file,
-						     file[DST].file, cpg->len);
-		if (unlikely(err == -EOPNOTSUPP && au_test_nfs(h_src_sb)))
-			/* the backend fs on NFS may not support cloning */
-			err = au_copy_file(file[DST].file, file[SRC].file,
-					   cpg->len);
-		AuTraceErr(err);
-	}
+	err = au_clone_or_copy(file[DST].file, file[SRC].file, cpg->len);
 
 	/* i wonder if we had O_NO_DELAY_FPUT flag */
 	if (tsk->flags & PF_KTHREAD)

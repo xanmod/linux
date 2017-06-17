@@ -67,8 +67,7 @@ static void au_br_do_free(struct au_branch *br)
 	lockdep_off();
 	path_put(&br->br_path);
 	lockdep_on();
-	if (wbr)
-		kfree(wbr);
+	kfree(wbr);
 	kfree(br);
 }
 
@@ -167,14 +166,14 @@ static struct au_branch *au_br_alloc(struct super_block *sb, int new_nbranch,
 		err = au_di_realloc(au_di(root), new_nbranch, /*may_shrink*/0);
 	if (!err) {
 		inode = d_inode(root);
-		err = au_hinode_realloc(au_ii(inode), new_nbranch, /*may_shrink*/0);
+		err = au_hinode_realloc(au_ii(inode), new_nbranch,
+					/*may_shrink*/0);
 	}
 	if (!err)
 		return add_branch; /* success */
 
 out_wbr:
-	if (add_branch->br_wbr)
-		kfree(add_branch->br_wbr);
+	kfree(add_branch->br_wbr);
 out_hnotify:
 	au_hnotify_fin_br(add_branch);
 out_xinondir:

@@ -82,7 +82,6 @@ void *au_kzrealloc(void *p, unsigned int nused, unsigned int new_sz, gfp_t gfp,
 /*
  * aufs caches
  */
-
 struct kmem_cache *au_cache[AuCache_Last];
 
 static void au_cache_fin(void)
@@ -194,9 +193,7 @@ static int __init aufs_init(void)
 	for (i = 0; i < AuIop_Last; i++)
 		aufs_iop_nogetattr[i].getattr = NULL;
 
-	/* First, initialize au_cache */
-	for (i = 0; i < AuCache_Last; i++)	/* including hnotify */
-		au_cache[i] = NULL;
+	memset(au_cache, 0, sizeof(au_cache));	/* including hnotify */
 
 	au_sbilist_init();
 	sysaufs_brs_init();

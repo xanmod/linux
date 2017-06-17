@@ -78,7 +78,7 @@ struct au_iinfo {
 struct au_icntnr {
 	struct au_iinfo iinfo;
 	struct inode vfs_inode;
-	struct hlist_node	plink;
+	struct hlist_node plink;
 } ____cacheline_aligned_in_smp;
 
 /* au_pin flags */

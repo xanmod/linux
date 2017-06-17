@@ -1,6 +1,6 @@
 /*
- * Mainly for aufs which mmap(2) diffrent file and wants to print different path
- * in /proc/PID/maps.
+ * Mainly for aufs which mmap(2) different file and wants to print different
+ * path in /proc/PID/maps.
  * Call these functions via macros defined in linux/mm.h.
  *
  * See Documentation/filesystems/aufs/design/06mmap.txt
