@@ -639,6 +639,11 @@ KBUILD_CFLAGS	+= $(call cc-option,-fno-delete-null-pointer-checks,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,maybe-uninitialized,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,frame-address,)
 
+# Disable output truncation and buffer overflow warnings.
+KBUILD_CFLAGS += $(call cc-ifversion, -ge, 0700, \
+			$(call cc-disable-warning,format-truncation,) \
+			$(call cc-disable-warning,format-overflow))
+
 ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
 KBUILD_CFLAGS	+= $(call cc-option,-ffunction-sections,)
 KBUILD_CFLAGS	+= $(call cc-option,-fdata-sections,)
@@ -649,8 +654,6 @@ KBUILD_CFLAGS	+= -Os
 else
 KBUILD_CFLAGS   += -O2 -falign-functions=32
 endif
-
-KBUILD_CFLAGS += $(call cc-ifversion, -lt, 0409)
 
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
