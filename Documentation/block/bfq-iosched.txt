@@ -15,10 +15,10 @@ If bfq-mq patches have been applied, then the following three
 instances of BFQ are available (otherwise only the first instance):
 - bfq: mainline version of BFQ, for blk-mq
 - bfq-mq: development version of BFQ for blk-mq; this version contains
-   also all latest features not yet landed in mainline, plus many
+   also all latest features and fixes not yet landed in mainline, plus many
    safety checks
-- bfq: BFQ for legacy blk; also this version contains both latest
-   features and safety checks
+- bfq: BFQ for legacy blk; also this version contains latest features
+   and fixes, as well as safety checks
 
 In its default configuration, BFQ privileges latency over
 throughput. So, when needed for achieving a lower latency, BFQ builds
