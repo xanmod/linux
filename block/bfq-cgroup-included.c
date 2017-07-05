@@ -1124,7 +1124,7 @@ bfq_create_group_hierarchy(struct bfq_data *bfqd, int node)
 #ifdef BFQ_MQ
 #define BFQ_CGROUP_FNAME(param) "bfq-mq."#param
 #else
-#define BFQ_CGROUP_FNAME(param) "bfq."#param
+#define BFQ_CGROUP_FNAME(param) "bfq-sq."#param
 #endif
 
 static struct cftype bfq_blkcg_legacy_files[] = {
