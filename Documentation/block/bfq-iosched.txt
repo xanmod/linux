@@ -518,10 +518,12 @@ To get proportional sharing of bandwidth with BFQ for a given device,
 BFQ must of course be the active scheduler for that device.
 
 Within each group directory, the names of the files associated with
-BFQ-specific cgroup parameters and stats begin with the "bfq."
-prefix. So, with cgroups-v1 or cgroups-v2, the full prefix for
-BFQ-specific files is "blkio.bfq." or "io.bfq." For example, the group
-parameter to set the weight of a group with BFQ is blkio.bfq.weight
+BFQ-specific cgroup parameters and stats begin with the "bfq.",
+"bfq-sq." or "bfq-mq." prefix, depending on which instance of bfq you
+want to use. So, with cgroups-v1 or cgroups-v2, the full prefix for
+BFQ-specific files is "blkio.bfqX." or "io.bfqX.", where X can be ""
+(i.e., null string), "-sq" or "-mq". For example, the group parameter
+to set the weight of a group with the mainline BFQ is blkio.bfq.weight
 or io.bfq.weight.
 
 As for cgroups-v1 (blkio controller), the exact set of stat files
@@ -545,7 +547,7 @@ Parameters to set
 
 For each group, there is only the following parameter to set.
 
-weight (namely blkio.bfq.weight or io.bfq-weight): the weight of the
+weight (namely blkio.bfqX.weight or io.bfqX.weight): the weight of the
 group inside its parent. Available values: 1..10000 (default 100). The
 linear mapping between ioprio and weights, described at the beginning
 of the tunable section, is still valid, but all weights higher than
