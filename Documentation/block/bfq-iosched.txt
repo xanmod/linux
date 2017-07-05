@@ -11,6 +11,15 @@ controllers), BFQ's main features are:
   groups (switching back to time distribution when needed to keep
   throughput high).
 
+If bfq-mq patches have been applied, then the following three
+instances of BFQ are available (otherwise only the first instance):
+- bfq: mainline version of BFQ, for blk-mq
+- bfq-mq: development version of BFQ for blk-mq; this version contains
+   also all latest features not yet landed in mainline, plus many
+   safety checks
+- bfq: BFQ for legacy blk; also this version contains both latest
+   features and safety checks
+
 In its default configuration, BFQ privileges latency over
 throughput. So, when needed for achieving a lower latency, BFQ builds
 schedules that may lead to a lower throughput. If your main or only
@@ -42,7 +51,7 @@ sustainable throughputs, on the same systems as above:
 
 BFQ works for multi-queue devices too.
 
-The table of contents follow. Impatients can just jump to Section 3.
+The table of contents follows. Impatients can just jump to Section 3.
 
 CONTENTS
 
