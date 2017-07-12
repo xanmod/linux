@@ -23,6 +23,7 @@ aufs [ei ju: ef es] | [a u f s]
 3. abbrev. for "auf das" in German which means "on the" in English.
    Ex. "Butter aufs Brot"(G) means "butter onto bread"(E).
    But "Filesystem aufs Filesystem" is hard to understand.
+4. abbrev. for "African Urban Fashion Show".
 
 AUFS is a filesystem with features:
 - multi layered stackable unification filesystem, the member directory
