@@ -214,7 +214,7 @@ int au_lkup_dentry(struct dentry *dentry, aufs_bindex_t btop,
 
 out_parent:
 	dput(parent);
-	au_delayed_kfree(whname.name);
+	kfree(whname.name);
 out:
 	return err;
 }

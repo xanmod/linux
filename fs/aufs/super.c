@@ -46,7 +46,7 @@ static void aufs_destroy_inode_cb(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
 
-	au_cache_dfree_icntnr(container_of(inode, struct au_icntnr, vfs_inode));
+	au_cache_free_icntnr(container_of(inode, struct au_icntnr, vfs_inode));
 }
 
 static void aufs_destroy_inode(struct inode *inode)
@@ -834,7 +834,7 @@ static int aufs_remount_fs(struct super_block *sb, int *flags, char *data)
 out_mtx:
 	inode_unlock(inode);
 out_opts:
-	au_delayed_free_page((unsigned long)opts.opt);
+	free_page((unsigned long)opts.opt);
 out:
 	err = cvt_err(err);
 	AuTraceErr(err);
@@ -975,7 +975,7 @@ out_info:
 	kobject_put(&sbinfo->si_kobj);
 	sb->s_fs_info = NULL;
 out_opts:
-	au_delayed_free_page((unsigned long)opts.opt);
+	free_page((unsigned long)opts.opt);
 out:
 	AuTraceErr(err);
 	err = cvt_err(err);

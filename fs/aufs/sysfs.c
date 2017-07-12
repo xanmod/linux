@@ -209,7 +209,7 @@ out_seq:
 		if (unlikely(err == PAGE_SIZE))
 			err = -EFBIG;
 	}
-	au_delayed_kfree(seq);
+	kfree(seq);
 out_unlock:
 	si_read_unlock(sb);
 out:
@@ -280,9 +280,9 @@ static int au_brinfo(struct super_block *sb, union aufs_brinfo __user *arg)
 		err = -EFAULT;
 
 out_seq:
-	au_delayed_kfree(seq);
+	kfree(seq);
 out_buf:
-	au_delayed_free_page((unsigned long)buf);
+	free_page((unsigned long)buf);
 out:
 	si_read_unlock(sb);
 	return err;

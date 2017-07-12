@@ -143,5 +143,5 @@ void au_loopback_fin(void)
 {
 	if (backing_file_func)
 		symbol_put(loop_backing_file);
-	au_delayed_kfree(au_warn_loopback_array);
+	kfree(au_warn_loopback_array);
 }

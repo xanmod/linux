@@ -63,10 +63,7 @@ struct au_finfo {
 	struct au_fidir		*fi_hdir;	/* for dir only */
 
 	struct hlist_node	fi_hlist;
-	union {
-		struct file		*fi_file;	/* very ugly */
-		struct llist_node	fi_lnode;	/* delayed free */
-	};
+	struct file		*fi_file;	/* very ugly */
 } ____cacheline_aligned_in_smp;
 
 /* ---------------------------------------------------------------------- */
@@ -126,7 +123,7 @@ struct au_fidir *au_fidir_alloc(struct super_block *sb);
 int au_fidir_realloc(struct au_finfo *finfo, int nbr, int may_shrink);
 
 void au_fi_init_once(void *_fi);
-void au_finfo_fin(struct file *file, int atonce);
+void au_finfo_fin(struct file *file);
 int au_finfo_init(struct file *file, struct au_fidir *fidir);
 
 /* ioctl.c */

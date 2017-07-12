@@ -273,7 +273,7 @@ int au_do_open(struct file *file, struct au_do_open_args *args)
 	}
 	if (unlikely(err)) {
 		finfo->fi_hdir = NULL;
-		au_finfo_fin(file, /*atonce*/0);
+		au_finfo_fin(file);
 	}
 
 out:
@@ -593,7 +593,6 @@ out:
 
 static void au_do_refresh_dir(struct file *file)
 {
-	int execed;
 	aufs_bindex_t bindex, bbot, new_bindex, brid;
 	struct au_hfile *p, tmp, *q;
 	struct au_finfo *finfo;
@@ -632,7 +631,6 @@ static void au_do_refresh_dir(struct file *file)
 		}
 	}
 
-	execed = vfsub_file_execed(file);
 	p = fidir->fd_hfile;
 	if (!au_test_mmapped(file) && !d_unlinked(file->f_path.dentry)) {
 		bbot = au_sbbot(sb);
@@ -641,14 +639,14 @@ static void au_do_refresh_dir(struct file *file)
 			if (p->hf_file) {
 				if (file_inode(p->hf_file))
 					break;
-				au_hfput(p, execed);
+				au_hfput(p, /*execed*/0);
 			}
 	} else {
 		bbot = au_br_index(sb, brid);
 		for (finfo->fi_btop = 0; finfo->fi_btop < bbot;
 		     finfo->fi_btop++, p++)
 			if (p->hf_file)
-				au_hfput(p, execed);
+				au_hfput(p, /*execed*/0);
 		bbot = au_sbbot(sb);
 	}
 
@@ -658,7 +656,7 @@ static void au_do_refresh_dir(struct file *file)
 		if (p->hf_file) {
 			if (file_inode(p->hf_file))
 				break;
-			au_hfput(p, execed);
+			au_hfput(p, /*execed*/0);
 		}
 	AuDebugOn(fidir->fd_bbot < finfo->fi_btop);
 }

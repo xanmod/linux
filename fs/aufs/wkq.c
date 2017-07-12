@@ -54,7 +54,7 @@ static void wkq_func(struct work_struct *wk)
 	else {
 		kobject_put(wkinfo->kobj);
 		module_put(THIS_MODULE); /* todo: ?? */
-		au_delayed_kfree(wkinfo);
+		kfree(wkinfo);
 	}
 }
 
@@ -77,7 +77,7 @@ static int au_wkq_comp_alloc(struct au_wkinfo *wkinfo, struct completion **comp)
 
 static void au_wkq_comp_free(struct completion *comp)
 {
-	au_delayed_kfree(comp);
+	kfree(comp);
 }
 
 #else

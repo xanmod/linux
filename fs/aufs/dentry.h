@@ -38,10 +38,7 @@ struct au_dinfo {
 	struct au_rwsem		di_rwsem;
 	aufs_bindex_t		di_btop, di_bbot, di_bwh, di_bdiropq;
 	unsigned char		di_tmpfile; /* to allow the different name */
-	union {
-		struct au_hdentry	*di_hdentry;
-		struct llist_node	di_lnode;	/* delayed free */
-	};
+	struct au_hdentry	*di_hdentry;
 } ____cacheline_aligned_in_smp;
 
 /* ---------------------------------------------------------------------- */

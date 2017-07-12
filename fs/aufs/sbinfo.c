@@ -44,11 +44,11 @@ void au_si_free(struct kobject *kobj)
 	au_br_free(sbinfo);
 	au_rw_write_unlock(&sbinfo->si_rwsem);
 
-	au_delayed_kfree(sbinfo->si_branch);
+	kfree(sbinfo->si_branch);
 	mutex_destroy(&sbinfo->si_xib_mtx);
 	AuRwDestroy(&sbinfo->si_rwsem);
 
-	au_delayed_kfree(sbinfo);
+	kfree(sbinfo);
 }
 
 int au_si_alloc(struct super_block *sb)
@@ -119,9 +119,9 @@ int au_si_alloc(struct super_block *sb)
 	return 0; /* success */
 
 out_br:
-	au_delayed_kfree(sbinfo->si_branch);
+	kfree(sbinfo->si_branch);
 out_sbinfo:
-	au_delayed_kfree(sbinfo);
+	kfree(sbinfo);
 out:
 	return err;
 }

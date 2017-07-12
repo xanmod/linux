@@ -338,7 +338,7 @@ int au_xino_trunc(struct super_block *sb, aufs_bindex_t bindex)
 		AuErr1("statfs err %d, ignored\n", err);
 
 out_st:
-	au_delayed_kfree(st);
+	kfree(st);
 out:
 	return err;
 }
@@ -373,7 +373,7 @@ static void xino_do_trunc(void *_args)
 	au_br_put(br);
 	si_write_unlock(sb);
 	au_nwt_done(&au_sbi(sb)->si_nowait);
-	au_delayed_kfree(args);
+	kfree(args);
 }
 
 static int xino_trunc_test(struct super_block *sb, struct au_branch *br)
@@ -427,7 +427,7 @@ static void xino_try_trunc(struct super_block *sb, struct au_branch *br)
 
 	pr_err("wkq %d\n", wkq_err);
 	au_br_put(br);
-	au_delayed_kfree(args);
+	kfree(args);
 
 out:
 	atomic_dec(&br->br_xino_running);
@@ -951,7 +951,7 @@ static int xib_restore(struct super_block *sb)
 				(sb, au_sbr(sb, bindex)->br_xino.xi_file, page);
 		else
 			AuDbg("b%d\n", bindex);
-	au_delayed_free_page((unsigned long)page);
+	free_page((unsigned long)page);
 
 out:
 	return err;
@@ -1029,7 +1029,7 @@ static void xino_clear_xib(struct super_block *sb)
 		fput(sbinfo->si_xib);
 	sbinfo->si_xib = NULL;
 	if (sbinfo->si_xib_buf)
-		au_delayed_free_page((unsigned long)sbinfo->si_xib_buf);
+		free_page((unsigned long)sbinfo->si_xib_buf);
 	sbinfo->si_xib_buf = NULL;
 }
 
@@ -1073,7 +1073,7 @@ static int au_xino_set_xib(struct super_block *sb, struct file *base)
 
 out_free:
 	if (sbinfo->si_xib_buf)
-		au_delayed_free_page((unsigned long)sbinfo->si_xib_buf);
+		free_page((unsigned long)sbinfo->si_xib_buf);
 	sbinfo->si_xib_buf = NULL;
 	if (err >= 0)
 		err = -EIO;
@@ -1166,7 +1166,7 @@ out_pair:
 			fput(p->new);
 		else
 			break;
-	au_delayed_kfree(fpair);
+	kfree(fpair);
 out:
 	return err;
 }
@@ -1277,7 +1277,7 @@ struct file *au_xino_def(struct super_block *sb)
 			if (!IS_ERR(file))
 				au_xino_brid_set(sb, br->br_id);
 		}
-		au_delayed_free_page((unsigned long)page);
+		free_page((unsigned long)page);
 	} else {
 		file = au_xino_create(sb, AUFS_XINO_DEFPATH, /*silent*/0);
 		if (IS_ERR(file))

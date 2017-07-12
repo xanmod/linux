@@ -336,7 +336,7 @@ void au_dpri_sb(struct super_block *sb)
 	au_br_count_init(&a->fake);
 	err = do_pri_br(-1, &a->fake);
 	au_br_count_fin(&a->fake);
-	au_delayed_kfree(a);
+	kfree(a);
 	dpri("dev 0x%x\n", sb->s_dev);
 	if (err || !au_test_aufs(sb))
 		return;

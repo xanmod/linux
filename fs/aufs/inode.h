@@ -35,10 +35,7 @@ struct au_hnotify {
 	/* never use fsnotify_add_vfsmount_mark() */
 	struct fsnotify_mark		hn_mark;
 #endif
-	union {
-		struct inode		*hn_aufs_inode;	/* no get/put */
-		struct llist_node	hn_lnode;	/* delayed free */
-	};
+	struct inode		*hn_aufs_inode;	/* no get/put */
 #endif
 } ____cacheline_aligned_in_smp;
 
@@ -81,10 +78,7 @@ struct au_iinfo {
 struct au_icntnr {
 	struct au_iinfo iinfo;
 	struct inode vfs_inode;
-	union {
-		struct hlist_node	plink;
-		struct llist_node	lnode;	/* delayed free */
-	};
+	struct hlist_node plink;
 } ____cacheline_aligned_in_smp;
 
 /* au_pin flags */

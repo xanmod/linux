@@ -598,6 +598,7 @@ int vfsub_iterate_dir(struct file *file, struct dir_context *ctx)
 	lockdep_on();
 	if (err >= 0)
 		vfsub_update_h_iattr(&file->f_path, /*did*/NULL); /*ignore*/
+
 	return err;
 }
 

@@ -1158,7 +1158,7 @@ out_free:
 	iput(a->dst_inode);
 	if (a->thargs)
 		au_whtmp_rmdir_free(a->thargs);
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	AuTraceErr(err);
 	return err;

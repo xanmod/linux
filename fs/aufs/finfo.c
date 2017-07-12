@@ -102,7 +102,7 @@ int au_fidir_realloc(struct au_finfo *finfo, int nbr, int may_shrink)
 
 /* ---------------------------------------------------------------------- */
 
-void au_finfo_fin(struct file *file, int atonce)
+void au_finfo_fin(struct file *file)
 {
 	struct au_finfo *finfo;
 
@@ -111,10 +111,7 @@ void au_finfo_fin(struct file *file, int atonce)
 	finfo = au_fi(file);
 	AuDebugOn(finfo->fi_hdir);
 	AuRwDestroy(&finfo->fi_rwsem);
-	if (!atonce)
-		au_cache_dfree_finfo(finfo);
-	else
-		au_cache_free_finfo(finfo);
+	au_cache_free_finfo(finfo);
 }
 
 void au_fi_init_once(void *_finfo)
