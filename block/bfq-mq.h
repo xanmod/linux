@@ -15,7 +15,6 @@
 #ifndef _BFQ_H
 #define _BFQ_H
 
-#include <linux/blktrace_api.h>
 #include <linux/hrtimer.h>
 #include <linux/blk-cgroup.h>
 
@@ -725,6 +724,21 @@ static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
 		##args)
 
 #else /* CONFIG_BFQ_REDIRECT_TO_CONSOLE */
+
+#if !defined(CONFIG_BLK_DEV_IO_TRACE)
+
+/* Avoid possible "unused-variable" warning. See commit message. */
+
+#define bfq_log_bfqq(bfqd, bfqq, fmt, args...)	((void) (bfqq))
+
+#define bfq_log_bfqg(bfqd, bfqg, fmt, args...)	((void) (bfqg))
+
+#define bfq_log(bfqd, fmt, args...)		do {} while (0)
+
+#else /* CONFIG_BLK_DEV_IO_TRACE */
+
+#include <linux/blktrace_api.h>
+
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 static struct bfq_group *bfqq_group(struct bfq_queue *bfqq);
 static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
@@ -752,6 +766,8 @@ static struct blkcg_gq *bfqg_to_blkg(struct bfq_group *bfqg);
 
 #define bfq_log(bfqd, fmt, args...) \
 	blk_add_trace_msg((bfqd)->queue, "bfq " fmt, ##args)
+
+#endif /* CONFIG_BLK_DEV_IO_TRACE */
 #endif /* CONFIG_BFQ_REDIRECT_TO_CONSOLE */
 
 /* Expiration reasons. */
