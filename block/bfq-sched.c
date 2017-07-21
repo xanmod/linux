@@ -1336,8 +1336,10 @@ static bool __bfq_deactivate_entity(struct bfq_entity *entity,
 
 	BUG_ON(is_in_service && entity->tree && entity->tree != &st->active);
 
-	if (is_in_service)
+	if (is_in_service) {
 		bfq_calc_finish(entity, entity->service);
+		sd->in_service_entity = NULL;
+	}
 
 	if (entity->tree == &st->active)
 		bfq_active_extract(st, entity);
