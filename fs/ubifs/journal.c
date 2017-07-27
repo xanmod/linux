@@ -574,7 +574,7 @@ int ubifs_jnl_update(struct ubifs_info *c, const struct inode *dir,
 	/* Make sure to also account for extended attributes */
 	len += host_ui->data_len;
 
-	dent = kmalloc(len, GFP_NOFS);
+	dent = kzalloc(len, GFP_NOFS);
 	if (!dent)
 		return -ENOMEM;
 
@@ -967,7 +967,7 @@ int ubifs_jnl_xrename(struct ubifs_info *c, const struct inode *fst_dir,
 	if (twoparents)
 		len += plen;
 
-	dent1 = kmalloc(len, GFP_NOFS);
+	dent1 = kzalloc(len, GFP_NOFS);
 	if (!dent1)
 		return -ENOMEM;
 
@@ -984,6 +984,7 @@ int ubifs_jnl_xrename(struct ubifs_info *c, const struct inode *fst_dir,
 	dent1->nlen = cpu_to_le16(fname_len(snd_nm));
 	memcpy(dent1->name, fname_name(snd_nm), fname_len(snd_nm));
 	dent1->name[fname_len(snd_nm)] = '\0';
+	set_dent_cookie(c, dent1);
 	zero_dent_node_unused(dent1);
 	ubifs_prep_grp_node(c, dent1, dlen1, 0);
 
@@ -996,6 +997,7 @@ int ubifs_jnl_xrename(struct ubifs_info *c, const struct inode *fst_dir,
 	dent2->nlen = cpu_to_le16(fname_len(fst_nm));
 	memcpy(dent2->name, fname_name(fst_nm), fname_len(fst_nm));
 	dent2->name[fname_len(fst_nm)] = '\0';
+	set_dent_cookie(c, dent2);
 	zero_dent_node_unused(dent2);
 	ubifs_prep_grp_node(c, dent2, dlen2, 0);
 
@@ -1117,7 +1119,7 @@ int ubifs_jnl_rename(struct ubifs_info *c, const struct inode *old_dir,
 	len = aligned_dlen1 + aligned_dlen2 + ALIGN(ilen, 8) + ALIGN(plen, 8);
 	if (move)
 		len += plen;
-	dent = kmalloc(len, GFP_NOFS);
+	dent = kzalloc(len, GFP_NOFS);
 	if (!dent)
 		return -ENOMEM;
 
@@ -1500,7 +1502,7 @@ int ubifs_jnl_delete_xattr(struct ubifs_info *c, const struct inode *host,
 	hlen = host_ui->data_len + UBIFS_INO_NODE_SZ;
 	len = aligned_xlen + UBIFS_INO_NODE_SZ + ALIGN(hlen, 8);
 
-	xent = kmalloc(len, GFP_NOFS);
+	xent = kzalloc(len, GFP_NOFS);
 	if (!xent)
 		return -ENOMEM;
 
@@ -1607,7 +1609,7 @@ int ubifs_jnl_change_xattr(struct ubifs_info *c, const struct inode *inode,
 	aligned_len1 = ALIGN(len1, 8);
 	aligned_len = aligned_len1 + ALIGN(len2, 8);
 
-	ino = kmalloc(aligned_len, GFP_NOFS);
+	ino = kzalloc(aligned_len, GFP_NOFS);
 	if (!ino)
 		return -ENOMEM;
 

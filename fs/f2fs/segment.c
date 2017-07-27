@@ -16,6 +16,7 @@
 #include <linux/kthread.h>
 #include <linux/swap.h>
 #include <linux/timer.h>
+#include <linux/freezer.h>
 
 #include "f2fs.h"
 #include "segment.h"
@@ -751,7 +752,7 @@ static void f2fs_submit_discard_endio(struct bio *bio)
 
 	dc->error = bio->bi_error;
 	dc->state = D_DONE;
-	complete(&dc->wait);
+	complete_all(&dc->wait);
 	bio_put(bio);
 }
 
@@ -1060,18 +1061,24 @@ static int issue_discard_thread(void *data)
 	struct f2fs_sb_info *sbi = data;
 	struct discard_cmd_control *dcc = SM_I(sbi)->dcc_info;
 	wait_queue_head_t *q = &dcc->discard_wait_queue;
-repeat:
-	if (kthread_should_stop())
-		return 0;
 
-	__issue_discard_cmd(sbi, true);
-	__wait_discard_cmd(sbi, true);
+	set_freezable();
 
-	congestion_wait(BLK_RW_SYNC, HZ/50);
+	do {
+		wait_event_interruptible(*q, kthread_should_stop() ||
+					freezing(current) ||
+					atomic_read(&dcc->discard_cmd_cnt));
+		if (try_to_freeze())
+			continue;
+		if (kthread_should_stop())
+			return 0;
 
-	wait_event_interruptible(*q, kthread_should_stop() ||
-				atomic_read(&dcc->discard_cmd_cnt));
-	goto repeat;
+		__issue_discard_cmd(sbi, true);
+		__wait_discard_cmd(sbi, true);
+
+		congestion_wait(BLK_RW_SYNC, HZ/50);
+	} while (!kthread_should_stop());
+	return 0;
 }
 
 #ifdef CONFIG_BLK_DEV_ZONED
@@ -1322,7 +1329,8 @@ find_next:
 					sbi->blocks_per_seg, cur_pos);
 			len = next_pos - cur_pos;
 
-			if (force && len < cpc->trim_minlen)
+			if (f2fs_sb_mounted_blkzoned(sbi->sb) ||
+			    (force && len < cpc->trim_minlen))
 				goto skip;
 
 			f2fs_issue_discard(sbi, entry->start_blkaddr + cur_pos,
@@ -2455,6 +2463,8 @@ static int read_normal_summaries(struct f2fs_sb_info *sbi, int type)
 
 static int restore_curseg_summaries(struct f2fs_sb_info *sbi)
 {
+	struct f2fs_journal *sit_j = CURSEG_I(sbi, CURSEG_COLD_DATA)->journal;
+	struct f2fs_journal *nat_j = CURSEG_I(sbi, CURSEG_HOT_DATA)->journal;
 	int type = CURSEG_HOT_DATA;
 	int err;
 
@@ -2480,6 +2490,11 @@ static int restore_curseg_summaries(struct f2fs_sb_info *sbi)
 		if (err)
 			return err;
 	}
+
+	/* sanity check for summary blocks */
+	if (nats_in_cursum(nat_j) > NAT_JOURNAL_ENTRIES ||
+			sits_in_cursum(sit_j) > SIT_JOURNAL_ENTRIES)
+		return -EINVAL;
 
 	return 0;
 }

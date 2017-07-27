@@ -1456,6 +1456,13 @@ static enum event_type_t get_event_type(struct perf_event *event)
 
 	lockdep_assert_held(&ctx->lock);
 
+	/*
+	 * It's 'group type', really, because if our group leader is
+	 * pinned, so are we.
+	 */
+	if (event->group_leader != event)
+		event = event->group_leader;
+
 	event_type = event->attr.pinned ? EVENT_PINNED : EVENT_FLEXIBLE;
 	if (!ctx->task)
 		event_type |= EVENT_CPU;
@@ -7316,21 +7323,6 @@ int perf_event_account_interrupt(struct perf_event *event)
 	return __perf_event_account_interrupt(event, 1);
 }
 
-static bool sample_is_allowed(struct perf_event *event, struct pt_regs *regs)
-{
-	/*
-	 * Due to interrupt latency (AKA "skid"), we may enter the
-	 * kernel before taking an overflow, even if the PMU is only
-	 * counting user events.
-	 * To avoid leaking information to userspace, we must always
-	 * reject kernel samples when exclude_kernel is set.
-	 */
-	if (event->attr.exclude_kernel && !user_mode(regs))
-		return false;
-
-	return true;
-}
-
 /*
  * Generic event overflow handling, sampling.
  */
@@ -7350,12 +7342,6 @@ static int __perf_event_overflow(struct perf_event *event,
 		return 0;
 
 	ret = __perf_event_account_interrupt(event, throttle);
-
-	/*
-	 * For security, drop the skid kernel samples if necessary.
-	 */
-	if (!sample_is_allowed(event, regs))
-		return ret;
 
 	/*
 	 * XXX event_limit might not quite work as expected on inherited
