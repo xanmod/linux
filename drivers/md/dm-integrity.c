@@ -1587,16 +1587,18 @@ retry:
 	if (likely(ic->mode == 'J')) {
 		if (dio->write) {
 			unsigned next_entry, i, pos;
-			unsigned ws, we;
+			unsigned ws, we, range_sectors;
 
-			dio->range.n_sectors = min(dio->range.n_sectors, ic->free_sectors);
+			dio->range.n_sectors = min(dio->range.n_sectors,
+						   ic->free_sectors << ic->sb->log2_sectors_per_block);
 			if (unlikely(!dio->range.n_sectors))
 				goto sleep;
-			ic->free_sectors -= dio->range.n_sectors;
+			range_sectors = dio->range.n_sectors >> ic->sb->log2_sectors_per_block;
+			ic->free_sectors -= range_sectors;
 			journal_section = ic->free_section;
 			journal_entry = ic->free_section_entry;
 
-			next_entry = ic->free_section_entry + dio->range.n_sectors;
+			next_entry = ic->free_section_entry + range_sectors;
 			ic->free_section_entry = next_entry % ic->journal_section_entries;
 			ic->free_section += next_entry / ic->journal_section_entries;
 			ic->n_uncommitted_sections += next_entry / ic->journal_section_entries;
@@ -3017,6 +3019,11 @@ static int dm_integrity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	if (ic->sb->log2_sectors_per_block != __ffs(ic->sectors_per_block)) {
 		r = -EINVAL;
 		ti->error = "Block size doesn't match the information in superblock";
+		goto bad;
+	}
+	if (!le32_to_cpu(ic->sb->journal_sections)) {
+		r = -EINVAL;
+		ti->error = "Corrupted superblock, journal_sections is 0";
 		goto bad;
 	}
 	/* make sure that ti->max_io_len doesn't overflow */
