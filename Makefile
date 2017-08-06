@@ -636,11 +636,6 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, format-truncation)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 
-# Disable output truncation and buffer overflow warnings.
-KBUILD_CFLAGS += $(call cc-ifversion, -ge, 0700, \
-			$(call cc-disable-warning,format-truncation,) \
-			$(call cc-disable-warning,format-overflow))
-
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= $(call cc-option,-Oz,-Os)
 else
