@@ -3765,6 +3765,7 @@ static int bfq_dispatch_request(struct bfq_data *bfqd,
 	if (!bfqd->in_service_bic) {
 		atomic_long_inc(&RQ_BIC(rq)->icq.ioc->refcount);
 		bfqd->in_service_bic = RQ_BIC(rq);
+		BUG_ON(!bfqd->in_service_bic);
 	}
 
 	if (bfqd->busy_queues > 1 && bfq_class_idle(bfqq))
