@@ -33,7 +33,8 @@ static struct bfq_entity *bfq_root_active_entity(struct rb_root *tree)
 	return rb_entry(node, struct bfq_entity, rb_node);
 }
 
-static struct bfq_entity *bfq_lookup_next_entity(struct bfq_sched_data *sd);
+static struct bfq_entity *bfq_lookup_next_entity(struct bfq_sched_data *sd,
+						 bool expiration);
 
 static bool bfq_update_parent_budget(struct bfq_entity *next_in_service);
 
@@ -43,6 +44,8 @@ static bool bfq_update_parent_budget(struct bfq_entity *next_in_service);
  * @new_entity: if not NULL, pointer to the entity whose activation,
  *		requeueing or repositionig triggered the invocation of
  *		this function.
+ * @expiration: id true, this function is being invoked after the
+ *		expiration of the in-service entity
  *
  * This function is called to update sd->next_in_service, which, in
  * its turn, may change as a consequence of the insertion or
@@ -61,7 +64,8 @@ static bool bfq_update_parent_budget(struct bfq_entity *next_in_service);
  * entity.
  */
 static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
-				       struct bfq_entity *new_entity)
+				       struct bfq_entity *new_entity,
+				       bool expiration)
 {
 	struct bfq_entity *next_in_service = sd->next_in_service;
 	struct bfq_queue *bfqq;
@@ -120,7 +124,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 		if (replace_next)
 			next_in_service = new_entity;
 	} else /* invoked because of a deactivation: lookup needed */
-		next_in_service = bfq_lookup_next_entity(sd);
+		next_in_service = bfq_lookup_next_entity(sd, expiration);
 
 	if (next_in_service) {
 		parent_sched_may_change = !sd->next_in_service ||
@@ -1291,10 +1295,12 @@ static void __bfq_activate_requeue_entity(struct bfq_entity *entity,
  * @requeue: true if this is a requeue, which implies that bfqq is
  *	     being expired; thus ALL its ancestors stop being served and must
  *	     therefore be requeued
+ * @expiration: true if this function is being invoked in the expiration path
+ *		of the in-service queue
  */
 static void bfq_activate_requeue_entity(struct bfq_entity *entity,
 					bool non_blocking_wait_rq,
-					bool requeue)
+					bool requeue, bool expiration)
 {
 	struct bfq_sched_data *sd;
 
@@ -1307,7 +1313,8 @@ static void bfq_activate_requeue_entity(struct bfq_entity *entity,
 		       RB_EMPTY_ROOT(&(sd->service_tree+1)->active) &&
 		       RB_EMPTY_ROOT(&(sd->service_tree+2)->active));
 
-		if (!bfq_update_next_in_service(sd, entity) && !requeue) {
+		if (!bfq_update_next_in_service(sd, entity, expiration) &&
+		    !requeue) {
 			BUG_ON(!sd->next_in_service);
 			break;
 		}
@@ -1373,6 +1380,8 @@ static bool __bfq_deactivate_entity(struct bfq_entity *entity,
  * bfq_deactivate_entity - deactivate an entity representing a bfq_queue.
  * @entity: the entity to deactivate.
  * @ins_into_idle_tree: true if the entity can be put into the idle tree
+ * @expiration: true if this function is being invoked in the expiration path
+ *		of the in-service queue
  */
 static void bfq_deactivate_entity(struct bfq_entity *entity,
 				  bool ins_into_idle_tree,
@@ -1417,7 +1426,7 @@ static void bfq_deactivate_entity(struct bfq_entity *entity,
 			 * then, since entity has just been
 			 * deactivated, a new one must be found.
 			 */
-			bfq_update_next_in_service(sd, NULL);
+			bfq_update_next_in_service(sd, NULL, expiration);
 
 		if (sd->next_in_service || sd->in_service_entity) {
 			/*
@@ -1495,7 +1504,7 @@ static void bfq_deactivate_entity(struct bfq_entity *entity,
 				     "invoking udpdate_next for this entity");
 		}
 #endif
-		if (!bfq_update_next_in_service(sd, entity) &&
+		if (!bfq_update_next_in_service(sd, entity, expiration) &&
 		    !expiration)
 			/*
 			 * next_in_service unchanged or not causing
@@ -1524,7 +1533,7 @@ static u64 bfq_calc_vtime_jump(struct bfq_service_tree *st)
 		if (bfqq)
 			bfq_log_bfqq(bfqq->bfqd, bfqq,
 				     "calc_vtime_jump: new value %llu",
-				     root_entity->min_start);
+				     ((root_entity->min_start>>10)*1000)>>12);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 		else {
 			struct bfq_group *bfqg =
@@ -1533,7 +1542,7 @@ static u64 bfq_calc_vtime_jump(struct bfq_service_tree *st)
 
 			bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
 				     "calc_vtime_jump: new value %llu",
-				     root_entity->min_start);
+				     ((root_entity->min_start>>10)*1000)>>12);
 		}
 #endif
 		return root_entity->min_start;
@@ -1615,17 +1624,9 @@ left:
  * 3) is idle.
  */
 static struct bfq_entity *
-__bfq_lookup_next_entity(struct bfq_service_tree *st, bool in_service
-#if 0
-			 , bool force
-#endif
-	)
+__bfq_lookup_next_entity(struct bfq_service_tree *st, bool in_service)
 {
-	struct bfq_entity *entity
-#if 0
-		, *new_next_in_service = NULL
-#endif
-		;
+	struct bfq_entity *entity;
 	u64 new_vtime;
 	struct bfq_queue *bfqq;
 
@@ -1667,8 +1668,9 @@ __bfq_lookup_next_entity(struct bfq_service_tree *st, bool in_service
 			container_of(entity, struct bfq_group, entity);
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			     "__lookup_next: start %llu vtime %llu st %p",
+			     "__lookup_next: start %llu vtime %llu (%llu) st %p",
 			     ((entity->start>>10)*1000)>>12,
+			     ((st->vtime>>10)*1000)>>12,
 			     ((new_vtime>>10)*1000)>>12, st);
 	}
 #endif
@@ -1681,12 +1683,14 @@ __bfq_lookup_next_entity(struct bfq_service_tree *st, bool in_service
 /**
  * bfq_lookup_next_entity - return the first eligible entity in @sd.
  * @sd: the sched_data.
+ * @expiration: true if we are on the expiration path of the in-service queue
  *
  * This function is invoked when there has been a change in the trees
- * for sd, and we need know what is the new next entity after this
- * change.
+ * for sd, and we need to know what is the new next entity to serve
+ * after this change.
  */
-static struct bfq_entity *bfq_lookup_next_entity(struct bfq_sched_data *sd)
+static struct bfq_entity *bfq_lookup_next_entity(struct bfq_sched_data *sd,
+						 bool expiration)
 {
 	struct bfq_service_tree *st = sd->service_tree;
 	struct bfq_service_tree *idle_class_st = st + (BFQ_IOPRIO_CLASSES - 1);
@@ -1716,8 +1720,24 @@ static struct bfq_entity *bfq_lookup_next_entity(struct bfq_sched_data *sd)
 	 * class, unless the idle class needs to be served.
 	 */
 	for (; class_idx < BFQ_IOPRIO_CLASSES; class_idx++) {
+		/*
+		 * If expiration is true, then bfq_lookup_next_entity
+		 * is being invoked as a part of the expiration path
+		 * of the in-service queue. In this case, even if
+		 * sd->in_service_entity is not NULL,
+		 * sd->in_service_entiy at this point is actually not
+		 * in service any more, and, if needed, has already
+		 * been properly queued or requeued into the right
+		 * tree. The reason why sd->in_service_entity is still
+		 * not NULL here, even if expiration is true, is that
+		 * sd->in_service_entiy is reset as a last step in the
+		 * expiration path. So, if expiration is true, tell
+		 * __bfq_lookup_next_entity that there is no
+		 * sd->in_service_entity.
+		 */
 		entity = __bfq_lookup_next_entity(st + class_idx,
-						  sd->in_service_entity);
+						  sd->in_service_entity &&
+						  !expiration);
 
 		if (entity)
 			break;
@@ -1891,7 +1911,7 @@ static struct bfq_queue *bfq_get_next_queue(struct bfq_data *bfqd)
 	for_each_entity(entity) {
 		struct bfq_sched_data *sd = entity->sched_data;
 
-		if(!bfq_update_next_in_service(sd, NULL))
+		if (!bfq_update_next_in_service(sd, NULL, false))
 			break;
 	}
 
@@ -1951,16 +1971,17 @@ static void bfq_activate_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 	       entity->on_st);
 
 	bfq_activate_requeue_entity(entity, bfq_bfqq_non_blocking_wait_rq(bfqq),
-				    false);
+				    false, false);
 	bfq_clear_bfqq_non_blocking_wait_rq(bfqq);
 }
 
-static void bfq_requeue_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq)
+static void bfq_requeue_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq,
+			     bool expiration)
 {
 	struct bfq_entity *entity = &bfqq->entity;
 
 	bfq_activate_requeue_entity(entity, false,
-				    bfqq == bfqd->in_service_queue);
+				    bfqq == bfqd->in_service_queue, expiration);
 }
 
 static void bfqg_stats_update_dequeue(struct bfq_group *bfqg);
