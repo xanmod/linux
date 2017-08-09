@@ -1904,6 +1904,13 @@ static void __bfq_bfqd_reset_in_service(struct bfq_data *bfqd)
 	struct bfq_entity *in_serv_entity = &in_serv_bfqq->entity;
 	struct bfq_entity *entity = in_serv_entity;
 
+#ifndef BFQ_MQ
+	if (bfqd->in_service_bic) {
+		put_io_context(bfqd->in_service_bic->icq.ioc);
+		bfqd->in_service_bic = NULL;
+	}
+#endif
+
 	bfq_clear_bfqq_wait_request(in_serv_bfqq);
 	hrtimer_try_to_cancel(&bfqd->idle_slice_timer);
 	bfqd->in_service_queue = NULL;
