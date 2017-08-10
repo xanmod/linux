@@ -70,6 +70,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 	struct bfq_entity *next_in_service = sd->next_in_service;
 	struct bfq_queue *bfqq;
 	bool parent_sched_may_change = false;
+	bool change_without_lookup = false;
 
 	/*
 	 * If this update is triggered by the activation, requeueing
@@ -89,7 +90,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 		 * set to true, and left as true if
 		 * sd->next_in_service is NULL.
 		 */
-		bool replace_next = true;
+		change_without_lookup = true;
 
 		/*
 		 * If there is already a next_in_service candidate
@@ -102,7 +103,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 			struct bfq_service_tree *st =
 				sd->service_tree + new_entity_class_idx;
 
-			replace_next =
+			change_without_lookup =
 				(new_entity_class_idx ==
 				 bfq_class_idx(next_in_service)
 				 &&
@@ -112,15 +113,32 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 					new_entity->finish));
 		}
 
-		if (replace_next)
+		if (change_without_lookup) {
 			next_in_service = new_entity;
-	} else /* invoked because of a deactivation: lookup needed */
+			bfqq = bfq_entity_to_bfqq(next_in_service);
+
+			if (bfqq)
+				bfq_log_bfqq(bfqq->bfqd, bfqq,
+				"update_next_in_service: chose without lookup");
+#ifdef BFQ_GROUP_IOSCHED_ENABLED
+			else {
+				struct bfq_group *bfqg =
+					container_of(next_in_service,
+						     struct bfq_group, entity);
+
+				bfq_log_bfqg((struct bfq_data*)bfqg->bfqd, bfqg,
+				"update_next_in_service: chose without lookup");
+			}
+#endif
+		}
+	}
+
+	if (!change_without_lookup) /* lookup needed */
 		next_in_service = bfq_lookup_next_entity(sd, expiration);
 
-	if (next_in_service) {
+	if (next_in_service)
 		parent_sched_may_change = !sd->next_in_service ||
 			bfq_update_parent_budget(next_in_service);
-	}
 
 	sd->next_in_service = next_in_service;
 
@@ -1053,7 +1071,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 
 		if (bfqq) {
 			bfq_log_bfqq(bfqq->bfqd, bfqq,
-				     "__activate_entity: new queue finish %llu",
+				     "update_fin_time_enqueue: new queue finish %llu",
 				     ((entity->finish>>10)*1000)>>12);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 		} else {
@@ -1061,7 +1079,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 				container_of(entity, struct bfq_group, entity);
 
 			bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-				     "__activate_entity: new group finish %llu",
+				     "update_fin_time_enqueue: new group finish %llu",
 				     ((entity->finish>>10)*1000)>>12);
 #endif
 		}
@@ -1071,7 +1089,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 
 	if (bfqq) {
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			"__activate_entity: queue %seligible in st %p",
+			"update_fin_time_enqueue: queue %seligible in st %p",
 			     entity->start <= st->vtime ? "" : "non ", st);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	} else {
@@ -1079,7 +1097,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 			container_of(entity, struct bfq_group, entity);
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			"__activate_entity: group %seligible in st %p",
+			"update_fin_time_enqueue: group %seligible in st %p",
 			     entity->start <= st->vtime ? "" : "non ", st);
 #endif
 	}
