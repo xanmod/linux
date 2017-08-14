@@ -277,6 +277,12 @@ static int klp_check_stack(struct task_struct *task, char *err_buf)
 	return 0;
 }
 
+#ifdef CONFIG_SCHED_MUQSS
+typedef unsigned long rq_flags_t;
+#else
+typedef struct rq_flags rq_flag_t;
+#endif
+
 /*
  * Try to safely switch a task to the target patch state.  If it's currently
  * running, or it's sleeping on a to-be-patched or to-be-unpatched function, or
@@ -285,7 +291,7 @@ static int klp_check_stack(struct task_struct *task, char *err_buf)
 static bool klp_try_switch_task(struct task_struct *task)
 {
 	struct rq *rq;
-	struct rq_flags flags;
+	rq_flags_t flags;
 	int ret;
 	bool success = false;
 	char err_buf[STACK_ERR_BUF_SIZE];

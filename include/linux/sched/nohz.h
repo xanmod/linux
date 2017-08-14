@@ -5,7 +5,7 @@
  * This is the interface between the scheduler and nohz/dyntics:
  */
 
-#if defined(CONFIG_SMP) && defined(CONFIG_NO_HZ_COMMON)
+#if defined(CONFIG_SMP) && defined(CONFIG_NO_HZ_COMMON) && !defined(CONFIG_SCHED_MUQSS)
 extern void cpu_load_update_nohz_start(void);
 extern void cpu_load_update_nohz_stop(void);
 #else
@@ -22,7 +22,7 @@ static inline void nohz_balance_enter_idle(int cpu) { }
 static inline void set_cpu_sd_state_idle(void) { }
 #endif
 
-#ifdef CONFIG_NO_HZ_COMMON
+#if defined(CONFIG_NO_HZ_COMMON) && !defined(CONFIG_SCHED_MUQSS)
 void calc_load_enter_idle(void);
 void calc_load_exit_idle(void);
 #else

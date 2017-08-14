@@ -78,7 +78,7 @@ extern pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags);
 extern void free_task(struct task_struct *tsk);
 
 /* sched_exec is called by processes performing an exec */
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && !defined(CONFIG_SCHED_MUQSS)
 extern void sched_exec(void);
 #else
 #define sched_exec()   {}
