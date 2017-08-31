@@ -17,7 +17,7 @@ instances of BFQ are available (otherwise only the first instance):
 - bfq-mq: development version of BFQ for blk-mq; this version contains
    also all latest features and fixes not yet landed in mainline, plus many
    safety checks
-- bfq: BFQ for legacy blk; also this version contains latest features
+- bfq-sq: BFQ for legacy blk; also this version contains latest features
    and fixes, as well as safety checks
 
 In its default configuration, BFQ privileges latency over
