@@ -4,6 +4,9 @@
  * (C) Copyright 2012 Intel Corporation
  * Author: Dirk Brandewie <dirk.j.brandewie@intel.com>
  *
+ * Default Passive mode patch by Alexandre Frade
+ * (C) 2017 XanMod Kernel <kernel@xanmod.org>
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; version 2
@@ -2259,7 +2262,7 @@ static struct cpufreq_driver intel_cpufreq = {
 	.name		= "intel_cpufreq",
 };
 
-static struct cpufreq_driver *default_driver = &intel_pstate;
+static struct cpufreq_driver *default_driver = &intel_cpufreq;
 
 static bool pid_in_use(void)
 {
@@ -2589,6 +2592,11 @@ hwp_cpu_matched:
 
 	pr_info("Intel P-state driver initializing\n");
 
+	if (default_driver == &intel_cpufreq) {
+		no_hwp = 1;
+		pr_info("Passive mode enabled\n");
+	}
+
 	all_cpu_data = vzalloc(sizeof(void *) * num_possible_cpus());
 	if (!all_cpu_data)
 		return -ENOMEM;
@@ -2617,10 +2625,9 @@ static int __init intel_pstate_setup(char *str)
 
 	if (!strcmp(str, "disable")) {
 		no_load = 1;
-	} else if (!strcmp(str, "passive")) {
-		pr_info("Passive mode enabled\n");
-		default_driver = &intel_cpufreq;
-		no_hwp = 1;
+	} else if (!strcmp(str, "enable")) {
+		pr_info("Native mode enabled\n");
+		default_driver = &intel_pstate;
 	}
 	if (!strcmp(str, "no_hwp")) {
 		pr_info("HWP disabled\n");
