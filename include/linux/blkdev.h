@@ -53,7 +53,7 @@ struct blk_stat_callback;
  * Maximum number of blkcg policies allowed to be registered concurrently.
  * Defined here to simplify include dependency.
  */
-#define BLKCG_MAX_POLS		3
+#define BLKCG_MAX_POLS		5
 
 typedef void (rq_end_io_fn)(struct request *, blk_status_t);
 
@@ -120,6 +120,10 @@ typedef __u32 __bitwise req_flags_t;
 /* Look at ->special_vec for the actual data payload instead of the
    bio chain. */
 #define RQF_SPECIAL_PAYLOAD	((__force req_flags_t)(1 << 18))
+/* DEBUG: rq in bfq-mq dispatch list */
+#define RQF_DISP_LIST	((__force req_flags_t)(1 << 19))
+/* DEBUG: rq had get_rq_private executed on it */
+#define RQF_GOT	((__force req_flags_t)(1 << 20))
 
 /* flags that prevent us from merging requests: */
 #define RQF_NOMERGE_FLAGS \
