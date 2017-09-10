@@ -116,7 +116,7 @@ int au_cpup_xattr(struct dentry *h_dst, struct dentry *h_src, int ignore_flags,
 	h_isrc = d_inode(h_src);
 	h_idst = d_inode(h_dst);
 	inode_unlock(h_idst);
-	inode_lock_nested(h_isrc, AuLsc_I_CHILD);
+	vfsub_inode_lock_shared_nested(h_isrc, AuLsc_I_CHILD);
 	inode_lock_nested(h_idst, AuLsc_I_CHILD2);
 	unlocked = 0;
 
@@ -142,7 +142,7 @@ int au_cpup_xattr(struct dentry *h_dst, struct dentry *h_src, int ignore_flags,
 			goto out;
 		err = vfs_listxattr(h_src, p, ssz);
 	}
-	inode_unlock(h_isrc);
+	inode_unlock_shared(h_isrc);
 	unlocked = 1;
 	AuDbg("err %d, ssz %zd\n", err, ssz);
 	if (unlikely(err < 0))
@@ -178,15 +178,13 @@ int au_cpup_xattr(struct dentry *h_dst, struct dentry *h_src, int ignore_flags,
 		AuTraceErr(err);
 	}
 
-	if (value)
-		kfree(value);
+	kfree(value);
 
 out_free:
-	if (o)
-		kfree(o);
+	kfree(o);
 out:
 	if (!unlocked)
-		inode_unlock(h_isrc);
+		inode_unlock_shared(h_isrc);
 	AuTraceErr(err);
 	return err;
 }

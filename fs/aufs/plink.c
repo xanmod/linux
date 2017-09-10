@@ -215,9 +215,9 @@ static struct dentry *au_do_plink_lkup(struct qstr *tgtname,
 	struct inode *h_inode;
 
 	h_inode = d_inode(h_parent);
-	inode_lock_nested(h_inode, AuLsc_I_CHILD2);
+	vfsub_inode_lock_shared_nested(h_inode, AuLsc_I_CHILD2);
 	h_dentry = vfsub_lkup_one(tgtname, h_parent);
-	inode_unlock(h_inode);
+	inode_unlock_shared(h_inode);
 	return h_dentry;
 }
 

@@ -322,11 +322,11 @@ static int hn_job(struct hn_job_args *a)
 	if (au_ftest_hnjob(a->flags, TRYXINO0)
 	    && a->inode
 	    && a->h_inode) {
-		inode_lock_nested(a->h_inode, AuLsc_I_CHILD);
+		vfsub_inode_lock_shared_nested(a->h_inode, AuLsc_I_CHILD);
 		if (!a->h_inode->i_nlink
 		    && !(a->h_inode->i_state & I_LINKABLE))
 			hn_xino(a->inode, a->h_inode); /* ignore this error */
-		inode_unlock(a->h_inode);
+		inode_unlock_shared(a->h_inode);
 	}
 
 	/* make the generation obsolete */

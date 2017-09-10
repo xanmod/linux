@@ -222,11 +222,11 @@ out:
 
 int au_do_open(struct file *file, struct au_do_open_args *args)
 {
-	int err, no_lock = args->no_lock;
+	int err, aopen = args->aopen;
 	struct dentry *dentry;
 	struct au_finfo *finfo;
 
-	if (!no_lock)
+	if (!aopen)
 		err = au_finfo_init(file, args->fidir);
 	else {
 		lockdep_off();
@@ -238,25 +238,12 @@ int au_do_open(struct file *file, struct au_do_open_args *args)
 
 	dentry = file->f_path.dentry;
 	AuDebugOn(IS_ERR_OR_NULL(dentry));
-	if (!no_lock) {
-		di_write_lock_child(dentry);
-		err = au_cmoo(dentry);
-		di_downgrade_lock(dentry, AuLock_IR);
-		if (!err)
-			err = args->open(file, vfsub_file_flags(file), NULL);
-		di_read_unlock(dentry, AuLock_IR);
-	} else {
-		err = au_cmoo(dentry);
-		if (!err)
-			err = args->open(file, vfsub_file_flags(file),
-					 args->h_file);
-		if (!err && au_fbtop(file) != au_dbtop(dentry))
-			/*
-			 * cmoo happens after h_file was opened.
-			 * need to refresh file later.
-			 */
-			atomic_dec(&au_fi(file)->fi_generation);
-	}
+	di_write_lock_child(dentry);
+	err = au_cmoo(dentry);
+	di_downgrade_lock(dentry, AuLock_IR);
+	if (!err)
+		err = args->open(file, vfsub_file_flags(file), NULL);
+	di_read_unlock(dentry, AuLock_IR);
 
 	finfo = au_fi(file);
 	if (!err) {
@@ -264,7 +251,7 @@ int au_do_open(struct file *file, struct au_do_open_args *args)
 		au_sphl_add(&finfo->fi_hlist,
 			    &au_sbi(file->f_path.dentry->d_sb)->si_files);
 	}
-	if (!no_lock)
+	if (!aopen)
 		fi_write_unlock(file);
 	else {
 		lockdep_off();

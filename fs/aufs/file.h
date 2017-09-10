@@ -74,7 +74,7 @@ unsigned int au_file_roflags(unsigned int flags);
 struct file *au_h_open(struct dentry *dentry, aufs_bindex_t bindex, int flags,
 		       struct file *file, int force_wr);
 struct au_do_open_args {
-	int		no_lock;
+	int		aopen;
 	int		(*open)(struct file *file, int flags,
 				struct file *h_file);
 	struct au_fidir	*fidir;
