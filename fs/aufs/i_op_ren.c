@@ -960,7 +960,8 @@ int aufs_rename(struct inode *_src_dir, struct dentry *_src_dentry,
 			goto out_free;
 		lock_flags |= AuLock_DIRS;
 	}
-	err = aufs_read_and_write_lock2(a->dst_dentry, a->src_dentry, lock_flags);
+	err = aufs_read_and_write_lock2(a->dst_dentry, a->src_dentry,
+					lock_flags);
 	if (unlikely(err))
 		goto out_free;
 

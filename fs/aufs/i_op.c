@@ -261,8 +261,8 @@ static int au_do_aopen(struct inode *inode, struct file *file)
 	struct au_sphlhead *aopen;
 	struct aopen_node *node;
 	struct au_do_open_args args = {
-		.no_lock	= 1,
-		.open		= au_do_open_nondir
+		.aopen	= 1,
+		.open	= au_do_open_nondir
 	};
 
 	aopen = &au_sbi(inode->i_sb)->si_aopen;
@@ -282,7 +282,7 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 			    struct file *file, unsigned int open_flag,
 			    umode_t create_mode, int *opened)
 {
-	int err, h_opened = *opened;
+	int err, unlocked, h_opened = *opened;
 	unsigned int lkup_flags;
 	struct dentry *parent, *d;
 	struct au_sphlhead *aopen;
@@ -327,6 +327,7 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 	    || !(open_flag & O_CREAT))
 		goto out_no_open;
 
+	unlocked = 0;
 	err = aufs_read_lock(dentry, AuLock_DW | AuLock_FLUSH | AuLock_GEN);
 	if (unlikely(err))
 		goto out;
@@ -357,6 +358,9 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 			put_filp(args.file);
 		goto out_unlock;
 	}
+	di_write_unlock(parent);
+	di_write_unlock(dentry);
+	unlocked = 1;
 
 	/* some filesystems don't set FILE_CREATED while succeeded? */
 	*opened |= FILE_CREATED;
@@ -376,8 +380,12 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 		fput(aopen_node.h_file);
 
 out_unlock:
-	di_write_unlock(parent);
-	aufs_read_unlock(dentry, AuLock_DW);
+	if (unlocked)
+		si_read_unlock(dentry->d_sb);
+	else {
+		di_write_unlock(parent);
+		aufs_read_unlock(dentry, AuLock_DW);
+	}
 	AuDbgDentry(dentry);
 	if (unlikely(err < 0))
 		goto out;

@@ -519,7 +519,8 @@ static int au_do_cpup_regular(struct au_cp_generic *cpg,
 		else {
 			inode_unlock_shared(h_src_inode);
 			err = vfsub_getattr(&h_path, &h_src_attr->st);
-			vfsub_inode_lock_shared_nested(h_src_inode, AuLsc_I_CHILD);
+			vfsub_inode_lock_shared_nested(h_src_inode,
+						       AuLsc_I_CHILD);
 		}
 		if (unlikely(err)) {
 			inode_unlock_shared(h_src_inode);
