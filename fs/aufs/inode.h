@@ -26,6 +26,7 @@
 
 #include <linux/fsnotify.h>
 #include "rwsem.h"
+#include "vfsub.h"
 
 struct vfsmount;
 
@@ -673,6 +674,13 @@ static inline void au_hn_inode_lock_nested(struct au_hinode *hdir,
 					  unsigned int sc __maybe_unused)
 {
 	inode_lock_nested(hdir->hi_inode, sc);
+	au_hn_suspend(hdir);
+}
+
+static inline void au_hn_inode_lock_shared_nested(struct au_hinode *hdir,
+						  unsigned int sc)
+{
+	vfsub_inode_lock_shared_nested(hdir->hi_inode, sc);
 	au_hn_suspend(hdir);
 }
 

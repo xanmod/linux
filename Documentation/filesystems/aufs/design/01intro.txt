@@ -17,7 +17,7 @@
 Introduction
 ----------------------------------------
 
-aufs [ei ju: ef es] | [a u f s]
+aufs [ei ju: ef es] | /ey-yoo-ef-es/ | [a u f s]
 1. abbrev. for "advanced multi-layered unification filesystem".
 2. abbrev. for "another unionfs".
 3. abbrev. for "auf das" in German which means "on the" in English.

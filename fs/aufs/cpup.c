@@ -378,9 +378,9 @@ static int au_do_copy(struct file *dst, struct file *src, loff_t len)
 	if (!au_test_xfs(h_src_sb))
 		err = au_copy_file(dst, src, len);
 	else {
-		inode_unlock(h_src_inode);
+		inode_unlock_shared(h_src_inode);
 		err = au_copy_file(dst, src, len);
-		inode_lock(h_src_inode);
+		vfsub_inode_lock_shared_nested(h_src_inode, AuLsc_I_CHILD);
 	}
 
 	return err;
@@ -401,9 +401,9 @@ static int au_clone_or_copy(struct file *dst, struct file *src, loff_t len)
 	}
 
 	if (!au_test_nfs(h_src_sb)) {
-		inode_unlock(h_src_inode);
+		inode_unlock_shared(h_src_inode);
 		err = vfsub_clone_file_range(src, dst, len);
-		inode_lock(h_src_inode);
+		vfsub_inode_lock_shared_nested(h_src_inode, AuLsc_I_CHILD);
 	} else
 		err = vfsub_clone_file_range(src, dst, len);
 	/* older XFS has a condition in cloning */
@@ -508,7 +508,7 @@ static int au_do_cpup_regular(struct au_cp_generic *cpg,
 		cpg->len = l;
 	if (cpg->len) {
 		/* try stopping to update while we are referencing */
-		inode_lock_nested(h_src_inode, AuLsc_I_CHILD);
+		vfsub_inode_lock_shared_nested(h_src_inode, AuLsc_I_CHILD);
 		au_pin_hdir_unlock(cpg->pin);
 
 		h_path.dentry = au_h_dptr(cpg->dentry, cpg->bsrc);
@@ -517,20 +517,21 @@ static int au_do_cpup_regular(struct au_cp_generic *cpg,
 		if (!au_test_nfs(h_src_inode->i_sb))
 			err = vfsub_getattr(&h_path, &h_src_attr->st);
 		else {
-			inode_unlock(h_src_inode);
+			inode_unlock_shared(h_src_inode);
 			err = vfsub_getattr(&h_path, &h_src_attr->st);
-			inode_lock_nested(h_src_inode, AuLsc_I_CHILD);
+			vfsub_inode_lock_shared_nested(h_src_inode,
+						       AuLsc_I_CHILD);
 		}
 		if (unlikely(err)) {
-			inode_unlock(h_src_inode);
+			inode_unlock_shared(h_src_inode);
 			goto out;
 		}
 		h_src_attr->valid = 1;
 		if (!au_test_nfs(h_src_inode->i_sb)) {
 			err = au_cp_regular(cpg);
-			inode_unlock(h_src_inode);
+			inode_unlock_shared(h_src_inode);
 		} else {
-			inode_unlock(h_src_inode);
+			inode_unlock_shared(h_src_inode);
 			err = au_cp_regular(cpg);
 		}
 		rerr = au_pin_hdir_relock(cpg->pin);

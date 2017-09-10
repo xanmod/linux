@@ -30,6 +30,7 @@
 int au_wh_name_alloc(struct qstr *wh, const struct qstr *name);
 int au_wh_test(struct dentry *h_parent, struct qstr *wh_name, int try_sio);
 int au_diropq_test(struct dentry *h_dentry);
+struct au_branch;
 struct dentry *au_whtmp_lkup(struct dentry *h_parent, struct au_branch *br,
 			     struct qstr *prefix);
 int au_whtmp_ren(struct dentry *h_dentry, struct au_branch *br);

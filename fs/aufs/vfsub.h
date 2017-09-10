@@ -54,6 +54,13 @@ enum {
 #define MtxMustLock(mtx)	AuDebugOn(!mutex_is_locked(mtx))
 #define IMustLock(i)		AuDebugOn(!inode_is_locked(i))
 
+/* why VFS doesn't define it? */
+static inline
+void vfsub_inode_lock_shared_nested(struct inode *inode, unsigned int sc)
+{
+	down_read_nested(&inode->i_rwsem, sc);
+}
+
 /* ---------------------------------------------------------------------- */
 
 static inline void vfsub_drop_nlink(struct inode *inode)

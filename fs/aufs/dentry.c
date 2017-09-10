@@ -93,9 +93,9 @@ real_lookup:
 	    || (d_really_is_positive(dentry) && !d_is_dir(dentry)))
 		goto out; /* success */
 
-	inode_lock_nested(h_inode, AuLsc_I_CHILD);
+	vfsub_inode_lock_shared_nested(h_inode, AuLsc_I_CHILD);
 	opq = au_diropq_test(h_dentry);
-	inode_unlock(h_inode);
+	inode_unlock_shared(h_inode);
 	if (opq > 0)
 		au_set_dbdiropq(dentry, bindex);
 	else if (unlikely(opq < 0)) {
@@ -168,10 +168,10 @@ int au_lkup_dentry(struct dentry *dentry, aufs_bindex_t btop,
 			continue;
 
 		h_dir = d_inode(h_parent);
-		inode_lock_nested(h_dir, AuLsc_I_PARENT);
+		vfsub_inode_lock_shared_nested(h_dir, AuLsc_I_PARENT);
 		h_dentry = au_do_lookup(h_parent, dentry, bindex, &whname,
 					&args);
-		inode_unlock(h_dir);
+		inode_unlock_shared(h_dir);
 		err = PTR_ERR(h_dentry);
 		if (IS_ERR(h_dentry))
 			goto out_parent;
