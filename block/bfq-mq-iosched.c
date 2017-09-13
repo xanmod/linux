@@ -89,6 +89,7 @@
 #include "blk-mq-tag.h"
 #include "blk-mq-sched.h"
 #include "bfq-mq.h"
+#include "blk-wbt.h"
 
 /* Expiration time of sync (0) and async (1) requests, in ns. */
 static const u64 bfq_fifo_expire[2] = { NSEC_PER_SEC / 4, NSEC_PER_SEC / 8 };
@@ -5260,6 +5261,7 @@ static int bfq_init_queue(struct request_queue *q, struct elevator_type *e)
 	bfq_init_root_group(bfqd->root_group, bfqd);
 	bfq_init_entity(&bfqd->oom_bfqq.entity, bfqd->root_group);
 
+	wbt_disable_default(q);
 	return 0;
 
 out_free:
