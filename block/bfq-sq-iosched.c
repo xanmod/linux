@@ -83,6 +83,7 @@
 #include <linux/ioprio.h>
 #include "blk.h"
 #include "bfq.h"
+#include "blk-wbt.h"
 
 /* Expiration time of sync (0) and async (1) requests, in ns. */
 static const u64 bfq_fifo_expire[2] = { NSEC_PER_SEC / 4, NSEC_PER_SEC / 8 };
@@ -4976,6 +4977,11 @@ out_free:
 	return -ENOMEM;
 }
 
+static void bfq_registered_queue(struct request_queue *q)
+{
+	wbt_disable_default(q);
+}
+
 static void bfq_slab_kill(void)
 {
 	kmem_cache_destroy(bfq_pool);
@@ -5285,6 +5291,7 @@ static struct elevator_type iosched_bfq = {
 		.elevator_may_queue_fn =	bfq_may_queue,
 		.elevator_init_fn =		bfq_init_queue,
 		.elevator_exit_fn =		bfq_exit_queue,
+		.elevator_registered_fn =	bfq_registered_queue,
 	},
 	.icq_size =		sizeof(struct bfq_io_cq),
 	.icq_align =		__alignof__(struct bfq_io_cq),
