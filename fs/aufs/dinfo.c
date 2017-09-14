@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,7 +53,7 @@ struct au_dinfo *au_di_alloc(struct super_block *sb, unsigned int lsc)
 		goto out;
 	}
 
-	au_cache_dfree_dinfo(dinfo);
+	au_cache_free_dinfo(dinfo);
 	dinfo = NULL;
 
 out:
@@ -73,8 +73,8 @@ void au_di_free(struct au_dinfo *dinfo)
 		while (bindex++ <= bbot)
 			au_hdput(p++);
 	}
-	au_delayed_kfree(dinfo->di_hdentry);
-	au_cache_dfree_dinfo(dinfo);
+	kfree(dinfo->di_hdentry);
+	au_cache_free_dinfo(dinfo);
 }
 
 void au_di_swap(struct au_dinfo *a, struct au_dinfo *b)
@@ -142,7 +142,7 @@ void au_di_fin(struct dentry *dentry)
 	au_di_free(dinfo);
 }
 
-int au_di_realloc(struct au_dinfo *dinfo, int nbr)
+int au_di_realloc(struct au_dinfo *dinfo, int nbr, int may_shrink)
 {
 	int err, sz;
 	struct au_hdentry *hdp;
@@ -153,7 +153,8 @@ int au_di_realloc(struct au_dinfo *dinfo, int nbr)
 	sz = sizeof(*hdp) * (dinfo->di_bbot + 1);
 	if (!sz)
 		sz = sizeof(*hdp);
-	hdp = au_kzrealloc(dinfo->di_hdentry, sz, sizeof(*hdp) * nbr, GFP_NOFS);
+	hdp = au_kzrealloc(dinfo->di_hdentry, sz, sizeof(*hdp) * nbr, GFP_NOFS,
+			   may_shrink);
 	if (hdp) {
 		dinfo->di_hdentry = hdp;
 		err = 0;

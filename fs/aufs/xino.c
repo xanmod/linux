@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -338,7 +338,7 @@ int au_xino_trunc(struct super_block *sb, aufs_bindex_t bindex)
 		AuErr1("statfs err %d, ignored\n", err);
 
 out_st:
-	au_delayed_kfree(st);
+	kfree(st);
 out:
 	return err;
 }
@@ -373,7 +373,7 @@ static void xino_do_trunc(void *_args)
 	au_br_put(br);
 	si_write_unlock(sb);
 	au_nwt_done(&au_sbi(sb)->si_nowait);
-	au_delayed_kfree(args);
+	kfree(args);
 }
 
 static int xino_trunc_test(struct super_block *sb, struct au_branch *br)
@@ -427,7 +427,7 @@ static void xino_try_trunc(struct super_block *sb, struct au_branch *br)
 
 	pr_err("wkq %d\n", wkq_err);
 	au_br_put(br);
-	au_delayed_kfree(args);
+	kfree(args);
 
 out:
 	atomic_dec(&br->br_xino_running);
@@ -951,7 +951,7 @@ static int xib_restore(struct super_block *sb)
 				(sb, au_sbr(sb, bindex)->br_xino.xi_file, page);
 		else
 			AuDbg("b%d\n", bindex);
-	au_delayed_free_page((unsigned long)page);
+	free_page((unsigned long)page);
 
 out:
 	return err;
@@ -1029,7 +1029,7 @@ static void xino_clear_xib(struct super_block *sb)
 		fput(sbinfo->si_xib);
 	sbinfo->si_xib = NULL;
 	if (sbinfo->si_xib_buf)
-		au_delayed_free_page((unsigned long)sbinfo->si_xib_buf);
+		free_page((unsigned long)sbinfo->si_xib_buf);
 	sbinfo->si_xib_buf = NULL;
 }
 
@@ -1073,7 +1073,7 @@ static int au_xino_set_xib(struct super_block *sb, struct file *base)
 
 out_free:
 	if (sbinfo->si_xib_buf)
-		au_delayed_free_page((unsigned long)sbinfo->si_xib_buf);
+		free_page((unsigned long)sbinfo->si_xib_buf);
 	sbinfo->si_xib_buf = NULL;
 	if (err >= 0)
 		err = -EIO;
@@ -1166,7 +1166,7 @@ out_pair:
 			fput(p->new);
 		else
 			break;
-	au_delayed_kfree(fpair);
+	kfree(fpair);
 out:
 	return err;
 }
@@ -1277,7 +1277,7 @@ struct file *au_xino_def(struct super_block *sb)
 			if (!IS_ERR(file))
 				au_xino_brid_set(sb, br->br_id);
 		}
-		au_delayed_free_page((unsigned long)page);
+		free_page((unsigned long)page);
 	} else {
 		file = au_xino_create(sb, AUFS_XINO_DEFPATH, /*silent*/0);
 		if (IS_ERR(file))
@@ -1313,6 +1313,103 @@ int au_xino_path(struct seq_file *seq, struct file *file)
 			 sizeof(Deleted) - 1));
 #undef Deleted
 
+out:
+	return err;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void au_xinondir_leave(struct super_block *sb, aufs_bindex_t bindex,
+		       ino_t h_ino, int idx)
+{
+	struct au_xino_file *xino;
+
+	AuDebugOn(!au_opt_test(au_mntflags(sb), XINO));
+	xino = &au_sbr(sb, bindex)->br_xino;
+	AuDebugOn(idx < 0 || xino->xi_nondir.total <= idx);
+
+	spin_lock(&xino->xi_nondir.spin);
+	AuDebugOn(xino->xi_nondir.array[idx] != h_ino);
+	xino->xi_nondir.array[idx] = 0;
+	spin_unlock(&xino->xi_nondir.spin);
+	wake_up_all(&xino->xi_nondir.wqh);
+}
+
+static int au_xinondir_find(struct au_xino_file *xino, ino_t h_ino)
+{
+	int found, total, i;
+
+	found = -1;
+	total = xino->xi_nondir.total;
+	for (i = 0; i < total; i++) {
+		if (xino->xi_nondir.array[i] != h_ino)
+			continue;
+		found = i;
+		break;
+	}
+
+	return found;
+}
+
+static int au_xinondir_expand(struct au_xino_file *xino)
+{
+	int err, sz;
+	ino_t *p;
+
+	BUILD_BUG_ON(KMALLOC_MAX_SIZE > INT_MAX);
+
+	err = -ENOMEM;
+	sz = xino->xi_nondir.total * sizeof(ino_t);
+	if (unlikely(sz > KMALLOC_MAX_SIZE / 2))
+		goto out;
+	p = au_kzrealloc(xino->xi_nondir.array, sz, sz << 1, GFP_ATOMIC,
+			 /*may_shrink*/0);
+	if (p) {
+		xino->xi_nondir.array = p;
+		xino->xi_nondir.total <<= 1;
+		AuDbg("xi_nondir.total %d\n", xino->xi_nondir.total);
+		err = 0;
+	}
+
+out:
+	return err;
+}
+
+int au_xinondir_enter(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
+		      int *idx)
+{
+	int err, found, empty;
+	struct au_xino_file *xino;
+
+	err = 0;
+	*idx = -1;
+	if (!au_opt_test(au_mntflags(sb), XINO))
+		goto out; /* no xino */
+
+	xino = &au_sbr(sb, bindex)->br_xino;
+
+again:
+	spin_lock(&xino->xi_nondir.spin);
+	found = au_xinondir_find(xino, h_ino);
+	if (found == -1) {
+		empty = au_xinondir_find(xino, /*h_ino*/0);
+		if (empty == -1) {
+			empty = xino->xi_nondir.total;
+			err = au_xinondir_expand(xino);
+			if (unlikely(err))
+				goto out_unlock;
+		}
+		xino->xi_nondir.array[empty] = h_ino;
+		*idx = empty;
+	} else {
+		spin_unlock(&xino->xi_nondir.spin);
+		wait_event(xino->xi_nondir.wqh,
+			   xino->xi_nondir.array[found] != h_ino);
+		goto again;
+	}
+
+out_unlock:
+	spin_unlock(&xino->xi_nondir.spin);
 out:
 	return err;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,7 +99,6 @@ int aufs_release_nondir(struct inode *inode __maybe_unused, struct file *file)
 {
 	struct au_finfo *finfo;
 	aufs_bindex_t bindex;
-	int delayed;
 
 	finfo = au_fi(file);
 	au_sphl_del(&finfo->fi_hlist,
@@ -108,8 +107,7 @@ int aufs_release_nondir(struct inode *inode __maybe_unused, struct file *file)
 	if (bindex >= 0)
 		au_set_h_fptr(file, bindex, NULL);
 
-	delayed = (current->flags & PF_KTHREAD) || in_interrupt();
-	au_finfo_fin(file, delayed);
+	au_finfo_fin(file);
 	return 0;
 }
 
@@ -227,12 +225,11 @@ static void au_write_post(struct inode *inode, struct file *h_file,
 	h_inode = file_inode(h_file);
 	inode->i_mode = h_inode->i_mode;
 	ii_write_unlock(inode);
-	fput(h_file);
-
 	/* AuDbg("blks %llu, %llu\n", (u64)blks, (u64)h_inode->i_blocks); */
 	if (written > 0)
 		au_fhsm_wrote(inode->i_sb, wpre->btop,
 			      /*force*/h_inode->i_blocks > wpre->blks);
+	fput(h_file);
 }
 
 static ssize_t aufs_read(struct file *file, char __user *buf, size_t count,
@@ -717,7 +714,8 @@ static int aufs_setfl(struct file *file, unsigned long arg)
 	if (IS_ERR(h_file))
 		goto out;
 
-	arg |= vfsub_file_flags(file) & FASYNC; /* stop calling h_file->fasync */
+	/* stop calling h_file->fasync */
+	arg |= vfsub_file_flags(file) & FASYNC;
 	err = setfl(/*unused fd*/-1, h_file, arg);
 	fput(h_file); /* instead of au_read_post() */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1008,7 +1008,7 @@ out_free:
 	iput(a->dst_inode);
 	if (a->thargs)
 		au_whtmp_rmdir_free(a->thargs);
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	AuTraceErr(err);
 	return err;

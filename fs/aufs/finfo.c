@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,7 +79,7 @@ struct au_fidir *au_fidir_alloc(struct super_block *sb)
 	return fidir;
 }
 
-int au_fidir_realloc(struct au_finfo *finfo, int nbr)
+int au_fidir_realloc(struct au_finfo *finfo, int nbr, int may_shrink)
 {
 	int err;
 	struct au_fidir *fidir, *p;
@@ -90,7 +90,7 @@ int au_fidir_realloc(struct au_finfo *finfo, int nbr)
 
 	err = -ENOMEM;
 	p = au_kzrealloc(fidir, au_fidir_sz(fidir->fd_nent), au_fidir_sz(nbr),
-			 GFP_NOFS);
+			 GFP_NOFS, may_shrink);
 	if (p) {
 		p->fd_nent = nbr;
 		finfo->fi_hdir = p;
@@ -102,7 +102,7 @@ int au_fidir_realloc(struct au_finfo *finfo, int nbr)
 
 /* ---------------------------------------------------------------------- */
 
-void au_finfo_fin(struct file *file, int atonce)
+void au_finfo_fin(struct file *file)
 {
 	struct au_finfo *finfo;
 
@@ -111,10 +111,7 @@ void au_finfo_fin(struct file *file, int atonce)
 	finfo = au_fi(file);
 	AuDebugOn(finfo->fi_hdir);
 	AuRwDestroy(&finfo->fi_rwsem);
-	if (!atonce)
-		au_cache_dfree_finfo(finfo);
-	else
-		au_cache_free_finfo(finfo);
+	au_cache_free_finfo(finfo);
 }
 
 void au_fi_init_once(void *_finfo)

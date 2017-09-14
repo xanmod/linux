@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,9 @@ static void au_br_do_free(struct au_branch *br)
 
 	if (br->br_xino.xi_file)
 		fput(br->br_xino.xi_file);
-	mutex_destroy(&br->br_xino.xi_nondir_mtx);
+	for (i = br->br_xino.xi_nondir.total - 1; i >= 0; i--)
+		AuDebugOn(br->br_xino.xi_nondir.array[i]);
+	kfree(br->br_xino.xi_nondir.array);
 
 	AuDebugOn(au_br_count(br));
 	au_br_count_fin(br);
@@ -51,7 +53,7 @@ static void au_br_do_free(struct au_branch *br)
 
 	if (br->br_fhsm) {
 		au_br_fhsm_fin(br->br_fhsm);
-		au_delayed_kfree(br->br_fhsm);
+		kfree(br->br_fhsm);
 	}
 
 	key = br->br_dykey;
@@ -65,9 +67,8 @@ static void au_br_do_free(struct au_branch *br)
 	lockdep_off();
 	path_put(&br->br_path);
 	lockdep_on();
-	if (wbr)
-		au_delayed_kfree(wbr);
-	au_delayed_kfree(br);
+	kfree(wbr);
+	kfree(br);
 }
 
 /*
@@ -131,14 +132,19 @@ static struct au_branch *au_br_alloc(struct super_block *sb, int new_nbranch,
 	int err;
 
 	err = -ENOMEM;
-	root = sb->s_root;
 	add_branch = kzalloc(sizeof(*add_branch), GFP_NOFS);
 	if (unlikely(!add_branch))
 		goto out;
+	add_branch->br_xino.xi_nondir.total = 8; /* initial size */
+	add_branch->br_xino.xi_nondir.array
+		= kcalloc(sizeof(ino_t), add_branch->br_xino.xi_nondir.total,
+			  GFP_NOFS);
+	if (unlikely(!add_branch->br_xino.xi_nondir.array))
+		goto out_br;
 
 	err = au_hnotify_init_br(add_branch, perm);
 	if (unlikely(err))
-		goto out_br;
+		goto out_xinondir;
 
 	if (au_br_writable(perm)) {
 		/* may be freed separately at changing the branch permission */
@@ -154,23 +160,26 @@ static struct au_branch *au_br_alloc(struct super_block *sb, int new_nbranch,
 			goto out_wbr;
 	}
 
-	err = au_sbr_realloc(au_sbi(sb), new_nbranch);
+	root = sb->s_root;
+	err = au_sbr_realloc(au_sbi(sb), new_nbranch, /*may_shrink*/0);
 	if (!err)
-		err = au_di_realloc(au_di(root), new_nbranch);
+		err = au_di_realloc(au_di(root), new_nbranch, /*may_shrink*/0);
 	if (!err) {
 		inode = d_inode(root);
-		err = au_hinode_realloc(au_ii(inode), new_nbranch);
+		err = au_hinode_realloc(au_ii(inode), new_nbranch,
+					/*may_shrink*/0);
 	}
 	if (!err)
 		return add_branch; /* success */
 
 out_wbr:
-	if (add_branch->br_wbr)
-		au_delayed_kfree(add_branch->br_wbr);
+	kfree(add_branch->br_wbr);
 out_hnotify:
 	au_hnotify_fin_br(add_branch);
+out_xinondir:
+	kfree(add_branch->br_xino.xi_nondir.array);
 out_br:
-	au_delayed_kfree(add_branch);
+	kfree(add_branch);
 out:
 	return ERR_PTR(err);
 }
@@ -336,7 +345,7 @@ static int au_br_init_wh(struct super_block *sb, struct au_branch *br,
 	br->br_perm = old_perm;
 
 	if (!err && wbr && !au_br_writable(new_perm)) {
-		au_delayed_kfree(wbr);
+		kfree(wbr);
 		br->br_wbr = NULL;
 	}
 
@@ -382,7 +391,8 @@ static int au_br_init(struct au_branch *br, struct super_block *sb,
 	struct inode *h_inode;
 
 	err = 0;
-	mutex_init(&br->br_xino.xi_nondir_mtx);
+	spin_lock_init(&br->br_xino.xi_nondir.spin);
+	init_waitqueue_head(&br->br_xino.xi_nondir.wqh);
 	br->br_perm = add->perm;
 	br->br_path = add->path; /* set first, path_get() later */
 	spin_lock_init(&br->br_dykey_lock);
@@ -902,7 +912,8 @@ static void au_br_do_del_brp(struct au_sbinfo *sbinfo,
 	sbinfo->si_branch[0 + bbot] = NULL;
 	sbinfo->si_bbot--;
 
-	p = krealloc(sbinfo->si_branch, sizeof(*p) * bbot, AuGFP_SBILIST);
+	p = au_krealloc(sbinfo->si_branch, sizeof(*p) * bbot, AuGFP_SBILIST,
+			/*may_shrink*/1);
 	if (p)
 		sbinfo->si_branch = p;
 	/* harmless error */
@@ -921,7 +932,8 @@ static void au_br_do_del_hdp(struct au_dinfo *dinfo, const aufs_bindex_t bindex,
 	/* au_h_dentry_init(au_hdentry(dinfo, bbot); */
 	dinfo->di_bbot--;
 
-	p = krealloc(dinfo->di_hdentry, sizeof(*p) * bbot, AuGFP_SBILIST);
+	p = au_krealloc(dinfo->di_hdentry, sizeof(*p) * bbot, AuGFP_SBILIST,
+			/*may_shrink*/1);
 	if (p)
 		dinfo->di_hdentry = p;
 	/* harmless error */
@@ -940,7 +952,8 @@ static void au_br_do_del_hip(struct au_iinfo *iinfo, const aufs_bindex_t bindex,
 	/* au_hinode_init(au_hinode(iinfo, bbot)); */
 	iinfo->ii_bbot--;
 
-	p = krealloc(iinfo->ii_hinode, sizeof(*p) * bbot, AuGFP_SBILIST);
+	p = au_krealloc(iinfo->ii_hinode, sizeof(*p) * bbot, AuGFP_SBILIST,
+			/*may_shrink*/1);
 	if (p)
 		iinfo->ii_hinode = p;
 	/* harmless error */
@@ -1358,7 +1371,7 @@ int au_br_mod(struct super_block *sb, struct au_opt_mod *mod, int remount,
 		if (br->br_wbr) {
 			err = au_wbr_init(br, sb, mod->perm);
 			if (unlikely(err)) {
-				au_delayed_kfree(br->br_wbr);
+				kfree(br->br_wbr);
 				br->br_wbr = NULL;
 			}
 		}
@@ -1370,7 +1383,7 @@ int au_br_mod(struct super_block *sb, struct au_opt_mod *mod, int remount,
 		if (!au_br_fhsm(mod->perm)) {
 			/* fhsm --> non-fhsm */
 			au_br_fhsm_fin(br->br_fhsm);
-			au_delayed_kfree(br->br_fhsm);
+			kfree(br->br_fhsm);
 			br->br_fhsm = NULL;
 		}
 	} else if (au_br_fhsm(mod->perm))
@@ -1382,8 +1395,7 @@ int au_br_mod(struct super_block *sb, struct au_opt_mod *mod, int remount,
 	goto out; /* success */
 
 out_bf:
-	if (bf)
-		au_delayed_kfree(bf);
+	kfree(bf);
 out:
 	AuTraceErr(err);
 	return err;

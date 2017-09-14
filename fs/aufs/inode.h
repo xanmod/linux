@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,10 +35,7 @@ struct au_hnotify {
 	/* never use fsnotify_add_vfsmount_mark() */
 	struct fsnotify_mark		hn_mark;
 #endif
-	union {
-		struct inode		*hn_aufs_inode;	/* no get/put */
-		struct llist_node	hn_lnode;	/* delayed free */
-	};
+	struct inode		*hn_aufs_inode;	/* no get/put */
 #endif
 } ____cacheline_aligned_in_smp;
 
@@ -81,10 +78,7 @@ struct au_iinfo {
 struct au_icntnr {
 	struct au_iinfo iinfo;
 	struct inode vfs_inode;
-	union {
-		struct hlist_node	plink;
-		struct llist_node	lnode;	/* delayed free */
-	};
+	struct hlist_node plink;
 } ____cacheline_aligned_in_smp;
 
 /* au_pin flags */
@@ -211,7 +205,8 @@ struct au_icpup_args {
 int au_pin_and_icpup(struct dentry *dentry, struct iattr *ia,
 		     struct au_icpup_args *a);
 
-int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path);
+int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path,
+		      int locked);
 
 /* i_op_add.c */
 int au_may_add(struct dentry *dentry, aufs_bindex_t bindex,
@@ -272,7 +267,7 @@ void au_icntnr_init_once(void *_c);
 void au_hinode_init(struct au_hinode *hinode);
 int au_iinfo_init(struct inode *inode);
 void au_iinfo_fin(struct inode *inode);
-int au_hinode_realloc(struct au_iinfo *iinfo, int nbr);
+int au_hinode_realloc(struct au_iinfo *iinfo, int nbr, int may_shrink);
 
 #ifdef CONFIG_PROC_FS
 /* plink.c */

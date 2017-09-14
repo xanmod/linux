@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2016 Junjiro R. Okajima
+ * Copyright (C) 2011-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -697,7 +697,7 @@ out_free:
 	e = copy_to_user(uarg, &args->mvdown, sizeof(args->mvdown));
 	if (unlikely(e))
 		err = -EFAULT;
-	au_delayed_kfree(args);
+	kfree(args);
 out:
 	AuTraceErr(err);
 	return err;

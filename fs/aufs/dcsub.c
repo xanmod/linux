@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@ static void au_dpage_free(struct au_dpage *dpage)
 	p = dpage->dentries;
 	for (i = 0; i < dpage->ndentry; i++)
 		dput(*p++);
-	au_delayed_free_page((unsigned long)dpage->dentries);
+	free_page((unsigned long)dpage->dentries);
 }
 
 int au_dpages_init(struct au_dcsub_pages *dpages, gfp_t gfp)
@@ -52,7 +52,7 @@ int au_dpages_init(struct au_dcsub_pages *dpages, gfp_t gfp)
 	return 0; /* success */
 
 out_dpages:
-	au_delayed_kfree(dpages->dpages);
+	kfree(dpages->dpages);
 out:
 	return err;
 }
@@ -65,7 +65,7 @@ void au_dpages_free(struct au_dcsub_pages *dpages)
 	p = dpages->dpages;
 	for (i = 0; i < dpages->ndpage; i++)
 		au_dpage_free(p++);
-	au_delayed_kfree(dpages->dpages);
+	kfree(dpages->dpages);
 }
 
 static int au_dpages_append(struct au_dcsub_pages *dpages,
@@ -82,7 +82,8 @@ static int au_dpages_append(struct au_dcsub_pages *dpages,
 		err = -ENOMEM;
 		sz = dpages->ndpage * sizeof(*dpages->dpages);
 		p = au_kzrealloc(dpages->dpages, sz,
-				 sz + sizeof(*dpages->dpages), gfp);
+				 sz + sizeof(*dpages->dpages), gfp,
+				 /*may_shrink*/0);
 		if (unlikely(!p))
 			goto out;
 

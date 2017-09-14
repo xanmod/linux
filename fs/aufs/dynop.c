@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2016 Junjiro R. Okajima
+ * Copyright (C) 2010-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -114,7 +114,7 @@ static void dy_free_rcu(struct rcu_head *rcu)
 
 	key = container_of(rcu, struct au_dykey, dk_rcu);
 	DyPrSym(key);
-	kfree(key);	/* not delayed */
+	kfree(key);
 }
 
 static void dy_free(struct kref *kref)
@@ -240,7 +240,7 @@ static struct au_dykey *dy_get(struct au_dynop *op, struct au_branch *br)
 	p->set(key, op->dy_hop, au_br_sb(br));
 	old = dy_gadd(sphl, key);
 	if (old) {
-		au_delayed_kfree(key);
+		kfree(key);
 		key = old;
 	}
 

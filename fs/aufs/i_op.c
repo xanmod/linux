@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -258,8 +258,8 @@ static int au_do_aopen(struct inode *inode, struct file *file)
 	struct au_sphlhead *aopen;
 	struct aopen_node *node;
 	struct au_do_open_args args = {
-		.no_lock	= 1,
-		.open		= au_do_open_nondir
+		.aopen	= 1,
+		.open	= au_do_open_nondir
 	};
 
 	aopen = &au_sbi(inode->i_sb)->si_aopen;
@@ -279,7 +279,7 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 			    struct file *file, unsigned int open_flag,
 			    umode_t create_mode, int *opened)
 {
-	int err, h_opened = *opened;
+	int err, unlocked, h_opened = *opened;
 	unsigned int lkup_flags;
 	struct dentry *parent, *d;
 	struct au_sphlhead *aopen;
@@ -324,6 +324,7 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 	    || !(open_flag & O_CREAT))
 		goto out_no_open;
 
+	unlocked = 0;
 	err = aufs_read_lock(dentry, AuLock_DW | AuLock_FLUSH | AuLock_GEN);
 	if (unlikely(err))
 		goto out;
@@ -354,6 +355,9 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 			put_filp(args.file);
 		goto out_unlock;
 	}
+	di_write_unlock(parent);
+	di_write_unlock(dentry);
+	unlocked = 1;
 
 	/* some filesystems don't set FILE_CREATED while succeeded? */
 	*opened |= FILE_CREATED;
@@ -373,8 +377,12 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 		fput(aopen_node.h_file);
 
 out_unlock:
-	di_write_unlock(parent);
-	aufs_read_unlock(dentry, AuLock_DW);
+	if (unlocked)
+		si_read_unlock(dentry->d_sb);
+	else {
+		di_write_unlock(parent);
+		aufs_read_unlock(dentry, AuLock_DW);
+	}
 	AuDbgDentry(dentry);
 	if (unlikely(err < 0))
 		goto out;
@@ -993,7 +1001,7 @@ out_dentry:
 out_si:
 	si_read_unlock(sb);
 out_kfree:
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	AuTraceErr(err);
 	return err;
@@ -1085,7 +1093,7 @@ out_di:
 	di_write_unlock(dentry);
 	si_read_unlock(sb);
 out_kfree:
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	AuTraceErr(err);
 	return err;
@@ -1126,7 +1134,8 @@ static void au_refresh_iattr(struct inode *inode, struct kstat *st,
  * returns zero or negative (an error).
  * @dentry will be read-locked in success.
  */
-int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path)
+int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path,
+		      int locked)
 {
 	int err;
 	unsigned int mnt_flags, sigen;
@@ -1142,6 +1151,9 @@ int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path)
 	sb = dentry->d_sb;
 	mnt_flags = au_mntflags(sb);
 	udba_none = !!au_opt_test(mnt_flags, UDBA_NONE);
+
+	if (unlikely(locked))
+		goto body; /* skip locking dinfo */
 
 	/* support fstat(2) */
 	if (!d_unlinked(dentry) && !udba_none) {
@@ -1170,6 +1182,7 @@ int au_h_path_getattr(struct dentry *dentry, int force, struct path *h_path)
 	} else
 		di_read_lock_child(dentry, AuLock_IR);
 
+body:
 	inode = d_inode(dentry);
 	bindex = au_ibtop(inode);
 	h_path->mnt = au_sbr_mnt(sb, bindex);
@@ -1208,7 +1221,7 @@ static int aufs_getattr(struct vfsmount *mnt __maybe_unused,
 	err = si_read_lock(sb, AuLock_FLUSH | AuLock_NOPLM);
 	if (unlikely(err))
 		goto out;
-	err = au_h_path_getattr(dentry, /*force*/0, &h_path);
+	err = au_h_path_getattr(dentry, /*force*/0, &h_path, /*locked*/0);
 	if (unlikely(err))
 		goto out_si;
 	if (unlikely(!h_path.dentry))
@@ -1375,20 +1388,55 @@ static void aufs_put_link(struct inode *inode, void *cookie)
 
 /* ---------------------------------------------------------------------- */
 
+static int au_is_special(struct inode *inode)
+{
+	return (inode->i_mode & (S_IFBLK | S_IFCHR | S_IFIFO | S_IFSOCK));
+}
+
 static int aufs_update_time(struct inode *inode, struct timespec *ts, int flags)
 {
 	int err;
+	aufs_bindex_t bindex;
 	struct super_block *sb;
 	struct inode *h_inode;
+	struct vfsmount *h_mnt;
 
 	sb = inode->i_sb;
+	WARN_ONCE((flags & S_ATIME) && !IS_NOATIME(inode),
+		  "unexpected s_flags 0x%lx", sb->s_flags);
+
 	/* mmap_sem might be acquired already, cf. aufs_mmap() */
 	lockdep_off();
 	si_read_lock(sb, AuLock_FLUSH);
 	ii_write_lock_child(inode);
 	lockdep_on();
-	h_inode = au_h_iptr(inode, au_ibtop(inode));
-	err = vfsub_update_time(h_inode, ts, flags);
+
+	err = 0;
+	bindex = au_ibtop(inode);
+	h_inode = au_h_iptr(inode, bindex);
+	if (!au_test_ro(sb, bindex, inode)) {
+		h_mnt = au_sbr_mnt(sb, bindex);
+		err = vfsub_mnt_want_write(h_mnt);
+		if (!err) {
+			err = vfsub_update_time(h_inode, ts, flags);
+			vfsub_mnt_drop_write(h_mnt);
+		}
+	} else if (au_is_special(h_inode)) {
+		/*
+		 * Never copy-up here.
+		 * These special files may already be opened and used for
+		 * communicating. If we copied it up, then the communication
+		 * would be corrupted.
+		 */
+		AuWarn1("timestamps for i%lu are ignored "
+			"since it is on readonly branch (hi%lu).\n",
+			inode->i_ino, h_inode->i_ino);
+	} else if (flags & ~S_ATIME) {
+		err = -EIO;
+		AuIOErr1("unexpected flags 0x%x\n", flags);
+		AuDebugOn(1);
+	}
+
 	lockdep_off();
 	if (!err)
 		au_cpup_attr_timesizes(inode);

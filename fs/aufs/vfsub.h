@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,6 +82,8 @@ int vfsub_test_mntns(struct vfsmount *mnt, struct super_block *h_sb);
 #else
 AuStubInt0(vfsub_test_mntns, struct vfsmount *mnt, struct super_block *h_sb);
 #endif
+
+int vfsub_sync_filesystem(struct super_block *h_sb, int wait);
 
 /* ---------------------------------------------------------------------- */
 

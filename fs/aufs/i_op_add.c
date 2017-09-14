@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -345,7 +345,7 @@ out_unlock:
 	if (!try_aopen)
 		aufs_read_unlock(dentry, AuLock_DW);
 out_free:
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	return err;
 }
@@ -809,7 +809,7 @@ out_unlock:
 	}
 	aufs_read_and_write_unlock2(dentry, src_dentry);
 out_kfree:
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	AuTraceErr(err);
 	return err;
@@ -918,7 +918,7 @@ out_unlock:
 	}
 	aufs_read_unlock(dentry, AuLock_DW);
 out_free:
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	return err;
 }

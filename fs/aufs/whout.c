@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -162,7 +162,7 @@ struct dentry *au_whtmp_lkup(struct dentry *h_parent, struct au_branch *br,
 
 out_name:
 	if (name != defname)
-		au_delayed_kfree(name);
+		kfree(name);
 out:
 	AuTraceErrPtr(dentry);
 	return dentry;
@@ -601,7 +601,7 @@ out:
 	au_br_put(a->br);
 	si_write_unlock(a->sb);
 	au_nwt_done(&au_sbi(a->sb)->si_nowait);
-	au_delayed_kfree(arg);
+	kfree(arg);
 	if (unlikely(err))
 		AuIOErr("err %d\n", err);
 }
@@ -629,7 +629,7 @@ static void kick_reinit_br_wh(struct super_block *sb, struct au_branch *br)
 		if (unlikely(wkq_err)) {
 			atomic_dec(&br->br_wbr->wbr_wh_running);
 			au_br_put(br);
-			au_delayed_kfree(arg);
+			kfree(arg);
 		}
 		do_dec = 0;
 	}
@@ -788,7 +788,7 @@ struct dentry *au_wh_lkup(struct dentry *h_parent, struct qstr *base_name,
 	wh_dentry = ERR_PTR(err);
 	if (!err) {
 		wh_dentry = vfsub_lkup_one(&wh_name, h_parent);
-		au_delayed_kfree(wh_name.name);
+		kfree(wh_name.name);
 	}
 	return wh_dentry;
 }
@@ -864,7 +864,7 @@ static int del_wh_children(struct dentry *h_dentry, struct au_nhash *whlist,
 			break;
 		}
 	}
-	au_delayed_free_page((unsigned long)wh_name.name);
+	free_page((unsigned long)wh_name.name);
 
 out:
 	return err;
@@ -906,7 +906,7 @@ struct au_whtmp_rmdir *au_whtmp_rmdir_alloc(struct super_block *sb, gfp_t gfp)
 		rdhash = AUFS_RDHASH_DEF;
 	err = au_nhash_alloc(&whtmp->whlist, rdhash, gfp);
 	if (unlikely(err)) {
-		au_delayed_kfree(whtmp);
+		kfree(whtmp);
 		whtmp = ERR_PTR(err);
 	}
 
@@ -921,7 +921,7 @@ void au_whtmp_rmdir_free(struct au_whtmp_rmdir *whtmp)
 	dput(whtmp->wh_dentry);
 	iput(whtmp->dir);
 	au_nhash_wh_free(&whtmp->whlist);
-	au_delayed_kfree(whtmp);
+	kfree(whtmp);
 }
 
 /*

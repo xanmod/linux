@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,7 +49,7 @@ au_do_lookup(struct dentry *h_parent, struct dentry *dentry,
 	br = au_sbr(dentry->d_sb, bindex);
 	wh_able = !!au_br_whable(br->br_perm);
 	if (wh_able)
-		wh_found = au_wh_test(h_parent, wh_name, /*try_sio*/0);
+		wh_found = au_wh_test(h_parent, wh_name, ignore_perm);
 	h_dentry = ERR_PTR(wh_found);
 	if (!wh_found)
 		goto real_lookup;
@@ -214,7 +214,7 @@ int au_lkup_dentry(struct dentry *dentry, aufs_bindex_t btop,
 
 out_parent:
 	dput(parent);
-	au_delayed_kfree(whname.name);
+	kfree(whname.name);
 out:
 	return err;
 }
@@ -714,7 +714,7 @@ void au_refresh_dop(struct dentry *dentry, int force_reval)
 
 int au_refresh_dentry(struct dentry *dentry, struct dentry *parent)
 {
-	int err, ebrange;
+	int err, ebrange, nbr;
 	unsigned int sigen;
 	struct au_dinfo *dinfo, *tmp;
 	struct super_block *sb;
@@ -730,8 +730,9 @@ int au_refresh_dentry(struct dentry *dentry, struct dentry *parent)
 	if (unlikely(err))
 		goto out;
 
+	nbr = au_sbbot(sb) + 1;
 	dinfo = au_di(dentry);
-	err = au_di_realloc(dinfo, au_sbbot(sb) + 1);
+	err = au_di_realloc(dinfo, nbr, /*may_shrink*/0);
 	if (unlikely(err))
 		goto out;
 	ebrange = au_dbrange_test(dentry);
@@ -774,6 +775,7 @@ int au_refresh_dentry(struct dentry *dentry, struct dentry *parent)
 		au_dbg_verify_dinode(dentry);
 		AuTraceErr(err);
 	}
+	au_di_realloc(dinfo, nbr, /*may_shrink*/1); /* harmless if err */
 	au_rw_write_unlock(&tmp->di_rwsem);
 	au_di_free(tmp);
 	if (unlikely(err))

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,10 +38,7 @@ struct au_dinfo {
 	struct au_rwsem		di_rwsem;
 	aufs_bindex_t		di_btop, di_bbot, di_bwh, di_bdiropq;
 	unsigned char		di_tmpfile; /* to allow the different name */
-	union {
-		struct au_hdentry	*di_hdentry;
-		struct llist_node	di_lnode;	/* delayed free */
-	};
+	struct au_hdentry	*di_hdentry;
 } ____cacheline_aligned_in_smp;
 
 /* ---------------------------------------------------------------------- */
@@ -79,7 +76,7 @@ void au_di_swap(struct au_dinfo *a, struct au_dinfo *b);
 void au_di_cp(struct au_dinfo *dst, struct au_dinfo *src);
 int au_di_init(struct dentry *dentry);
 void au_di_fin(struct dentry *dentry);
-int au_di_realloc(struct au_dinfo *dinfo, int nbr);
+int au_di_realloc(struct au_dinfo *dinfo, int nbr, int may_shrink);
 
 void di_read_lock(struct dentry *d, int flags, unsigned int lsc);
 void di_read_unlock(struct dentry *d, int flags);

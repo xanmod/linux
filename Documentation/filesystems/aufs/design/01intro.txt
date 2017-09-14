@@ -1,5 +1,5 @@
 
-# Copyright (C) 2005-2016 Junjiro R. Okajima
+# Copyright (C) 2005-2017 Junjiro R. Okajima
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,12 +17,13 @@
 Introduction
 ----------------------------------------
 
-aufs [ei ju: ef es] | [a u f s]
+aufs [ei ju: ef es] | /ey-yoo-ef-es/ | [a u f s]
 1. abbrev. for "advanced multi-layered unification filesystem".
 2. abbrev. for "another unionfs".
 3. abbrev. for "auf das" in German which means "on the" in English.
    Ex. "Butter aufs Brot"(G) means "butter onto bread"(E).
    But "Filesystem aufs Filesystem" is hard to understand.
+4. abbrev. for "African Urban Fashion Show".
 
 AUFS is a filesystem with features:
 - multi layered stackable unification filesystem, the member directory

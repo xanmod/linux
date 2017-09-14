@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -156,7 +156,7 @@ out_unlock:
 out:
 	dput(a->dentry);
 	au_nwt_done(&au_sbi(sb)->si_nowait);
-	au_delayed_kfree(arg);
+	kfree(arg);
 }
 
 void au_dir_ts(struct inode *dir, aufs_bindex_t bindex)
@@ -192,7 +192,7 @@ void au_dir_ts(struct inode *dir, aufs_bindex_t bindex)
 	if (unlikely(wkq_err)) {
 		pr_err("wkq %d\n", wkq_err);
 		dput(dentry);
-		au_delayed_kfree(arg);
+		kfree(arg);
 	}
 
 out:
@@ -311,7 +311,7 @@ static int aufs_open_dir(struct inode *inode __maybe_unused,
 		};
 		err = au_do_open(file, &args);
 		if (unlikely(err))
-			au_delayed_kfree(fidir);
+			kfree(fidir);
 	}
 	si_read_unlock(sb);
 	return err;
@@ -325,9 +325,7 @@ static int aufs_release_dir(struct inode *inode __maybe_unused,
 	struct au_fidir *fidir;
 	struct au_hfile *hf;
 	aufs_bindex_t bindex, bbot;
-	int execed, delayed;
 
-	delayed = (current->flags & PF_KTHREAD) || in_interrupt();
 	finfo = au_fi(file);
 	fidir = finfo->fi_hdir;
 	if (fidir) {
@@ -335,11 +333,10 @@ static int aufs_release_dir(struct inode *inode __maybe_unused,
 			    &au_sbi(file->f_path.dentry->d_sb)->si_files);
 		vdir_cache = fidir->fd_vdir_cache; /* lock-free */
 		if (vdir_cache)
-			au_vdir_free(vdir_cache, delayed);
+			au_vdir_free(vdir_cache);
 
 		bindex = finfo->fi_btop;
 		if (bindex >= 0) {
-			execed = vfsub_file_execed(file);
 			hf = fidir->fd_hfile + bindex;
 			/*
 			 * calls fput() instead of filp_close(),
@@ -348,12 +345,12 @@ static int aufs_release_dir(struct inode *inode __maybe_unused,
 			bbot = fidir->fd_bbot;
 			for (; bindex <= bbot; bindex++, hf++)
 				if (hf->hf_file)
-					au_hfput(hf, execed);
+					au_hfput(hf, /*execed*/0);
 		}
-		au_delayed_kfree(fidir);
+		kfree(fidir);
 		finfo->fi_hdir = NULL;
 	}
-	au_finfo_fin(file, delayed);
+	au_finfo_fin(file);
 	return 0;
 }
 

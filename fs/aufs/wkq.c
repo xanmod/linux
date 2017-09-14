@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,7 +54,7 @@ static void wkq_func(struct work_struct *wk)
 	else {
 		kobject_put(wkinfo->kobj);
 		module_put(THIS_MODULE); /* todo: ?? */
-		au_delayed_kfree(wkinfo);
+		kfree(wkinfo);
 	}
 }
 
@@ -77,7 +77,7 @@ static int au_wkq_comp_alloc(struct au_wkinfo *wkinfo, struct completion **comp)
 
 static void au_wkq_comp_free(struct completion *comp)
 {
-	au_delayed_kfree(comp);
+	kfree(comp);
 }
 
 #else

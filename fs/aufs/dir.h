@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,10 +42,7 @@ struct au_vdir_destr {
 
 struct au_vdir_dehstr {
 	struct hlist_node	hash;
-	union {
-		struct au_vdir_destr	*str;
-		struct llist_node	lnode;	/* delayed free */
-	};
+	struct au_vdir_destr	*str;
 } ____cacheline_aligned_in_smp;
 
 struct au_vdir_de {
@@ -83,10 +80,7 @@ struct au_vdir {
 
 	unsigned long	vd_version;
 	unsigned int	vd_deblk_sz;
-	union {
-		unsigned long		vd_jiffy;
-		struct llist_node	vd_lnode;	/* delayed free */
-	};
+	unsigned long		vd_jiffy;
 } ____cacheline_aligned_in_smp;
 
 /* ---------------------------------------------------------------------- */
@@ -110,7 +104,7 @@ int au_nhash_test_known_wh(struct au_nhash *whlist, char *name, int nlen);
 int au_nhash_append_wh(struct au_nhash *whlist, char *name, int nlen, ino_t ino,
 		       unsigned int d_type, aufs_bindex_t bindex,
 		       unsigned char shwh);
-void au_vdir_free(struct au_vdir *vdir, int atonce);
+void au_vdir_free(struct au_vdir *vdir);
 int au_vdir_init(struct file *file);
 int au_vdir_fill_de(struct file *file, struct dir_context *ctx);
 

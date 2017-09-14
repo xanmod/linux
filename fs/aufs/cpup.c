@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -357,9 +357,9 @@ int au_copy_file(struct file *dst, struct file *src, loff_t len)
 	dst->f_pos = 0;
 	err = au_do_copy_file(dst, src, len, buf, blksize);
 	if (do_kfree)
-		au_delayed_kfree(buf);
+		kfree(buf);
 	else
-		au_delayed_free_page((unsigned long)buf);
+		free_page((unsigned long)buf);
 
 out:
 	return err;
@@ -519,7 +519,7 @@ static int au_do_cpup_symlink(struct path *h_path, struct dentry *h_src,
 		sym.k[symlen] = 0;
 		err = vfsub_symlink(h_dir, h_path, sym.k);
 	}
-	au_delayed_free_page((unsigned long)sym.k);
+	free_page((unsigned long)sym.k);
 
 out:
 	return err;
@@ -890,7 +890,7 @@ out_rev:
 	}
 out_parent:
 	dput(dst_parent);
-	au_delayed_kfree(a);
+	kfree(a);
 out:
 	return err;
 }

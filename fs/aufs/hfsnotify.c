@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,8 +32,8 @@ static void au_hfsn_free_mark(struct fsnotify_mark *mark)
 	struct au_hnotify *hn = container_of(mark, struct au_hnotify,
 					     hn_mark);
 	/* AuDbg("here\n"); */
-	au_cache_dfree_hnotify(hn);
-	smp_mb__before_atomic();
+	au_cache_free_hnotify(hn);
+	smp_mb__before_atomic(); /* for atomic64_dec */
 	if (atomic64_dec_and_test(&au_hfsn_ifree))
 		wake_up(&au_hfsn_wq);
 }
@@ -156,7 +156,7 @@ static void au_hfsn_free_group(struct fsnotify_group *group)
 	struct au_br_hfsnotify *hfsn = group->private;
 
 	/* AuDbg("here\n"); */
-	au_delayed_kfree(hfsn);
+	kfree(hfsn);
 }
 
 static int au_hfsn_handle_event(struct fsnotify_group *group,
@@ -250,7 +250,7 @@ static int au_hfsn_init_br(struct au_branch *br, int perm)
 	goto out; /* success */
 
 out_hfsn:
-	au_delayed_kfree(hfsn);
+	kfree(hfsn);
 out:
 	return err;
 }

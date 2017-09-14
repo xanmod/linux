@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,7 +34,14 @@
 /* a xino file */
 struct au_xino_file {
 	struct file		*xi_file;
-	struct mutex		xi_nondir_mtx;
+	struct {
+		spinlock_t		spin;
+		ino_t			*array;
+		int			total;
+		/* reserved for future use */
+		/* unsigned long	*bitmap; */
+		wait_queue_head_t	wqh;
+	} xi_nondir;
 
 	/* todo: make xino files an array to support huge inode number */
 
@@ -232,6 +239,11 @@ int au_xino_set(struct super_block *sb, struct au_opt_xino *xino, int remount);
 void au_xino_clr(struct super_block *sb);
 struct file *au_xino_def(struct super_block *sb);
 int au_xino_path(struct seq_file *seq, struct file *file);
+
+void au_xinondir_leave(struct super_block *sb, aufs_bindex_t bindex,
+		       ino_t h_ino, int idx);
+int au_xinondir_enter(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
+		      int *idx);
 
 /* ---------------------------------------------------------------------- */
 

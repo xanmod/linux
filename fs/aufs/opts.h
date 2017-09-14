@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Junjiro R. Okajima
+ * Copyright (C) 2005-2017 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,6 @@
 #include <linux/path.h>
 
 struct file;
-struct super_block;
 
 /* ---------------------------------------------------------------------- */
 
@@ -99,6 +98,8 @@ enum {
 	AuWbrCreate_MFSV,	/* mfs with seconds */
 	AuWbrCreate_MFSRR,	/* mfs then rr */
 	AuWbrCreate_MFSRRV,	/* mfs then rr with seconds */
+	AuWbrCreate_TDMFS,	/* top down regardless parent and mfs */
+	AuWbrCreate_TDMFSV,	/* top down regardless parent and mfs */
 	AuWbrCreate_PMFS,	/* parent and mfs */
 	AuWbrCreate_PMFSV,	/* parent and mfs with seconds */
 	AuWbrCreate_PMFSRR,	/* parent, mfs and round-robin */
@@ -199,6 +200,7 @@ const char *au_optstr_wbr_copyup(int wbr_copyup);
 const char *au_optstr_wbr_create(int wbr_create);
 
 void au_opts_free(struct au_opts *opts);
+struct super_block;
 int au_opts_parse(struct super_block *sb, char *str, struct au_opts *opts);
 int au_opts_verify(struct super_block *sb, unsigned long sb_flags,
 		   unsigned int pending);
