@@ -744,6 +744,12 @@ bfq_bfqq_resume_state(struct bfq_queue *bfqq, struct bfq_data *bfqd,
 	bfqq->wr_cur_max_time = bic->saved_wr_cur_max_time;
 	BUG_ON(time_is_after_jiffies(bfqq->last_wr_start_finish));
 
+	bfq_log_bfqq(bfqq->bfqd, bfqq,
+		     "[%s] bic %p wr_coeff %d start_finish %lu max_time %lu",
+		     __func__,
+		     bic, bfqq->wr_coeff, bfqq->last_wr_start_finish,
+		     bfqq->wr_cur_max_time);
+
 	if (bfqq->wr_coeff > 1 && (bfq_bfqq_in_large_burst(bfqq) ||
 				   time_is_before_jiffies(bfqq->last_wr_start_finish +
 							  bfqq->wr_cur_max_time))) {
@@ -2208,6 +2214,11 @@ static void bfq_bfqq_save_state(struct bfq_queue *bfqq)
 	bic->saved_last_wr_start_finish = bfqq->last_wr_start_finish;
 	bic->saved_wr_cur_max_time = bfqq->wr_cur_max_time;
 	BUG_ON(time_is_after_jiffies(bfqq->last_wr_start_finish));
+	bfq_log_bfqq(bfqq->bfqd, bfqq,
+		     "[%s] bic %p wr_coeff %d start_finish %lu max_time %lu",
+		     __func__,
+		     bic, bfqq->wr_coeff, bfqq->last_wr_start_finish,
+		     bfqq->wr_cur_max_time);
 }
 
 static void
@@ -4950,6 +4961,7 @@ static void bfq_prepare_request(struct request *rq, struct bio *bio)
 				bic->saved_in_large_burst = true;
 
 			bfqq = bfq_split_bfqq(bic, bfqq);
+			split = true;
 
 			if (!bfqq)
 				bfqq = bfq_get_bfqq_handle_split(bfqd, bic, bio,
