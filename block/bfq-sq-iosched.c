@@ -678,6 +678,15 @@ static unsigned int bfq_wr_duration(struct bfq_data *bfqd)
 	return dur;
 }
 
+/* switch back from soft real-time to interactive weight raising */
+static void switch_back_to_interactive_wr(struct bfq_queue *bfqq,
+					  struct bfq_data *bfqd)
+{
+	bfqq->wr_coeff = bfqd->bfq_wr_coeff;
+	bfqq->wr_cur_max_time = bfq_wr_duration(bfqd);
+	bfqq->last_wr_start_finish = bfqq->wr_start_at_switch_to_srt;
+}
+
 static void
 bfq_bfqq_resume_state(struct bfq_queue *bfqq, struct bfq_data *bfqd,
 		      struct bfq_io_cq *bic, bool bfq_already_existing)
@@ -705,15 +714,29 @@ bfq_bfqq_resume_state(struct bfq_queue *bfqq, struct bfq_data *bfqd,
 	bfqq->wr_cur_max_time = bic->saved_wr_cur_max_time;
 	BUG_ON(time_is_after_jiffies(bfqq->last_wr_start_finish));
 
+	bfq_log_bfqq(bfqq->bfqd, bfqq,
+		     "[%s] bic %p wr_coeff %d start_finish %lu max_time %lu",
+		     __func__,
+		     bic, bfqq->wr_coeff, bfqq->last_wr_start_finish,
+		     bfqq->wr_cur_max_time);
+
 	if (bfqq->wr_coeff > 1 && (bfq_bfqq_in_large_burst(bfqq) ||
 				   time_is_before_jiffies(bfqq->last_wr_start_finish +
 							  bfqq->wr_cur_max_time))) {
-		bfq_log_bfqq(bfqq->bfqd, bfqq,
+		if (bfqq->wr_cur_max_time == bfqd->bfq_wr_rt_max_time &&
+		    !bfq_bfqq_in_large_burst(bfqq) &&
+		    time_is_after_eq_jiffies(bfqq->wr_start_at_switch_to_srt +
+					     bfq_wr_duration(bfqd))) {
+			switch_back_to_interactive_wr(bfqq, bfqd);
+			bfq_log_bfqq(bfqq->bfqd, bfqq,
+			     "resume state: switching back to interactive");
+		} else {
+			bfqq->wr_coeff = 1;
+			bfq_log_bfqq(bfqq->bfqd, bfqq,
 			     "resume state: switching off wr (%lu + %lu < %lu)",
 			     bfqq->last_wr_start_finish, bfqq->wr_cur_max_time,
 			     jiffies);
-
-		bfqq->wr_coeff = 1;
+		}
 	}
 
 	/* make sure weight will be updated, however we got here */
@@ -3703,11 +3726,7 @@ static void bfq_update_wr_data(struct bfq_data *bfqd, struct bfq_queue *bfqq)
 					bfq_wr_duration(bfqd)))
 				bfq_bfqq_end_wr(bfqq);
 			else {
-				/* switch back to interactive wr */
-				bfqq->wr_coeff = bfqd->bfq_wr_coeff;
-				bfqq->wr_cur_max_time = bfq_wr_duration(bfqd);
-				bfqq->last_wr_start_finish =
-					bfqq->wr_start_at_switch_to_srt;
+				switch_back_to_interactive_wr(bfqq, bfqd);
 				BUG_ON(time_is_after_jiffies(
 					       bfqq->last_wr_start_finish));
 				bfqq->entity.prio_changed = 1;
