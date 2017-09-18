@@ -4111,16 +4111,10 @@ static void bfq_put_queue(struct bfq_queue *bfqq)
 	BUG_ON(bfqq->entity.tree);
 	BUG_ON(bfq_bfqq_busy(bfqq));
 
-	if (bfq_bfqq_sync(bfqq))
-		/*
-		 * The fact that this queue is being destroyed does not
-		 * invalidate the fact that this queue may have been
-		 * activated during the current burst. As a consequence,
-		 * although the queue does not exist anymore, and hence
-		 * needs to be removed from the burst list if there,
-		 * the burst size has not to be decremented.
-		 */
+	if (bfq_bfqq_sync(bfqq) && !hlist_unhashed(&bfqq->burst_list_node)) {
 		hlist_del_init(&bfqq->burst_list_node);
+		bfqq->bfqd->burst_size--;
+	}
 
 	if (bfqq->bfqd)
 		bfq_log_bfqq(bfqq->bfqd, bfqq, "put_queue: %p freed", bfqq);
