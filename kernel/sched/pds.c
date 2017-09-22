@@ -187,6 +187,7 @@ SCHED_RQ_NORMAL_3,
 SCHED_RQ_NORMAL_4,
 SCHED_RQ_NORMAL_5,
 SCHED_RQ_NORMAL_6,
+SCHED_RQ_NORMAL_7,
 SCHED_RQ_RT,
 NR_SCHED_RQ_QUEUED_LEVEL
 };
@@ -478,7 +479,7 @@ static const int task_dl_hash_tbl[] = {
 /*	0           4           8           12           */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
 /*	16          20          24          28           */
-	1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 6, 6
+	1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 6, 7
 };
 
 static inline int
@@ -4136,7 +4137,7 @@ SYSCALL_DEFINE1(nice, int, increment)
 int task_prio(const struct task_struct *p)
 {
 	int level, prio = p->prio - MAX_RT_PRIO;
-	static const int level_to_nice_prio[] = {0, 7, 14, 20, 26, 33, 39};
+	static const int level_to_nice_prio[] = {39, 33, 26, 20, 14, 7, 0, 0};
 
 	/* rt tasks and iso tasks */
 	if (prio <= 0)
