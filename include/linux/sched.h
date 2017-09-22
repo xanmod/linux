@@ -1138,7 +1138,7 @@ void cpu_nonscaling(int cpu);
 #define tsk_seruntime(t)		((t)->sched_time)
 #define tsk_rttimeout(t)		((t)->rt_timeout)
 
-#define is_idle_policy(policy)	((policy) == SCHED_IDLEPRIO)
+#define is_idle_policy(policy)	((policy) == SCHED_IDLE)
 #define idleprio_task(p)	unlikely(is_idle_policy((p)->policy))
 
 #define is_iso_policy(policy)	((policy) == SCHED_ISO)

@@ -689,7 +689,7 @@ static void dequeue_task(struct task_struct *p, struct rq *rq)
 }
 
 /*
- * To determine if it's safe for a task of SCHED_IDLEPRIO to actually run as
+ * To determine if it's safe for a task of SCHED_IDLE to actually run as
  * an idle task, we ensure none of the following conditions are met.
  */
 static bool idleprio_suitable(struct task_struct *p)
@@ -4158,7 +4158,7 @@ SYSCALL_DEFINE1(nice, int, increment)
  *
  * Return: The priority value as seen by users in /proc.
  * RT tasks are offset by -100. Normal tasks are centered around 1, value goes
- * from 0 (SCHED_ISO) up to 82 (nice +19 SCHED_IDLEPRIO).
+ * from 0 (SCHED_ISO) up to 82 (nice +19 SCHED_IDLE).
  */
 int task_prio(const struct task_struct *p)
 {
@@ -4454,7 +4454,7 @@ recheck:
 	} else {
 		reset_on_fork = !!(attr->sched_flags & SCHED_RESET_ON_FORK);
 
-		if (!SCHED_RANGE(policy))
+		if (policy > SCHED_IDLE)
 			return -EINVAL;
 	}
 
@@ -4504,11 +4504,11 @@ recheck:
 				case SCHED_BATCH:
 					if (policy == SCHED_BATCH)
 						goto out;
-					if (policy != SCHED_IDLEPRIO)
+					if (policy != SCHED_IDLE)
 						return -EPERM;
 					break;
-				case SCHED_IDLEPRIO:
-					if (policy == SCHED_IDLEPRIO)
+				case SCHED_IDLE:
+					if (policy == SCHED_IDLE)
 						goto out;
 					return -EPERM;
 				default:
@@ -5415,7 +5415,7 @@ SYSCALL_DEFINE1(sched_get_priority_max, int, policy)
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
 	case SCHED_ISO:
-	case SCHED_IDLEPRIO:
+	case SCHED_IDLE:
 		ret = 0;
 		break;
 	}
@@ -5442,7 +5442,7 @@ SYSCALL_DEFINE1(sched_get_priority_min, int, policy)
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
 	case SCHED_ISO:
-	case SCHED_IDLEPRIO:
+	case SCHED_IDLE:
 		ret = 0;
 		break;
 	}

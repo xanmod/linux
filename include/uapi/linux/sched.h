@@ -36,16 +36,14 @@
 #define SCHED_FIFO		1
 #define SCHED_RR		2
 #define SCHED_BATCH		3
-/* SCHED_ISO: Implemented on BFS only */
-#define SCHED_IDLE		5
+/* SCHED_ISO: Implemented on BFS/PDS only */
 #ifdef CONFIG_SCHED_PDS
 #define SCHED_ISO		4
-#define SCHED_IDLEPRIO		SCHED_IDLE
-#define SCHED_MAX		(SCHED_IDLEPRIO)
-#define SCHED_RANGE(policy)	((policy) <= SCHED_MAX)
-#else /* CONFIG_SCHED_PDS */
-#define SCHED_DEADLINE		6
 #endif /* CONFIG_SCHED_PDS */
+#define SCHED_IDLE		5
+#ifndef CONFIG_SCHED_PDS
+#define SCHED_DEADLINE		6
+#endif /* !CONFIG_SCHED_PDS */
 
 /* Can be ORed in to make sure the process is reverted back to SCHED_NORMAL on fork */
 #define SCHED_RESET_ON_FORK     0x40000000
