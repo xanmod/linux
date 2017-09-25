@@ -501,7 +501,7 @@ static const int task_dl_hash_tbl[] = {
 static inline int
 task_deadline_level(const struct task_struct *p, const struct rq *rq)
 {
-	u64 delta = (rq->clock + prio_deadline_diff(39) - p->deadline) >> 26;
+	u64 delta = (rq->clock + prio_deadline_diff(39) - p->deadline) >> 23;
 
 	delta = min((size_t)delta, ARRAY_SIZE(task_dl_hash_tbl) - 1);
 	return task_dl_hash_tbl[delta];
