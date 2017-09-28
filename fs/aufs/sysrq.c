@@ -30,7 +30,8 @@ static void sysrq_sb(struct super_block *sb)
 	char *plevel;
 	struct au_sbinfo *sbinfo;
 	struct file *file;
-	struct au_sphlhead *files;
+	struct hlist_bl_head *files;
+	struct hlist_bl_node *pos;
 	struct au_finfo *finfo;
 
 	plevel = au_plevel;
@@ -89,8 +90,8 @@ static void sysrq_sb(struct super_block *sb)
 #endif
 	pr("files\n");
 	files = &au_sbi(sb)->si_files;
-	spin_lock(&files->spin);
-	hlist_for_each_entry(finfo, &files->head, fi_hlist) {
+	hlist_bl_lock(files);
+	hlist_bl_for_each_entry(finfo, pos, files, fi_hlist) {
 		umode_t mode;
 
 		file = finfo->fi_file;
@@ -98,7 +99,7 @@ static void sysrq_sb(struct super_block *sb)
 		if (!special_file(mode))
 			au_dpri_file(file);
 	}
-	spin_unlock(&files->spin);
+	hlist_bl_unlock(files);
 	pr("done\n");
 
 #undef pr
@@ -115,10 +116,11 @@ MODULE_PARM_DESC(sysrq, "MagicSysRq key for " AUFS_NAME);
 static void au_sysrq(int key __maybe_unused)
 {
 	struct au_sbinfo *sbinfo;
+	struct hlist_bl_node *pos;
 
 	lockdep_off();
 	au_sbilist_lock();
-	hlist_for_each_entry(sbinfo, &au_sbilist.head, si_list)
+	hlist_bl_for_each_entry(sbinfo, pos, &au_sbilist, si_list)
 		sysrq_sb(sbinfo->si_sb);
 	au_sbilist_unlock();
 	lockdep_on();

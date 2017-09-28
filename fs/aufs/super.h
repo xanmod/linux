@@ -27,7 +27,7 @@
 #include <linux/fs.h>
 #include <linux/kobject.h>
 #include "rwsem.h"
-#include "spl.h"
+#include "hbl.h"
 #include "wkq.h"
 
 /* policies to select one among multiple writable branches */
@@ -149,7 +149,7 @@ struct au_sbinfo {
 #endif
 
 	/* dirty trick to suppoer atomic_open */
-	struct au_sphlhead	si_aopen;
+	struct hlist_bl_head	si_aopen;
 
 	/* vdir parameters */
 	unsigned long		si_rdcache;	/* max cache time in jiffies */
@@ -165,13 +165,13 @@ struct au_sbinfo {
 	unsigned int		si_dirwh;
 
 	/* pseudo_link list */
-	struct au_sphlhead	si_plink[AuPlink_NHASH];
+	struct hlist_bl_head	si_plink[AuPlink_NHASH];
 	wait_queue_head_t	si_plink_wq;
 	spinlock_t		si_plink_maint_lock;
 	pid_t			si_plink_maint_pid;
 
 	/* file list */
-	struct au_sphlhead	si_files;
+	struct hlist_bl_head	si_files;
 
 	/* with/without getattr, brother of sb->s_d_op */
 	struct inode_operations *si_iop_array;
@@ -193,7 +193,7 @@ struct au_sbinfo {
 #endif
 
 #ifdef CONFIG_AUFS_SBILIST
-	struct hlist_node	si_list;
+	struct hlist_bl_node	si_list;
 #endif
 
 	/* dirty, necessary for unmounting, sysfs and sysrq */
@@ -368,32 +368,32 @@ AuStub(int, au_busy_or_stale, return -EBUSY, void)
 
 #ifdef CONFIG_AUFS_SBILIST
 /* module.c */
-extern struct au_sphlhead au_sbilist;
+extern struct hlist_bl_head au_sbilist;
 
 static inline void au_sbilist_init(void)
 {
-	au_sphl_init(&au_sbilist);
+	INIT_HLIST_BL_HEAD(&au_sbilist);
 }
 
 static inline void au_sbilist_add(struct super_block *sb)
 {
-	au_sphl_add(&au_sbi(sb)->si_list, &au_sbilist);
+	au_hbl_add(&au_sbi(sb)->si_list, &au_sbilist);
 }
 
 static inline void au_sbilist_del(struct super_block *sb)
 {
-	au_sphl_del(&au_sbi(sb)->si_list, &au_sbilist);
+	au_hbl_del(&au_sbi(sb)->si_list, &au_sbilist);
 }
 
 #ifdef CONFIG_AUFS_MAGIC_SYSRQ
 static inline void au_sbilist_lock(void)
 {
-	spin_lock(&au_sbilist.spin);
+	hlist_bl_lock(&au_sbilist);
 }
 
 static inline void au_sbilist_unlock(void)
 {
-	spin_unlock(&au_sbilist.spin);
+	hlist_bl_unlock(&au_sbilist);
 }
 #define AuGFP_SBILIST	GFP_ATOMIC
 #else

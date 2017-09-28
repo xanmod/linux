@@ -329,8 +329,8 @@ static int aufs_release_dir(struct inode *inode __maybe_unused,
 	finfo = au_fi(file);
 	fidir = finfo->fi_hdir;
 	if (fidir) {
-		au_sphl_del(&finfo->fi_hlist,
-			    &au_sbi(file->f_path.dentry->d_sb)->si_files);
+		au_hbl_del(&finfo->fi_hlist,
+			   &au_sbi(file->f_path.dentry->d_sb)->si_files);
 		vdir_cache = fidir->fd_vdir_cache; /* lock-free */
 		if (vdir_cache)
 			au_vdir_free(vdir_cache);

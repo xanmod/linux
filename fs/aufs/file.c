@@ -108,7 +108,7 @@ out:
 
 static int au_cmoo(struct dentry *dentry)
 {
-	int err, cmoo;
+	int err, cmoo, matched;
 	unsigned int udba;
 	struct path h_path;
 	struct au_pin pin;
@@ -143,9 +143,12 @@ static int au_cmoo(struct dentry *dentry)
 	sbinfo = au_sbi(sb);
 	fhsm = &sbinfo->si_fhsm;
 	pid = au_fhsm_pid(fhsm);
-	if (pid
-	    && (current->pid == pid
-		|| current->real_parent->pid == pid))
+	rcu_read_lock();
+	matched = (pid
+		   && (current->pid == pid
+		       || rcu_dereference(current->real_parent)->pid == pid));
+	rcu_read_unlock();
+	if (matched)
 		goto out;
 
 	br = au_sbr(sb, cpg.bsrc);
@@ -248,8 +251,8 @@ int au_do_open(struct file *file, struct au_do_open_args *args)
 	finfo = au_fi(file);
 	if (!err) {
 		finfo->fi_file = file;
-		au_sphl_add(&finfo->fi_hlist,
-			    &au_sbi(file->f_path.dentry->d_sb)->si_files);
+		au_hbl_add(&finfo->fi_hlist,
+			   &au_sbi(file->f_path.dentry->d_sb)->si_files);
 	}
 	if (!aopen)
 		fi_write_unlock(file);

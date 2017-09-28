@@ -49,6 +49,7 @@ static int au_procfs_plm_write_si(struct file *file, unsigned long id)
 	int err;
 	struct super_block *sb;
 	struct au_sbinfo *sbinfo;
+	struct hlist_bl_node *pos;
 
 	err = -EBUSY;
 	if (unlikely(file->private_data))
@@ -56,14 +57,14 @@ static int au_procfs_plm_write_si(struct file *file, unsigned long id)
 
 	sb = NULL;
 	/* don't use au_sbilist_lock() here */
-	spin_lock(&au_sbilist.spin);
-	hlist_for_each_entry(sbinfo, &au_sbilist.head, si_list)
+	hlist_bl_lock(&au_sbilist);
+	hlist_bl_for_each_entry(sbinfo, pos, &au_sbilist, si_list)
 		if (id == sysaufs_si_id(sbinfo)) {
 			kobject_get(&sbinfo->si_kobj);
 			sb = sbinfo->si_sb;
 			break;
 		}
-	spin_unlock(&au_sbilist.spin);
+	hlist_bl_unlock(&au_sbilist);
 
 	err = -EINVAL;
 	if (unlikely(!sb))

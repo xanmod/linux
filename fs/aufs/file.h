@@ -63,7 +63,7 @@ struct au_finfo {
 	};
 	struct au_fidir		*fi_hdir;	/* for dir only */
 
-	struct hlist_node	fi_hlist;
+	struct hlist_bl_node	fi_hlist;
 	struct file		*fi_file;	/* very ugly */
 } ____cacheline_aligned_in_smp;
 

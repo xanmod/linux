@@ -114,7 +114,7 @@ static int dbgaufs_plink_open(struct inode *inode, struct file *file)
 	struct dbgaufs_plink_arg *p;
 	struct au_sbinfo *sbinfo;
 	struct super_block *sb;
-	struct au_sphlhead *sphl;
+	struct hlist_bl_head *hbl;
 
 	err = -ENOMEM;
 	p = (void *)get_zeroed_page(GFP_NOFS);
@@ -134,10 +134,9 @@ static int dbgaufs_plink_open(struct inode *inode, struct file *file)
 		limit -= n;
 
 		sum = 0;
-		for (i = 0, sphl = sbinfo->si_plink;
-		     i < AuPlink_NHASH;
-		     i++, sphl++) {
-			n = au_sphl_count(sphl);
+		for (i = 0, hbl = sbinfo->si_plink; i < AuPlink_NHASH;
+		     i++, hbl++) {
+			n = au_hbl_count(hbl);
 			sum += n;
 
 			n = snprintf(p->a + p->n, limit, "%lu ", n);
