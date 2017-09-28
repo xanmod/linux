@@ -288,6 +288,7 @@ static int aufs_show_options(struct seq_file *m, struct dentry *dentry)
 
 	au_fhsm_show(m, sbinfo);
 
+	AuBool(DIRREN, dirren);
 	AuBool(SUM, sum);
 	/* AuBool(SUM_W, wsum); */
 	AuBool(WARN_PERM, warn_perm);
@@ -1026,6 +1027,7 @@ static void aufs_kill_sb(struct super_block *sb)
 		if (au_opt_test(sbinfo->si_mntflags, PLINK))
 			au_plink_put(sb, /*verbose*/1);
 		au_xino_clr(sb);
+		au_dr_opt_flush(sb);
 		sbinfo->si_sb = NULL;
 		aufs_write_unlock(sb->s_root);
 		au_nwt_flush(&sbinfo->si_nowait);

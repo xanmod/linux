@@ -252,13 +252,14 @@ out:
 /* ---------------------------------------------------------------------- */
 
 struct aopen_node {
-	struct hlist_node hlist;
+	struct hlist_bl_node hblist;
 	struct file *file, *h_file;
 };
 
 static int au_do_aopen(struct inode *inode, struct file *file)
 {
-	struct au_sphlhead *aopen;
+	struct hlist_bl_head *aopen;
+	struct hlist_bl_node *pos;
 	struct aopen_node *node;
 	struct au_do_open_args args = {
 		.aopen	= 1,
@@ -266,13 +267,13 @@ static int au_do_aopen(struct inode *inode, struct file *file)
 	};
 
 	aopen = &au_sbi(inode->i_sb)->si_aopen;
-	spin_lock(&aopen->spin);
-	hlist_for_each_entry(node, &aopen->head, hlist)
+	hlist_bl_lock(aopen);
+	hlist_bl_for_each_entry(node, pos, aopen, hblist)
 		if (node->file == file) {
 			args.h_file = node->h_file;
 			break;
 		}
-	spin_unlock(&aopen->spin);
+	hlist_bl_unlock(aopen);
 	/* AuDebugOn(!args.h_file); */
 
 	return au_do_open(file, &args);
@@ -285,7 +286,7 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 	int err, unlocked, h_opened = *opened;
 	unsigned int lkup_flags;
 	struct dentry *parent, *d;
-	struct au_sphlhead *aopen;
+	struct hlist_bl_head *aopen;
 	struct vfsub_aopen_args args = {
 		.open_flag	= open_flag,
 		.create_mode	= create_mode,
@@ -371,9 +372,9 @@ static int aufs_atomic_open(struct inode *dir, struct dentry *dentry,
 		args.file = NULL;
 	}
 	aopen = &au_sbi(dir->i_sb)->si_aopen;
-	au_sphl_add(&aopen_node.hlist, aopen);
+	au_hbl_add(&aopen_node.hblist, aopen);
 	err = finish_open(file, dentry, au_do_aopen, opened);
-	au_sphl_del(&aopen_node.hlist, aopen);
+	au_hbl_del(&aopen_node.hblist, aopen);
 	AuTraceErr(err);
 	AuDbgFile(file);
 	if (aopen_node.h_file)

@@ -132,7 +132,7 @@ int au_dir_roflags;
  * iterate_supers_type() doesn't protect us from
  * remounting (branch management)
  */
-struct au_sphlhead au_sbilist;
+struct hlist_bl_head au_sbilist;
 #endif
 
 /*

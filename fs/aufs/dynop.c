@@ -27,23 +27,22 @@
  * How large will these lists be?
  * Usually just a few elements, 20-30 at most for each, I guess.
  */
-static struct au_sphlhead dynop[AuDyLast];
+static struct hlist_bl_head dynop[AuDyLast];
 
-static struct au_dykey *dy_gfind_get(struct au_sphlhead *sphl, const void *h_op)
+static struct au_dykey *dy_gfind_get(struct hlist_bl_head *hbl, const void *h_op)
 {
 	struct au_dykey *key, *tmp;
-	struct hlist_head *head;
+	struct hlist_bl_node *pos;
 
 	key = NULL;
-	head = &sphl->head;
-	rcu_read_lock();
-	hlist_for_each_entry_rcu(tmp, head, dk_hnode)
+	hlist_bl_lock(hbl);
+	hlist_bl_for_each_entry(tmp, pos, hbl, dk_hnode)
 		if (tmp->dk_op.dy_hop == h_op) {
 			key = tmp;
 			kref_get(&key->dk_kref);
 			break;
 		}
-	rcu_read_unlock();
+	hlist_bl_unlock(hbl);
 
 	return key;
 }
@@ -84,24 +83,23 @@ static struct au_dykey *dy_bradd(struct au_branch *br, struct au_dykey *key)
 }
 
 /* kref_get() if @key is already added */
-static struct au_dykey *dy_gadd(struct au_sphlhead *sphl, struct au_dykey *key)
+static struct au_dykey *dy_gadd(struct hlist_bl_head *hbl, struct au_dykey *key)
 {
 	struct au_dykey *tmp, *found;
-	struct hlist_head *head;
+	struct hlist_bl_node *pos;
 	const void *h_op = key->dk_op.dy_hop;
 
 	found = NULL;
-	head = &sphl->head;
-	spin_lock(&sphl->spin);
-	hlist_for_each_entry(tmp, head, dk_hnode)
+	hlist_bl_lock(hbl);
+	hlist_bl_for_each_entry(tmp, pos, hbl, dk_hnode)
 		if (tmp->dk_op.dy_hop == h_op) {
 			kref_get(&tmp->dk_kref);
 			found = tmp;
 			break;
 		}
 	if (!found)
-		hlist_add_head_rcu(&key->dk_hnode, head);
-	spin_unlock(&sphl->spin);
+		hlist_bl_add_head(&key->dk_hnode, hbl);
+	hlist_bl_unlock(hbl);
 
 	if (!found)
 		DyPrSym(key);
@@ -120,11 +118,11 @@ static void dy_free_rcu(struct rcu_head *rcu)
 static void dy_free(struct kref *kref)
 {
 	struct au_dykey *key;
-	struct au_sphlhead *sphl;
+	struct hlist_bl_head *hbl;
 
 	key = container_of(kref, struct au_dykey, dk_kref);
-	sphl = dynop + key->dk_op.dy_type;
-	au_sphl_del_rcu(&key->dk_hnode, sphl);
+	hbl = dynop + key->dk_op.dy_type;
+	au_hbl_del(&key->dk_hnode, hbl);
 	call_rcu(&key->dk_rcu, dy_free_rcu);
 }
 
@@ -211,7 +209,7 @@ static void dy_bug(struct kref *kref)
 static struct au_dykey *dy_get(struct au_dynop *op, struct au_branch *br)
 {
 	struct au_dykey *key, *old;
-	struct au_sphlhead *sphl;
+	struct hlist_bl_head *hbl;
 	struct op {
 		unsigned int sz;
 		void (*set)(struct au_dykey *key, const void *h_op,
@@ -225,8 +223,8 @@ static struct au_dykey *dy_get(struct au_dynop *op, struct au_branch *br)
 	};
 	const struct op *p;
 
-	sphl = dynop + op->dy_type;
-	key = dy_gfind_get(sphl, op->dy_hop);
+	hbl = dynop + op->dy_type;
+	key = dy_gfind_get(hbl, op->dy_hop);
 	if (key)
 		goto out_add; /* success */
 
@@ -240,7 +238,7 @@ static struct au_dykey *dy_get(struct au_dynop *op, struct au_branch *br)
 	key->dk_op.dy_hop = op->dy_hop;
 	kref_init(&key->dk_kref);
 	p->set(key, op->dy_hop, au_br_sb(br));
-	old = dy_gadd(sphl, key);
+	old = dy_gadd(hbl, key);
 	if (old) {
 		kfree(key);
 		key = old;
@@ -337,16 +335,15 @@ int au_dy_irefresh(struct inode *inode)
 
 void au_dy_arefresh(int do_dx)
 {
-	struct au_sphlhead *sphl;
-	struct hlist_head *head;
+	struct hlist_bl_head *hbl;
+	struct hlist_bl_node *pos;
 	struct au_dykey *key;
 
-	sphl = dynop + AuDy_AOP;
-	head = &sphl->head;
-	spin_lock(&sphl->spin);
-	hlist_for_each_entry(key, head, dk_hnode)
+	hbl = dynop + AuDy_AOP;
+	hlist_bl_lock(hbl);
+	hlist_bl_for_each_entry(key, pos, hbl, dk_hnode)
 		dy_adx((void *)key, do_dx);
-	spin_unlock(&sphl->spin);
+	hlist_bl_unlock(hbl);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -359,7 +356,7 @@ void __init au_dy_init(void)
 	BUILD_BUG_ON(offsetof(struct au_dyaop, da_key));
 
 	for (i = 0; i < AuDyLast; i++)
-		au_sphl_init(dynop + i);
+		INIT_HLIST_BL_HEAD(dynop + i);
 }
 
 void au_dy_fin(void)
@@ -367,5 +364,5 @@ void au_dy_fin(void)
 	int i;
 
 	for (i = 0; i < AuDyLast; i++)
-		WARN_ON(!hlist_empty(&dynop[i].head));
+		WARN_ON(!hlist_bl_empty(dynop + i));
 }

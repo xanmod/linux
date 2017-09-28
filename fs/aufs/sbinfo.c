@@ -32,7 +32,7 @@ void au_si_free(struct kobject *kobj)
 
 	sbinfo = container_of(kobj, struct au_sbinfo, si_kobj);
 	for (i = 0; i < AuPlink_NHASH; i++)
-		AuDebugOn(!hlist_empty(&sbinfo->si_plink[i].head));
+		AuDebugOn(!hlist_bl_empty(sbinfo->si_plink + i));
 	AuDebugOn(atomic_read(&sbinfo->si_nowait.nw_len));
 
 	AuDebugOn(percpu_counter_sum(&sbinfo->si_ninodes));
@@ -95,7 +95,7 @@ int au_si_alloc(struct super_block *sb)
 	sbinfo->si_xino_brid = -1;
 	/* leave si_xib_last_pindex and si_xib_next_bit */
 
-	au_sphl_init(&sbinfo->si_aopen);
+	INIT_HLIST_BL_HEAD(&sbinfo->si_aopen);
 
 	sbinfo->si_rdcache = msecs_to_jiffies(AUFS_RDCACHE_DEF * MSEC_PER_SEC);
 	sbinfo->si_rdblk = AUFS_RDBLK_DEF;
@@ -103,11 +103,11 @@ int au_si_alloc(struct super_block *sb)
 	sbinfo->si_dirwh = AUFS_DIRWH_DEF;
 
 	for (i = 0; i < AuPlink_NHASH; i++)
-		au_sphl_init(sbinfo->si_plink + i);
+		INIT_HLIST_BL_HEAD(sbinfo->si_plink + i);
 	init_waitqueue_head(&sbinfo->si_plink_wq);
 	spin_lock_init(&sbinfo->si_plink_maint_lock);
 
-	au_sphl_init(&sbinfo->si_files);
+	INIT_HLIST_BL_HEAD(&sbinfo->si_files);
 
 	/* with getattr by default */
 	sbinfo->si_iop_array = aufs_iop;

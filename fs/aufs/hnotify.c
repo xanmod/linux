@@ -462,6 +462,14 @@ static void au_hn_bh(void *_args)
 	AuDebugOn(!sbinfo);
 	si_write_lock(sb, AuLock_NOPLMW);
 
+	if (au_opt_test(sbinfo->si_mntflags, DIRREN))
+		switch (a->mask & FS_EVENTS_POSS_ON_CHILD) {
+		case FS_MOVED_FROM:
+		case FS_MOVED_TO:
+			AuWarn1("DIRREN with UDBA may not work correctly "
+				"for the direct rename(2)\n");
+		}
+
 	ii_read_lock_parent(a->dir);
 	bfound = -1;
 	bbot = au_ibbot(a->dir);

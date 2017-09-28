@@ -116,6 +116,19 @@ config AUFS_RDU
 	shows better performance in most cases.
 	See detail in aufs.5.
 
+config AUFS_DIRREN
+	bool "Workaround for rename(2)-ing a directory"
+	help
+	By default, aufs returns EXDEV error in renameing a dir who has
+	his child on the lower branch, since it is a bad idea to issue
+	rename(2) internally for every lower branch. But user may not
+	accept this behaviour. So here is a workaround to allow such
+	rename(2) and store some extra infromation on the writable
+	branch. Obviously this costs high (and I don't like it).
+	To use this feature, you need to enable this configuration AND
+	to specify the mount option `dirren.'
+	See details in aufs.5 and the design documents.
+
 config AUFS_SHWH
 	bool "Show whiteouts"
 	help

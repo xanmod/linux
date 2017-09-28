@@ -39,7 +39,7 @@
 
 #include <linux/limits.h>
 
-#define AUFS_VERSION	"4.9-20170911"
+#define AUFS_VERSION	"4.9-20170925"
 
 /* todo? move this to linux-2.6.19/include/magic.h */
 #define AUFS_SUPER_MAGIC	('a' << 24 | 'u' << 16 | 'f' << 8 | 's')
@@ -100,6 +100,13 @@ typedef int16_t aufs_bindex_t;
 #define AUFS_PLINK_MAINT_NAME	"plink_maint"
 #define AUFS_PLINK_MAINT_DIR	"fs/" AUFS_NAME
 #define AUFS_PLINK_MAINT_PATH	AUFS_PLINK_MAINT_DIR "/" AUFS_PLINK_MAINT_NAME
+
+/* dirren, renamed dir */
+#define AUFS_DR_INFO_PFX	AUFS_WH_PFX ".dr."
+#define AUFS_DR_BRHINO_NAME	AUFS_WH_PFX "hino"
+/* whiteouted doubly */
+#define AUFS_WH_DR_INFO_PFX	AUFS_WH_PFX AUFS_DR_INFO_PFX
+#define AUFS_WH_DR_BRHINO	AUFS_WH_PFX AUFS_DR_BRHINO_NAME
 
 #define AUFS_DIROPQ_NAME	AUFS_WH_PFX ".opq" /* whiteouted doubly */
 #define AUFS_WH_DIROPQ		AUFS_WH_PFX AUFS_DIROPQ_NAME
@@ -316,6 +323,27 @@ struct aufs_rdu {
 
 	struct au_rdu_cookie	cookie;
 } __aligned(8);
+
+/* ---------------------------------------------------------------------- */
+
+/* dirren. the branch is identified by the filename who contains this */
+struct au_drinfo {
+	uint64_t ino;
+	union {
+		uint8_t oldnamelen;
+		uint64_t _padding;
+	};
+	uint8_t oldname[0];
+} __aligned(8);
+
+struct au_drinfo_fdata {
+	uint32_t magic;
+	struct au_drinfo drinfo;
+} __aligned(8);
+
+#define AUFS_DRINFO_MAGIC_V1	('a' << 24 | 'd' << 16 | 'r' << 8 | 0x01)
+/* future */
+#define AUFS_DRINFO_MAGIC_V2	('a' << 24 | 'd' << 16 | 'r' << 8 | 0x02)
 
 /* ---------------------------------------------------------------------- */
 
