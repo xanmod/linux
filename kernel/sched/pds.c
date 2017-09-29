@@ -115,10 +115,10 @@ static inline int task_on_rq_migrating(struct task_struct *p)
 
 /*
  * This is the time all tasks within the same priority round robin.
- * Value is in ms and set to a minimum of 6ms. Scales with number of cpus.
+ * Value is in ms and set to a minimum of 2ms. Scales with number of cpus.
  * Tunable via /proc interface.
  */
-int rr_interval __read_mostly = 6;
+int rr_interval __read_mostly = 2;
 
 static int __init rr_interval_set(char *str)
 {
