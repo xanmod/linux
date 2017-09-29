@@ -3162,6 +3162,11 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 		return false;
 #endif
 
+	if (rq->clock < rq->next_balance)
+		return false;
+
+	rq->next_balance = rq->clock + MS_TO_NS(rr_interval + 1);
+
 	cpu = cpu_of(rq);
 
 	if (!cpumask_test_cpu(cpu, &sched_rq_pending_mask))
@@ -3663,6 +3668,8 @@ static void __sched notrace __schedule(bool preempt)
 #ifdef CONFIG_SCHED_SMT
 		cpumask_clear_cpu(cpu, &sched_cpu_sb_suppress_mask);
 #endif
+		rq->next_balance = rq->clock + MS_TO_NS(rr_interval + 1);
+
 		if (unlikely(next->prio == PRIO_LIMIT))
 			schedstat_inc(rq->sched_goidle);
 
@@ -6318,6 +6325,7 @@ void __init sched_init(void)
 #ifdef CONFIG_SMP
 		rq->online = false;
 		rq->cpu = i;
+		rq->next_balance = 0UL;
 
 		rq->queued_level = SCHED_RQ_EMPTY;
 
