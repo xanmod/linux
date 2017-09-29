@@ -3168,7 +3168,6 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 	rq->next_balance = rq->clock + MS_TO_NS(rr_interval + 1);
 
 	cpu = cpu_of(rq);
-
 	if (!cpumask_test_cpu(cpu, &sched_rq_pending_mask))
 		return false;
 
@@ -3189,37 +3188,33 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 	preempt_level = task_running_policy_level(p, rq);
 
 	while (level < preempt_level) {
-		cpumask_or(&check, &check, &sched_rq_queued_masks[level]);
+		if (cpumask_and(&check, &sched_rq_queued_masks[level],
+				&p->cpus_allowed)) {
+			WARN_ON_ONCE(cpumask_test_cpu(cpu, &check));
+
+			raw_spin_unlock(&rq->lock);
+			raw_spin_lock(&p->pi_lock);
+			raw_spin_lock(&rq->lock);
+
+			/*
+			 * _something_ may have changed the task,
+			 * double check again
+			 */
+			if (likely(!p->on_cpu && task_on_rq_queued(p) &&
+				   rq == task_rq(p)))
+				rq = __migrate_task(rq, p, cpumask_any(&check));
+
+			raw_spin_unlock(&rq->lock);
+			raw_spin_unlock(&p->pi_lock);
+
+			return true;
+		}
+
 		level = find_next_bit(sched_rq_queued_masks_bitmap,
 				      NR_SCHED_RQ_QUEUED_LEVEL, ++level);
 	}
 
-	/*
-	 * Only balance within same physical CPU
-	 */
-	if (likely(!cpumask_and(&check, &check, topology_core_cpumask(cpu))))
-		return false;
-
-	WARN_ON_ONCE(cpumask_test_cpu(cpu, &check));
-
-	if (unlikely(!cpumask_and(&check, &check, &p->cpus_allowed)))
-		return false;
-
-	raw_spin_unlock(&rq->lock);
-	raw_spin_lock(&p->pi_lock);
-	raw_spin_lock(&rq->lock);
-
-	/*
-	 * _something_ may have changed the task, double check again
-	 */
-	if (likely(!p->on_cpu && task_on_rq_queued(p) && rq == task_rq(p))) {
-		rq = __migrate_task(rq, p, cpumask_any(&check));
-	}
-
-	raw_spin_unlock(&rq->lock);
-	raw_spin_unlock(&p->pi_lock);
-
-	return true;
+	return false;
 }
 #endif
 
