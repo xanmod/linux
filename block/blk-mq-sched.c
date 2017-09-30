@@ -222,12 +222,11 @@ void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx)
 	}
 }
 
-bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
-			    struct request **merged_request)
+static bool __blk_mq_try_merge(struct request_queue *q,
+		struct bio *bio, struct request **merged_request,
+		struct request *rq, enum elv_merge type)
 {
-	struct request *rq;
-
-	switch (elv_merge(q, &rq, bio)) {
+	switch (type) {
 	case ELEVATOR_BACK_MERGE:
 		if (!blk_mq_sched_allow_merge(q, rq, bio))
 			return false;
@@ -249,6 +248,15 @@ bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
 	default:
 		return false;
 	}
+}
+
+bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
+		struct request **merged_request)
+{
+	struct request *rq;
+	enum elv_merge type = elv_merge(q, &rq, bio);
+
+	return __blk_mq_try_merge(q, bio, merged_request, rq, type);
 }
 EXPORT_SYMBOL_GPL(blk_mq_sched_try_merge);
 
