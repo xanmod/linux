@@ -96,4 +96,15 @@ static inline bool blk_mq_sched_needs_restart(struct blk_mq_hw_ctx *hctx)
 	return test_bit(BLK_MQ_S_SCHED_RESTART, &hctx->state);
 }
 
+static inline unsigned blk_mq_sched_queue_depth(struct request_queue *q)
+{
+	/*
+	 * Default to double of smaller one between hw queue_depth and 128,
+	 * since we don't split into sync/async like the old code did.
+	 * Additionally, this is a per-hw queue depth.
+	 */
+	return 2 * min_t(unsigned int, q->tag_set->queue_depth,
+				   BLKDEV_MAX_RQ);
+}
+
 #endif
