@@ -105,6 +105,42 @@ static void blk_mq_do_dispatch_sched(struct request_queue *q,
 	} while (blk_mq_dispatch_rq_list(q, &rq_list));
 }
 
+static struct blk_mq_ctx *blk_mq_next_ctx(struct blk_mq_hw_ctx *hctx,
+					  struct blk_mq_ctx *ctx)
+{
+	unsigned idx = ctx->index_hw;
+
+	if (++idx == hctx->nr_ctx)
+		idx = 0;
+
+	return hctx->ctxs[idx];
+}
+
+static void blk_mq_do_dispatch_ctx(struct request_queue *q,
+				   struct blk_mq_hw_ctx *hctx)
+{
+	LIST_HEAD(rq_list);
+	struct blk_mq_ctx *ctx = READ_ONCE(hctx->dispatch_from);
+	bool dispatched;
+
+	do {
+		struct request *rq;
+
+		rq = blk_mq_dequeue_from_ctx(hctx, ctx);
+		if (!rq)
+			break;
+		list_add(&rq->queuelist, &rq_list);
+
+		/* round robin for fair dispatch */
+		ctx = blk_mq_next_ctx(hctx, rq->mq_ctx);
+
+		dispatched = blk_mq_dispatch_rq_list(q, &rq_list);
+	} while (dispatched);
+
+	if (!dispatched)
+		WRITE_ONCE(hctx->dispatch_from, ctx);
+}
+
 void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx)
 {
 	struct request_queue *q = hctx->queue;
@@ -142,18 +178,31 @@ void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx)
 	if (!list_empty(&rq_list)) {
 		blk_mq_sched_mark_restart_hctx(hctx);
 		do_sched_dispatch = blk_mq_dispatch_rq_list(q, &rq_list);
-	} else if (!has_sched_dispatch) {
+	} else if (!has_sched_dispatch && !q->queue_depth) {
+		/*
+		 * If there is no per-request_queue depth, we
+		 * flush all requests in this hw queue, otherwise
+		 * pick up request one by one from sw queue for
+		 * avoiding to mess up I/O merge when dispatch
+		 * run out of resource, which can be triggered
+		 * easily by per-request_queue queue depth
+		 */
 		blk_mq_flush_busy_ctxs(hctx, &rq_list);
 		blk_mq_dispatch_rq_list(q, &rq_list);
 	}
+
+	if (!do_sched_dispatch)
+		return;
 
 	/*
 	 * We want to dispatch from the scheduler if there was nothing
 	 * on the dispatch list or we were able to dispatch from the
 	 * dispatch list.
 	 */
-	if (do_sched_dispatch && has_sched_dispatch)
+	if (has_sched_dispatch)
 		blk_mq_do_dispatch_sched(q, e, hctx);
+	else
+		blk_mq_do_dispatch_ctx(q, hctx);
 }
 
 bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
