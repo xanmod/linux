@@ -1108,6 +1108,11 @@ bool blk_mq_dispatch_rq_list(struct request_queue *q, struct list_head *list)
 
 		spin_lock(&hctx->lock);
 		list_splice_init(list, &hctx->dispatch);
+		/*
+		 * DISPATCH_BUSY won't be cleared until all requests
+		 * in hctx->dispatch are dispatched successfully
+		 */
+		set_bit(BLK_MQ_S_DISPATCH_BUSY, &hctx->state);
 		spin_unlock(&hctx->lock);
 
 		/*
@@ -1402,6 +1407,7 @@ static void blk_mq_request_direct_insert(struct blk_mq_hw_ctx *hctx,
 {
 	spin_lock(&hctx->lock);
 	list_add_tail(&rq->queuelist, &hctx->dispatch);
+	set_bit(BLK_MQ_S_DISPATCH_BUSY, &hctx->state);
 	spin_unlock(&hctx->lock);
 
 	blk_mq_run_hw_queue(hctx, false);
