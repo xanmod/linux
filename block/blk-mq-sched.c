@@ -89,6 +89,22 @@ static bool blk_mq_sched_restart_hctx(struct blk_mq_hw_ctx *hctx)
 	return false;
 }
 
+static void blk_mq_do_dispatch_sched(struct request_queue *q,
+				     struct elevator_queue *e,
+				     struct blk_mq_hw_ctx *hctx)
+{
+	LIST_HEAD(rq_list);
+
+	do {
+		struct request *rq;
+
+		rq = e->type->ops.mq.dispatch_request(hctx);
+		if (!rq)
+			break;
+		list_add(&rq->queuelist, &rq_list);
+	} while (blk_mq_dispatch_rq_list(q, &rq_list));
+}
+
 void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx)
 {
 	struct request_queue *q = hctx->queue;
@@ -136,16 +152,8 @@ void blk_mq_sched_dispatch_requests(struct blk_mq_hw_ctx *hctx)
 	 * on the dispatch list or we were able to dispatch from the
 	 * dispatch list.
 	 */
-	if (do_sched_dispatch && has_sched_dispatch) {
-		do {
-			struct request *rq;
-
-			rq = e->type->ops.mq.dispatch_request(hctx);
-			if (!rq)
-				break;
-			list_add(&rq->queuelist, &rq_list);
-		} while (blk_mq_dispatch_rq_list(q, &rq_list));
-	}
+	if (do_sched_dispatch && has_sched_dispatch)
+		blk_mq_do_dispatch_sched(q, e, hctx);
 }
 
 bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
