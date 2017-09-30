@@ -260,50 +260,25 @@ bool blk_mq_sched_try_merge(struct request_queue *q, struct bio *bio,
 }
 EXPORT_SYMBOL_GPL(blk_mq_sched_try_merge);
 
-/*
- * Reverse check our software queue for entries that we could potentially
- * merge with. Currently includes a hand-wavy stop count of 8, to not spend
- * too much time checking for merges.
- */
-static bool blk_mq_attempt_merge(struct request_queue *q,
+static bool blk_mq_ctx_try_merge(struct request_queue *q,
 				 struct blk_mq_ctx *ctx, struct bio *bio)
 {
-	struct request *rq;
-	int checked = 8;
+	struct request *rq, *free = NULL;
+	enum elv_merge type;
+	bool merged;
 
 	lockdep_assert_held(&ctx->lock);
 
-	list_for_each_entry_reverse(rq, &ctx->rq_list, queuelist) {
-		bool merged = false;
+	type = elv_merge_ctx(q, &rq, bio, ctx);
+	merged = __blk_mq_try_merge(q, bio, &free, rq, type);
 
-		if (!checked--)
-			break;
+	if (free)
+		blk_mq_free_request(free);
 
-		if (!blk_rq_merge_ok(rq, bio))
-			continue;
+	if (merged)
+		ctx->rq_merged++;
 
-		switch (blk_try_merge(rq, bio)) {
-		case ELEVATOR_BACK_MERGE:
-			if (blk_mq_sched_allow_merge(q, rq, bio))
-				merged = bio_attempt_back_merge(q, rq, bio);
-			break;
-		case ELEVATOR_FRONT_MERGE:
-			if (blk_mq_sched_allow_merge(q, rq, bio))
-				merged = bio_attempt_front_merge(q, rq, bio);
-			break;
-		case ELEVATOR_DISCARD_MERGE:
-			merged = bio_attempt_discard_merge(q, rq, bio);
-			break;
-		default:
-			continue;
-		}
-
-		if (merged)
-			ctx->rq_merged++;
-		return merged;
-	}
-
-	return false;
+	return merged;
 }
 
 bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio)
@@ -321,7 +296,7 @@ bool __blk_mq_sched_bio_merge(struct request_queue *q, struct bio *bio)
 	if (hctx->flags & BLK_MQ_F_SHOULD_MERGE) {
 		/* default per sw-queue merge */
 		spin_lock(&ctx->lock);
-		ret = blk_mq_attempt_merge(q, ctx, bio);
+		ret = blk_mq_ctx_try_merge(q, ctx, bio);
 		spin_unlock(&ctx->lock);
 	}
 
