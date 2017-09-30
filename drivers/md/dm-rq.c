@@ -408,7 +408,7 @@ static void dm_dispatch_clone_request(struct request *clone, struct request *rq)
 
 	clone->start_time = jiffies;
 	r = blk_insert_cloned_request(clone->q, clone);
-	if (r)
+	if (r != BLK_STS_OK && r != BLK_STS_RESOURCE)
 		/* must complete clone in terms of original request */
 		dm_complete_request(rq, r);
 }
