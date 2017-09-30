@@ -221,13 +221,11 @@ static bool cpu_smt_capability(int dummy)
 	return (sched_cpu_nr_sibling > 1);
 }
 #endif
-
-#ifndef CONFIG_64BIT
-static raw_spinlock_t sched_cpu_priodls_spinlock ____cacheline_aligned_in_smp;
-#endif
 #endif
 
+#ifdef	CONFIG_64BIT
 static u64 sched_rq_priodls[NR_CPUS] ____cacheline_aligned;
+#endif
 
 #ifdef CONFIG_SMP
 /*
@@ -436,21 +434,6 @@ static inline void update_task_priodl(struct task_struct *p)
 {
 	p->priodl = (((u64) (p->prio))<<56) | ((p->deadline)>>8);
 }
-
-#if defined(CONFIG_SMP) && !defined(CONFIG_64BIT)
-static inline void sched_cpu_priodls_lock(void)
-{
-	raw_spin_lock(&sched_cpu_priodls_spinlock);
-}
-
-static inline void sched_cpu_priodls_unlock(void)
-{
-	raw_spin_unlock(&sched_cpu_priodls_spinlock);
-}
-#else
-static inline void sched_cpu_priodls_lock(void) {}
-static inline void sched_cpu_priodls_unlock(void) {}
-#endif
 
 /*
  * Deadline is "now" in niffies + (offset by priority). Setting the deadline
@@ -1728,18 +1711,6 @@ out:
 }
 #endif
 
-/*
- * RT tasks preempt purely on priority. SCHED_NORMAL tasks preempt on the
- * basis of earlier deadlines. SCHED_IDLEPRIO don't preempt anything else or
- * between themselves, they cooperatively multitask. An idle rq scores as
- * prio PRIO_LIMIT so it is always preempted.
- */
-static inline bool
-can_preempt(struct task_struct *p, u64 priodl)
-{
-	return (p->priodl < priodl);
-}
-
 #ifdef CONFIG_SMP
 /*
  * task_preemptible_rq - return the rq which the given task can preempt on
@@ -1785,6 +1756,7 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 				      level + 1);
 	}
 
+#ifdef	CONFIG_64BIT
 	if (likely(level != preempt_level))
 		return NULL;
 
@@ -1802,13 +1774,10 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 	if (!cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level]))
 		return NULL;
 
-	sched_cpu_priodls_lock();
 	for_each_cpu (cpu, &tmp)
-		if (likely(can_preempt(p, sched_rq_priodls[cpu]))) {
-			sched_cpu_priodls_unlock();
+		if (likely(p->priodl < sched_rq_priodls[cpu]))
 			return cpu_rq(cpu);
-		}
-	sched_cpu_priodls_unlock();
+#endif
 
 	return NULL;
 }
@@ -3532,12 +3501,14 @@ static inline void schedule_debug(struct task_struct *prev)
 	schedstat_inc(this_rq()->sched_count);
 }
 
+#ifdef CONFIG_64BIT
 static inline void reset_rq_task(struct rq *rq, struct task_struct *p)
 {
-	sched_cpu_priodls_lock();
 	sched_rq_priodls[cpu_of(rq)] = p->priodl;
-	sched_cpu_priodls_unlock();
 }
+#else
+static inline void reset_rq_task(struct rq *rq, struct task_struct *p) {}
+#endif
 
 static inline void set_rq_task(struct rq *rq, struct task_struct *p)
 {
@@ -6302,9 +6273,6 @@ void __init sched_init(void)
 	set_bit(SCHED_RQ_EMPTY, sched_rq_queued_masks_bitmap);
 
 	cpumask_clear(&sched_rq_pending_mask);
-#ifndef CONFIG_64BIT
-	raw_spin_lock_init(&sched_cpu_priodls_spinlock);
-#endif
 #else
 	uprq = &per_cpu(runqueues, 0);
 #endif
