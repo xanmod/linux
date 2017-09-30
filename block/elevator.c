@@ -413,8 +413,9 @@ void elv_dispatch_add_tail(struct request_queue *q, struct request *rq)
 }
 EXPORT_SYMBOL(elv_dispatch_add_tail);
 
-enum elv_merge elv_merge(struct request_queue *q, struct request **req,
-		struct bio *bio)
+static enum elv_merge __elv_merge(struct request_queue *q,
+		struct request **req, struct bio *bio,
+		struct hlist_head *hash, struct request *last_merge)
 {
 	struct elevator_queue *e = q->elevator;
 	struct request *__rq;
@@ -431,11 +432,11 @@ enum elv_merge elv_merge(struct request_queue *q, struct request **req,
 	/*
 	 * First try one-hit cache.
 	 */
-	if (q->last_merge && elv_bio_merge_ok(q->last_merge, bio)) {
-		enum elv_merge ret = blk_try_merge(q->last_merge, bio);
+	if (last_merge && elv_bio_merge_ok(last_merge, bio)) {
+		enum elv_merge ret = blk_try_merge(last_merge, bio);
 
 		if (ret != ELEVATOR_NO_MERGE) {
-			*req = q->last_merge;
+			*req = last_merge;
 			return ret;
 		}
 	}
@@ -446,7 +447,7 @@ enum elv_merge elv_merge(struct request_queue *q, struct request **req,
 	/*
 	 * See if our hash lookup can find a potential backmerge.
 	 */
-	__rq = elv_rqhash_find(q, bio->bi_iter.bi_sector);
+	__rq = rqhash_find(hash, bio->bi_iter.bi_sector);
 	if (__rq && elv_bio_merge_ok(__rq, bio)) {
 		*req = __rq;
 		return ELEVATOR_BACK_MERGE;
@@ -458,6 +459,12 @@ enum elv_merge elv_merge(struct request_queue *q, struct request **req,
 		return e->type->ops.sq.elevator_merge_fn(q, req, bio);
 
 	return ELEVATOR_NO_MERGE;
+}
+
+enum elv_merge elv_merge(struct request_queue *q, struct request **req,
+		struct bio *bio)
+{
+	return __elv_merge(q, req, bio, q->elevator->hash, q->last_merge);
 }
 
 /*
