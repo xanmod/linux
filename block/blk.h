@@ -199,6 +199,9 @@ static inline struct request *rqhash_find(struct hlist_head *hash, sector_t offs
 	return NULL;
 }
 
+enum elv_merge elv_merge_ctx(struct request_queue *q, struct request **req,
+                struct bio *bio, struct blk_mq_ctx *ctx);
+
 void blk_insert_flush(struct request *rq);
 
 static inline struct request *__elv_next_request(struct request_queue *q)

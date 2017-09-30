@@ -18,6 +18,10 @@ struct blk_mq_ctx {
 	unsigned long		rq_dispatched[2];
 	unsigned long		rq_merged;
 
+	/* bio merge via request hash table */
+	struct request		*last_merge;
+	DECLARE_HASHTABLE(hash, ELV_HASH_BITS);
+
 	/* incremented at completion time */
 	unsigned long		____cacheline_aligned_in_smp rq_completed[2];
 

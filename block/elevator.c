@@ -475,6 +475,13 @@ enum elv_merge elv_merge(struct request_queue *q, struct request **req,
 	return __elv_merge(q, req, bio, q->elevator->hash, q->last_merge);
 }
 
+enum elv_merge elv_merge_ctx(struct request_queue *q, struct request **req,
+		struct bio *bio, struct blk_mq_ctx *ctx)
+{
+	WARN_ON_ONCE(!q->mq_ops);
+	return __elv_merge(q, req, bio, ctx->hash, ctx->last_merge);
+}
+
 /*
  * Attempt to do an insertion back merge. Only check for the case where
  * we can append 'rq' to an existing request, so we can throw 'rq' away
@@ -520,16 +527,25 @@ void elv_merged_request(struct request_queue *q, struct request *rq,
 		enum elv_merge type)
 {
 	struct elevator_queue *e = q->elevator;
+	struct hlist_head *hash = e->hash;
+
+	/* we do bio merge on blk-mq sw queue */
+	if (q->mq_ops && !e) {
+		rq->mq_ctx->last_merge = rq;
+		hash = rq->mq_ctx->hash;
+		goto reposition;
+	}
+
+	q->last_merge = rq;
 
 	if (e->uses_mq && e->type->ops.mq.request_merged)
 		e->type->ops.mq.request_merged(q, rq, type);
 	else if (!e->uses_mq && e->type->ops.sq.elevator_merged_fn)
 		e->type->ops.sq.elevator_merged_fn(q, rq, type);
 
+ reposition:
 	if (type == ELEVATOR_BACK_MERGE)
-		elv_rqhash_reposition(q, rq);
-
-	q->last_merge = rq;
+		rqhash_reposition(hash, rq);
 }
 
 void elv_merge_requests(struct request_queue *q, struct request *rq,
