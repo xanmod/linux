@@ -47,11 +47,6 @@ static DEFINE_SPINLOCK(elv_list_lock);
 static LIST_HEAD(elv_list);
 
 /*
- * Merge hash stuff.
- */
-#define rq_hash_key(rq)		(blk_rq_pos(rq) + blk_rq_sectors(rq))
-
-/*
  * Query io scheduler to see if the current process issuing bio may be
  * merged with rq.
  */
@@ -272,14 +267,12 @@ EXPORT_SYMBOL(elevator_exit);
 
 static inline void __elv_rqhash_del(struct request *rq)
 {
-	hash_del(&rq->hash);
-	rq->rq_flags &= ~RQF_HASHED;
+	__rqhash_del(rq);
 }
 
 void elv_rqhash_del(struct request_queue *q, struct request *rq)
 {
-	if (ELV_ON_HASH(rq))
-		__elv_rqhash_del(rq);
+	rqhash_del(rq);
 }
 EXPORT_SYMBOL_GPL(elv_rqhash_del);
 
@@ -287,37 +280,22 @@ void elv_rqhash_add(struct request_queue *q, struct request *rq)
 {
 	struct elevator_queue *e = q->elevator;
 
-	BUG_ON(ELV_ON_HASH(rq));
-	hash_add(e->hash, &rq->hash, rq_hash_key(rq));
-	rq->rq_flags |= RQF_HASHED;
+	rqhash_add(e->hash, rq);
 }
 EXPORT_SYMBOL_GPL(elv_rqhash_add);
 
 void elv_rqhash_reposition(struct request_queue *q, struct request *rq)
 {
-	__elv_rqhash_del(rq);
-	elv_rqhash_add(q, rq);
+	struct elevator_queue *e = q->elevator;
+
+	rqhash_reposition(e->hash, rq);
 }
 
 struct request *elv_rqhash_find(struct request_queue *q, sector_t offset)
 {
 	struct elevator_queue *e = q->elevator;
-	struct hlist_node *next;
-	struct request *rq;
 
-	hash_for_each_possible_safe(e->hash, rq, next, hash, offset) {
-		BUG_ON(!ELV_ON_HASH(rq));
-
-		if (unlikely(!rq_mergeable(rq))) {
-			__elv_rqhash_del(rq);
-			continue;
-		}
-
-		if (rq_hash_key(rq) == offset)
-			return rq;
-	}
-
-	return NULL;
+	return rqhash_find(e->hash, offset);
 }
 
 /*

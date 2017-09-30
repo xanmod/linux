@@ -147,6 +147,58 @@ static inline void blk_clear_rq_complete(struct request *rq)
  */
 #define ELV_ON_HASH(rq) ((rq)->rq_flags & RQF_HASHED)
 
+/*
+ * Merge hash stuff.
+ */
+#define rq_hash_key(rq)		(blk_rq_pos(rq) + blk_rq_sectors(rq))
+
+#define bucket(head, key)	&((head)[hash_min((key), ELV_HASH_BITS)])
+
+static inline void __rqhash_del(struct request *rq)
+{
+	hash_del(&rq->hash);
+	rq->rq_flags &= ~RQF_HASHED;
+}
+
+static inline void rqhash_del(struct request *rq)
+{
+	if (ELV_ON_HASH(rq))
+		__rqhash_del(rq);
+}
+
+static inline void rqhash_add(struct hlist_head *hash, struct request *rq)
+{
+	BUG_ON(ELV_ON_HASH(rq));
+	hlist_add_head(&rq->hash, bucket(hash, rq_hash_key(rq)));
+	rq->rq_flags |= RQF_HASHED;
+}
+
+static inline void rqhash_reposition(struct hlist_head *hash, struct request *rq)
+{
+	__rqhash_del(rq);
+	rqhash_add(hash, rq);
+}
+
+static inline struct request *rqhash_find(struct hlist_head *hash, sector_t offset)
+{
+	struct hlist_node *next;
+	struct request *rq = NULL;
+
+	hlist_for_each_entry_safe(rq, next, bucket(hash, offset), hash) {
+		BUG_ON(!ELV_ON_HASH(rq));
+
+		if (unlikely(!rq_mergeable(rq))) {
+			__rqhash_del(rq);
+			continue;
+		}
+
+		if (rq_hash_key(rq) == offset)
+			return rq;
+	}
+
+	return NULL;
+}
+
 void blk_insert_flush(struct request *rq);
 
 static inline struct request *__elv_next_request(struct request_queue *q)
