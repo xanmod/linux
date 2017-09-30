@@ -877,6 +877,8 @@ void blk_set_queue_depth(struct request_queue *q, unsigned int depth)
 {
 	q->queue_depth = depth;
 	wbt_set_queue_depth(q->rq_wb, depth);
+
+	WARN_ON(blk_mq_update_sched_queue_depth(q));
 }
 EXPORT_SYMBOL(blk_set_queue_depth);
 

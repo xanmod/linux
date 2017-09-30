@@ -2650,7 +2650,9 @@ void blk_mq_free_tag_set(struct blk_mq_tag_set *set)
 }
 EXPORT_SYMBOL(blk_mq_free_tag_set);
 
-int blk_mq_update_nr_requests(struct request_queue *q, unsigned int nr)
+static int __blk_mq_update_nr_requests(struct request_queue *q,
+				       bool sched_only,
+				       unsigned int nr)
 {
 	struct blk_mq_tag_set *set = q->tag_set;
 	struct blk_mq_hw_ctx *hctx;
@@ -2669,7 +2671,7 @@ int blk_mq_update_nr_requests(struct request_queue *q, unsigned int nr)
 		 * If we're using an MQ scheduler, just update the scheduler
 		 * queue depth. This is similar to what the old code would do.
 		 */
-		if (!hctx->sched_tags) {
+		if (!sched_only && !hctx->sched_tags) {
 			ret = blk_mq_tag_update_depth(hctx, &hctx->tags,
 							min(nr, set->queue_depth),
 							false);
@@ -2687,6 +2689,27 @@ int blk_mq_update_nr_requests(struct request_queue *q, unsigned int nr)
 	blk_mq_unfreeze_queue(q);
 
 	return ret;
+}
+
+int blk_mq_update_nr_requests(struct request_queue *q, unsigned int nr)
+{
+	return __blk_mq_update_nr_requests(q, false, nr);
+}
+
+/*
+ * When drivers update q->queue_depth, this API is called so that
+ * we can use this queue depth as hint for adjusting scheduler
+ * queue depth.
+ */
+int blk_mq_update_sched_queue_depth(struct request_queue *q)
+{
+	unsigned nr;
+
+	if (!q->mq_ops || !q->elevator)
+		return 0;
+
+	nr = blk_mq_sched_queue_depth(q);
+	return __blk_mq_update_nr_requests(q, true, nr);
 }
 
 static void __blk_mq_update_nr_hw_queues(struct blk_mq_tag_set *set,
