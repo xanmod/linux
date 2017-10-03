@@ -346,6 +346,34 @@ void blk_sync_queue(struct request_queue *q)
 }
 EXPORT_SYMBOL(blk_sync_queue);
 
+void blk_set_preempt_only(struct request_queue *q, bool preempt_only)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(q->queue_lock, flags);
+	if (preempt_only)
+		queue_flag_set(QUEUE_FLAG_PREEMPT_ONLY, q);
+	else
+		queue_flag_clear(QUEUE_FLAG_PREEMPT_ONLY, q);
+	spin_unlock_irqrestore(q->queue_lock, flags);
+
+	/*
+	 * The synchronize_rcu() implicied in blk_mq_freeze_queue()
+	 * or the explicit one will make sure the above write on
+	 * PREEMPT_ONLY is observed in blk_queue_enter() before
+	 * running blk_mq_unfreeze_queue().
+	 *
+	 * blk_mq_freeze_queue() also drains up any request in queue,
+	 * so blk_queue_enter() will see the above updated value of
+	 * PREEMPT flag before any new allocation.
+	 */
+	if (!blk_mq_freeze_queue(q))
+		synchronize_rcu();
+
+	blk_mq_unfreeze_queue(q);
+}
+EXPORT_SYMBOL(blk_set_preempt_only);
+
 /**
  * __blk_run_queue_uncond - run a queue whether or not it has been stopped
  * @q:	The queue to run
@@ -771,8 +799,16 @@ int blk_queue_enter(struct request_queue *q, unsigned int op)
 	while (true) {
 		int ret;
 
-		if (percpu_ref_tryget_live(&q->q_usage_counter))
-			return 0;
+		rcu_read_lock_sched();
+		if (__percpu_ref_tryget_live(&q->q_usage_counter)) {
+			if (likely((op & REQ_PREEMPT) ||
+						!blk_queue_preempt_only(q))) {
+				rcu_read_unlock_sched();
+				return 0;
+			} else
+				percpu_ref_put(&q->q_usage_counter);
+		}
+		rcu_read_unlock_sched();
 
 		if (op & REQ_NOWAIT)
 			return -EBUSY;
@@ -787,7 +823,9 @@ int blk_queue_enter(struct request_queue *q, unsigned int op)
 		smp_rmb();
 
 		ret = wait_event_interruptible(q->mq_freeze_wq,
-				!atomic_read(&q->mq_freeze_depth) ||
+				(!atomic_read(&q->mq_freeze_depth) &&
+				((op & REQ_PREEMPT) ||
+				 !blk_queue_preempt_only(q))) ||
 				blk_queue_dying(q));
 		if (blk_queue_dying(q))
 			return -ENODEV;
