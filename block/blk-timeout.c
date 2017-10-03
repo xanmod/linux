@@ -134,7 +134,7 @@ void blk_timeout_work(struct work_struct *work)
 	struct request *rq, *tmp;
 	int next_set = 0;
 
-	if (blk_queue_enter(q, true))
+	if (blk_queue_enter(q, REQ_NOWAIT))
 		return;
 	spin_lock_irqsave(q->queue_lock, flags);
 
