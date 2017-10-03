@@ -29,7 +29,8 @@
  */
 static struct hlist_bl_head dynop[AuDyLast];
 
-static struct au_dykey *dy_gfind_get(struct hlist_bl_head *hbl, const void *h_op)
+static struct au_dykey *dy_gfind_get(struct hlist_bl_head *hbl,
+				     const void *h_op)
 {
 	struct au_dykey *key, *tmp;
 	struct hlist_bl_node *pos;

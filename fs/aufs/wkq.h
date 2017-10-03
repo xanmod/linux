@@ -25,7 +25,7 @@
 
 #ifdef __KERNEL__
 
-#include <linux/percpu_counter.h>
+#include <linux/wait.h>
 
 struct super_block;
 

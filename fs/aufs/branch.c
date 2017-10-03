@@ -33,7 +33,8 @@ static void au_br_do_free(struct au_branch *br)
 	struct au_dykey **key;
 
 	au_hnotify_fin_br(br);
-	au_dr_hino_free(&br->br_dirren); /* always, regardless the mount option */
+	/* always, regardless the mount option */
+	au_dr_hino_free(&br->br_dirren);
 
 	if (br->br_xino.xi_file)
 		fput(br->br_xino.xi_file);
@@ -138,7 +139,7 @@ static struct au_branch *au_br_alloc(struct super_block *sb, int new_nbranch,
 		goto out;
 	add_branch->br_xino.xi_nondir.total = 8; /* initial size */
 	add_branch->br_xino.xi_nondir.array
-		= kcalloc(sizeof(ino_t), add_branch->br_xino.xi_nondir.total,
+		= kcalloc(add_branch->br_xino.xi_nondir.total, sizeof(ino_t),
 			  GFP_NOFS);
 	if (unlikely(!add_branch->br_xino.xi_nondir.array))
 		goto out_br;
