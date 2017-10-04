@@ -3635,7 +3635,9 @@ static void __sched notrace __schedule(bool preempt)
 #ifdef CONFIG_SCHED_SMT
 		cpumask_clear_cpu(cpu, &sched_cpu_sb_suppress_mask);
 #endif
+#ifdef CONFIG_SMP
 		rq->next_balance = rq->clock + MS_TO_NS(rr_interval + 1);
+#endif
 
 		if (unlikely(next->prio == PRIO_LIMIT))
 			schedstat_inc(rq->sched_goidle);
