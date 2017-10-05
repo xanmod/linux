@@ -57,7 +57,7 @@ static struct au_dr_hino *au_dr_hino_find(struct au_dr_br *dr, ino_t ino)
 
 	found = NULL;
 	idx = au_dr_ihash(ino);
-	hbl= dr->dr_h_ino + idx;
+	hbl = dr->dr_h_ino + idx;
 	hlist_bl_lock(hbl);
 	hlist_bl_for_each_entry(ent, pos, hbl, dr_hnode)
 		if (ent->dr_h_ino == ino) {
@@ -83,6 +83,7 @@ int au_dr_hino_test_add(struct au_dr_br *dr, ino_t ino,
 #if 0
 	{
 		struct hlist_bl_node *tmp;
+
 		hlist_bl_for_each_entry_safe(ent, pos, tmp, hbl, dr_hnode)
 			AuDbg("hi%llu\n", (unsigned long long)ent->dr_h_ino);
 	}
@@ -428,7 +429,7 @@ static int au_brid_str(struct au_dr_brid *brid, struct inode *h_inode,
 		if (major <= 0xff && minor <= 0xff)
 			err = snprintf(p, sz, "%02x%02x", major, minor);
 		else
-			err = snprintf(p, sz, "%03x:%05x",major, minor);
+			err = snprintf(p, sz, "%03x:%05x", major, minor);
 		break;
 	}
 	AuDebugOn(err > sz);
@@ -739,7 +740,7 @@ static int au_drinfo_store_work_init(struct au_drinfo_store *w,
 	w->no_sio = !!uid_eq(current_fsuid(), GLOBAL_ROOT_UID);
 
 	err = -ENOMEM;
-	w->fdata = kcalloc(w->allocated, 1, GFP_NOFS);
+	w->fdata = kcalloc(1, w->allocated, GFP_NOFS);
 	if (unlikely(!w->fdata)) {
 		AuTraceErr(err);
 		goto out;
@@ -820,7 +821,7 @@ static int au_drinfo_store(struct dentry *dentry, aufs_bindex_t btgt,
 	btail = au_dbtaildir(dentry);
 	nelm = btail - btgt;
 	sz = sizeof(*rev) + sizeof(*elm) * nelm;
-	rev = kcalloc(sz, 1, GFP_NOFS);
+	rev = kcalloc(1, sz, GFP_NOFS);
 	if (unlikely(!rev)) {
 		AuTraceErr(err);
 		goto out_args;
@@ -1155,8 +1156,9 @@ int au_dr_lkup(struct au_do_lookup_args *lkup, struct dentry *dentry,
 	bbot = au_sbbot(sb);
 	w.ninfo = bbot + 1;
 	if (!lkup->dirren.drinfo) {
-		lkup->dirren.drinfo = kcalloc(sizeof(*lkup->dirren.drinfo),
-					      w.ninfo, GFP_NOFS);
+		lkup->dirren.drinfo = kcalloc(w.ninfo,
+					      sizeof(*lkup->dirren.drinfo),
+					      GFP_NOFS);
 		if (unlikely(!lkup->dirren.drinfo)) {
 			err = -ENOMEM;
 			goto out;

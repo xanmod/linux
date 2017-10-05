@@ -423,7 +423,8 @@ static int au_cp_regular(struct au_cp_generic *cpg)
 			inode_unlock_shared(h_src_inode);
 			err = vfsub_clone_file_range(file[SRC].file,
 						     file[DST].file, cpg->len);
-			vfsub_inode_lock_shared_nested(h_src_inode, AuLsc_I_CHILD);
+			vfsub_inode_lock_shared_nested(h_src_inode,
+						       AuLsc_I_CHILD);
 		} else
 			err = vfsub_clone_file_range(file[SRC].file,
 						     file[DST].file, cpg->len);
