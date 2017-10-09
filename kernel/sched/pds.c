@@ -4033,15 +4033,6 @@ static inline int rt_effective_prio(struct task_struct *p, int prio)
 }
 #endif
 
-/*
- * Adjust the deadline for when the priority is to change, before it's
- * changed.
- */
-static inline void adjust_deadline(struct task_struct *p, int new_prio)
-{
-	p->deadline += static_deadline_diff(new_prio) - task_deadline_diff(p);
-}
-
 void set_user_nice(struct task_struct *p, long nice)
 {
 	int new_static;
@@ -4072,7 +4063,8 @@ void set_user_nice(struct task_struct *p, long nice)
 		goto out_unlock;
 	}
 
-	adjust_deadline(p, new_static);
+	p->deadline -= task_deadline_diff(p);
+	p->deadline += static_deadline_diff(new_static);
 	p->static_prio = new_static;
 	p->prio = effective_prio(p);
 	update_task_priodl(p);
