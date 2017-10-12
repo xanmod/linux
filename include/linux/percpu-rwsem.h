@@ -119,7 +119,7 @@ static inline void percpu_rwsem_release(struct percpu_rw_semaphore *sem,
 					bool read, unsigned long ip)
 {
 	lock_release(&sem->rw_sem.dep_map, 1, ip);
-#ifdef CONFIG_RWSEM_SPIN_ON_OWNER
+#if defined(CONFIG_RWSEM_SPIN_ON_OWNER) && !defined(CONFIG_PREEMPT_RT)
 	if (!read)
 		atomic_long_set(&sem->rw_sem.owner, RWSEM_OWNER_UNKNOWN);
 #endif
@@ -129,7 +129,7 @@ static inline void percpu_rwsem_acquire(struct percpu_rw_semaphore *sem,
 					bool read, unsigned long ip)
 {
 	lock_acquire(&sem->rw_sem.dep_map, 0, 1, read, 1, NULL, ip);
-#ifdef CONFIG_RWSEM_SPIN_ON_OWNER
+#if defined(CONFIG_RWSEM_SPIN_ON_OWNER) && !defined(CONFIG_PREEMPT_RT)
 	if (!read)
 		atomic_long_set(&sem->rw_sem.owner, (long)current);
 #endif
