@@ -4471,19 +4471,19 @@ recheck:
 				 */
 				case SCHED_ISO:
 					if (policy == SCHED_ISO)
-						goto out;
+						return 0;
 					if (policy == SCHED_NORMAL)
 						return -EPERM;
 					break;
 				case SCHED_BATCH:
 					if (policy == SCHED_BATCH)
-						goto out;
+						return 0;
 					if (policy != SCHED_IDLE)
 						return -EPERM;
 					break;
 				case SCHED_IDLE:
 					if (policy == SCHED_IDLE)
-						goto out;
+						return 0;
 					return -EPERM;
 				default:
 					break;
@@ -4571,12 +4571,16 @@ recheck:
 
 	check_task_changed(rq, p);
 
+	/* Avoid rq from going away on us: */
+	preempt_disable();
 	__task_access_unlock(p, lock);
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 
 	if (pi)
 		rt_mutex_adjust_pi(p);
-out:
+
+	preempt_enable();
+
 	return 0;
 }
 
