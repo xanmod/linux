@@ -29,7 +29,7 @@ void blk_mq_run_hw_queue(struct blk_mq_hw_ctx *hctx, bool async);
 void blk_mq_free_queue(struct request_queue *q);
 int blk_mq_update_nr_requests(struct request_queue *q, unsigned int nr);
 void blk_mq_wake_waiters(struct request_queue *q);
-bool blk_mq_dispatch_rq_list(struct request_queue *, struct list_head *);
+bool blk_mq_dispatch_rq_list(struct request_queue *, struct list_head *, bool);
 void blk_mq_flush_busy_ctxs(struct blk_mq_hw_ctx *hctx, struct list_head *list);
 bool blk_mq_hctx_has_pending(struct blk_mq_hw_ctx *hctx);
 bool blk_mq_get_driver_tag(struct request *rq, struct blk_mq_hw_ctx **hctx,
@@ -131,6 +131,24 @@ static inline bool blk_mq_hctx_stopped(struct blk_mq_hw_ctx *hctx)
 static inline bool blk_mq_hw_queue_mapped(struct blk_mq_hw_ctx *hctx)
 {
 	return hctx->nr_ctx && hctx->tags;
+}
+
+static inline void blk_mq_put_dispatch_budget(struct blk_mq_hw_ctx *hctx)
+{
+	struct request_queue *q = hctx->queue;
+
+	if (q->mq_ops->put_budget)
+		q->mq_ops->put_budget(hctx);
+}
+
+static inline blk_status_t blk_mq_get_dispatch_budget(
+		struct blk_mq_hw_ctx *hctx)
+{
+	struct request_queue *q = hctx->queue;
+
+	if (q->mq_ops->get_budget)
+		return q->mq_ops->get_budget(hctx);
+	return BLK_STS_OK;
 }
 
 #endif
