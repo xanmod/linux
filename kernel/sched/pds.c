@@ -3308,8 +3308,12 @@ static void time_slice_expired(struct task_struct *p, struct rq *rq)
 
 	if (unlikely(p->policy == SCHED_RR))
 		return;
-	p->deadline /= 2;
-	p->deadline += (rq->clock + task_deadline_diff(p)) / 2;
+	if (p->policy == SCHED_NORMAL) {
+		p->deadline /= 2;
+		p->deadline += (rq->clock + task_deadline_diff(p)) / 2;
+	} else
+		p->deadline = rq->clock + task_deadline_diff(p);
+
 	update_task_priodl(p);
 }
 
