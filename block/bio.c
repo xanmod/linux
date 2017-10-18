@@ -1235,8 +1235,8 @@ struct bio *bio_copy_user_iov(struct request_queue *q,
 	 */
 	bmd->is_our_pages = map_data ? 0 : 1;
 	memcpy(bmd->iov, iter->iov, sizeof(struct iovec) * iter->nr_segs);
-	iov_iter_init(&bmd->iter, iter->type, bmd->iov,
-			iter->nr_segs, iter->count);
+	bmd->iter = *iter;
+	bmd->iter.iov = bmd->iov;
 
 	ret = -ENOMEM;
 	bio = bio_kmalloc(gfp_mask, nr_pages);
@@ -1327,6 +1327,7 @@ struct bio *bio_map_user_iov(struct request_queue *q,
 	int ret, offset;
 	struct iov_iter i;
 	struct iovec iov;
+	struct bio_vec *bvec;
 
 	iov_for_each(iov, i, *iter) {
 		unsigned long uaddr = (unsigned long) iov.iov_base;
@@ -1371,7 +1372,12 @@ struct bio *bio_map_user_iov(struct request_queue *q,
 		ret = get_user_pages_fast(uaddr, local_nr_pages,
 				(iter->type & WRITE) != WRITE,
 				&pages[cur_page]);
-		if (ret < local_nr_pages) {
+		if (unlikely(ret < local_nr_pages)) {
+			for (j = cur_page; j < page_limit; j++) {
+				if (!pages[j])
+					break;
+				put_page(pages[j]);
+			}
 			ret = -EFAULT;
 			goto out_unmap;
 		}
@@ -1379,6 +1385,7 @@ struct bio *bio_map_user_iov(struct request_queue *q,
 		offset = offset_in_page(uaddr);
 		for (j = cur_page; j < page_limit; j++) {
 			unsigned int bytes = PAGE_SIZE - offset;
+			unsigned short prev_bi_vcnt = bio->bi_vcnt;
 
 			if (len <= 0)
 				break;
@@ -1392,6 +1399,13 @@ struct bio *bio_map_user_iov(struct request_queue *q,
 			if (bio_add_pc_page(q, bio, pages[j], bytes, offset) <
 					    bytes)
 				break;
+
+			/*
+			 * check if vector was merged with previous
+			 * drop page reference if needed
+			 */
+			if (bio->bi_vcnt == prev_bi_vcnt)
+				put_page(pages[j]);
 
 			len -= bytes;
 			offset = 0;
@@ -1419,10 +1433,8 @@ struct bio *bio_map_user_iov(struct request_queue *q,
 	return bio;
 
  out_unmap:
-	for (j = 0; j < nr_pages; j++) {
-		if (!pages[j])
-			break;
-		put_page(pages[j]);
+	bio_for_each_segment_all(bvec, bio, j) {
+		put_page(bvec->bv_page);
 	}
  out:
 	kfree(pages);
