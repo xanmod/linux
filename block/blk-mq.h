@@ -18,10 +18,6 @@ struct blk_mq_ctx {
 	unsigned long		rq_dispatched[2];
 	unsigned long		rq_merged;
 
-	/* bio merge via request hash table */
-	struct request		*last_merge;
-	DECLARE_HASHTABLE(hash, ELV_HASH_BITS);
-
 	/* incremented at completion time */
 	unsigned long		____cacheline_aligned_in_smp rq_completed[2];
 
@@ -38,9 +34,6 @@ void blk_mq_flush_busy_ctxs(struct blk_mq_hw_ctx *hctx, struct list_head *list);
 bool blk_mq_hctx_has_pending(struct blk_mq_hw_ctx *hctx);
 bool blk_mq_get_driver_tag(struct request *rq, struct blk_mq_hw_ctx **hctx,
 				bool wait);
-struct request *blk_mq_dequeue_from_ctx(struct blk_mq_hw_ctx *hctx,
-					struct blk_mq_ctx *start);
-int blk_mq_update_sched_queue_depth(struct request_queue *q);
 
 /*
  * Internal helpers for allocating/freeing the request map
@@ -60,7 +53,7 @@ int blk_mq_alloc_rqs(struct blk_mq_tag_set *set, struct blk_mq_tags *tags,
  */
 void __blk_mq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 				bool at_head);
-blk_status_t blk_mq_request_bypass_insert(struct request *rq);
+void blk_mq_request_bypass_insert(struct request *rq);
 void blk_mq_insert_requests(struct blk_mq_hw_ctx *hctx, struct blk_mq_ctx *ctx,
 				struct list_head *list);
 

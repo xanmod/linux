@@ -30,8 +30,6 @@ struct blk_mq_hw_ctx {
 
 	struct sbitmap		ctx_map;
 
-	struct blk_mq_ctx	*dispatch_from;
-
 	struct blk_mq_ctx	**ctxs;
 	unsigned int		nr_ctx;
 
@@ -174,7 +172,6 @@ enum {
 	BLK_MQ_S_SCHED_RESTART	= 2,
 	BLK_MQ_S_TAG_WAITING	= 3,
 	BLK_MQ_S_START_ON_RUN	= 4,
-	BLK_MQ_S_DISPATCH_BUSY	= 5,
 
 	BLK_MQ_MAX_DEPTH	= 10240,
 
