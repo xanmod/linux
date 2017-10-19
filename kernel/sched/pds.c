@@ -118,7 +118,10 @@ static inline int task_on_rq_migrating(struct task_struct *p)
  * Value is in ms and set to a minimum of 6ms. Scales with number of cpus.
  * Tunable via /proc interface.
  */
-int rr_interval __read_mostly = 6;
+#define SCHED_DEFAULT_RR (6)
+
+int rr_interval __read_mostly = SCHED_DEFAULT_RR;
+static u64 sched_balance_interval = MS_TO_NS(SCHED_DEFAULT_RR * 2 / 3);
 
 static int __init rr_interval_set(char *str)
 {
@@ -132,6 +135,7 @@ static int __init rr_interval_set(char *str)
 	}
 
 	rr_interval = rr;
+	sched_balance_interval = MS_TO_NS(rr_interval * 2 / 3);
 	pr_cont("%d\n", rr_interval);
 
 	return 1;
@@ -3135,7 +3139,7 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 	if (rq->clock < rq->next_balance)
 		return false;
 
-	rq->next_balance = rq->clock + MS_TO_NS(rr_interval + 1);
+	rq->next_balance = rq->clock + sched_balance_interval;
 
 	cpu = cpu_of(rq);
 	if (!cpumask_test_cpu(cpu, &sched_rq_pending_mask))
@@ -3646,7 +3650,7 @@ static void __sched notrace __schedule(bool preempt)
 		cpumask_clear_cpu(cpu, &sched_cpu_sb_suppress_mask);
 #endif
 #ifdef CONFIG_SMP
-		rq->next_balance = rq->clock + MS_TO_NS(rr_interval + 1);
+		rq->next_balance = rq->clock + sched_balance_interval;
 #endif
 
 		if (unlikely(next->prio == PRIO_LIMIT))
