@@ -167,7 +167,7 @@ int sched_iso_cpu __read_mostly = 70;
  * 1: Yield only to better priority/deadline tasks. (default)
  * 2: Expire timeslice and recalculate deadline.
  */
-int sched_yield_type __read_mostly = 1;
+int sched_yield_type __read_mostly = 0;
 
 /*
  * The quota handed out to tasks of all priority levels when refilling their
