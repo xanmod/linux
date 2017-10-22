@@ -127,7 +127,6 @@ struct hv_ring_buffer_info {
 	u32 ring_data_startoffset;
 	u32 priv_write_index;
 	u32 priv_read_index;
-	u32 cached_read_index;
 };
 
 /*
@@ -180,19 +179,6 @@ static inline u32 hv_get_bytes_to_write(const struct hv_ring_buffer_info *rbi)
 	return write;
 }
 
-static inline u32 hv_get_cached_bytes_to_write(
-	const struct hv_ring_buffer_info *rbi)
-{
-	u32 read_loc, write_loc, dsize, write;
-
-	dsize = rbi->ring_datasize;
-	read_loc = rbi->cached_read_index;
-	write_loc = rbi->ring_buffer->write_index;
-
-	write = write_loc >= read_loc ? dsize - (write_loc - read_loc) :
-		read_loc - write_loc;
-	return write;
-}
 /*
  * VMBUS version is 32 bit entity broken up into
  * two 16 bit quantities: major_number. minor_number.
@@ -895,6 +881,8 @@ struct vmbus_channel {
 	 */
 	enum hv_numa_policy affinity_policy;
 
+	bool probe_done;
+
 };
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
@@ -1453,7 +1441,7 @@ extern bool vmbus_prep_negotiate_resp(struct icmsg_hdr *icmsghdrp, u8 *buf,
 				const int *srv_version, int srv_vercnt,
 				int *nego_fw_version, int *nego_srv_version);
 
-void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid);
+void hv_process_channel_removal(u32 relid);
 
 void vmbus_setevent(struct vmbus_channel *channel);
 /*
@@ -1471,55 +1459,6 @@ static inline void *
 hv_get_ring_buffer(const struct hv_ring_buffer_info *ring_info)
 {
 	return ring_info->ring_buffer->buffer;
-}
-
-/*
- * To optimize the flow management on the send-side,
- * when the sender is blocked because of lack of
- * sufficient space in the ring buffer, potential the
- * consumer of the ring buffer can signal the producer.
- * This is controlled by the following parameters:
- *
- * 1. pending_send_sz: This is the size in bytes that the
- *    producer is trying to send.
- * 2. The feature bit feat_pending_send_sz set to indicate if
- *    the consumer of the ring will signal when the ring
- *    state transitions from being full to a state where
- *    there is room for the producer to send the pending packet.
- */
-
-static inline  void hv_signal_on_read(struct vmbus_channel *channel)
-{
-	u32 cur_write_sz, cached_write_sz;
-	u32 pending_sz;
-	struct hv_ring_buffer_info *rbi = &channel->inbound;
-
-	/*
-	 * Issue a full memory barrier before making the signaling decision.
-	 * Here is the reason for having this barrier:
-	 * If the reading of the pend_sz (in this function)
-	 * were to be reordered and read before we commit the new read
-	 * index (in the calling function)  we could
-	 * have a problem. If the host were to set the pending_sz after we
-	 * have sampled pending_sz and go to sleep before we commit the
-	 * read index, we could miss sending the interrupt. Issue a full
-	 * memory barrier to address this.
-	 */
-	virt_mb();
-
-	pending_sz = READ_ONCE(rbi->ring_buffer->pending_send_sz);
-	/* If the other end is not blocked on write don't bother. */
-	if (pending_sz == 0)
-		return;
-
-	cur_write_sz = hv_get_bytes_to_write(rbi);
-
-	if (cur_write_sz < pending_sz)
-		return;
-
-	cached_write_sz = hv_get_cached_bytes_to_write(rbi);
-	if (cached_write_sz < pending_sz)
-		vmbus_setevent(channel);
 }
 
 /*

@@ -768,8 +768,7 @@ static void vmbus_device_release(struct device *device)
 	struct vmbus_channel *channel = hv_dev->channel;
 
 	mutex_lock(&vmbus_connection.channel_mutex);
-	hv_process_channel_removal(channel,
-				   channel->offermsg.child_relid);
+	hv_process_channel_removal(channel->offermsg.child_relid);
 	mutex_unlock(&vmbus_connection.channel_mutex);
 	kfree(hv_dev);
 
@@ -938,6 +937,9 @@ static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
 		/* Find channel based on relid */
 		list_for_each_entry_rcu(channel, &hv_cpu->chan_list, percpu_list) {
 			if (channel->offermsg.child_relid != relid)
+				continue;
+
+			if (channel->rescind)
 				continue;
 
 			switch (channel->callback_mode) {
