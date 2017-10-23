@@ -6510,9 +6510,6 @@ void ia64_set_curr_task(int cpu, struct task_struct *p)
 
 #endif
 
-void init_idle_bootup_task(struct task_struct *idle)
-{}
-
 #ifdef CONFIG_SCHED_DEBUG
 void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
 {}
