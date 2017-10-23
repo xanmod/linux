@@ -1301,7 +1301,7 @@ static inline void __set_task_cpu(struct task_struct *p, unsigned int cpu)
 }
 
 #ifdef CONFIG_SMP
-void set_task_cpu(struct task_struct *p, unsigned int cpu)
+void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 {
 #ifdef CONFIG_SCHED_DEBUG
 	/*
@@ -1321,13 +1321,17 @@ void set_task_cpu(struct task_struct *p, unsigned int cpu)
 	WARN_ON_ONCE(debug_locks && !(lockdep_is_held(&p->pi_lock) ||
 				      lockdep_is_held(&task_rq(p)->lock)));
 #endif
+	/*
+	 * Clearly, migrating tasks to offline CPUs is a fairly daft thing.
+	 */
+	WARN_ON_ONCE(!cpu_online(new_cpu));
 #endif
-	if (task_cpu(p) == cpu)
+	if (task_cpu(p) == new_cpu)
 		return;
-	trace_sched_migrate_task(p, cpu);
+	trace_sched_migrate_task(p, new_cpu);
 	perf_event_task_migrate(p);
 
-	__set_task_cpu(p, cpu);
+	__set_task_cpu(p, new_cpu);
 }
 
 /*
