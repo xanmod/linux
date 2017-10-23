@@ -6504,7 +6504,8 @@ void ia64_set_curr_task(int cpu, struct task_struct *p)
 #endif
 
 #ifdef CONFIG_SCHED_DEBUG
-void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
+void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
+			  struct seq_file *m)
 {}
 
 void proc_sched_set_task(struct task_struct *p)
