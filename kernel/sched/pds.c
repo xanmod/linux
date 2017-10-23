@@ -1415,8 +1415,13 @@ struct migration_arg {
 static struct rq *__migrate_task(struct rq *rq, struct task_struct *p, int
 				 dest_cpu)
 {
-	if (unlikely(!cpu_active(dest_cpu)))
-		return rq;
+	if (p->flags & PF_KTHREAD) {
+		if (unlikely(!cpu_online(dest_cpu)))
+			return rq;
+	} else {
+		if (unlikely(!cpu_active(dest_cpu)))
+			return rq;
+	}
 
 	/* Affinity changed (again). */
 	if (unlikely(!cpumask_test_cpu(dest_cpu, &p->cpus_allowed)))
