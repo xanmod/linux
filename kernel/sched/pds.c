@@ -115,10 +115,10 @@ static inline int task_on_rq_migrating(struct task_struct *p)
 
 /*
  * This is the time all tasks within the same priority round robin.
- * Value is in ms and set to a minimum of 6ms. Scales with number of cpus.
+ * Value is in ms and set to a minimum of 2ms. Scales with number of cpus.
  * Tunable via /proc interface.
  */
-#define SCHED_DEFAULT_RR (6)
+#define SCHED_DEFAULT_RR (2)
 int rr_interval __read_mostly = SCHED_DEFAULT_RR;
 
 static int __init rr_interval_set(char *str)
@@ -164,7 +164,7 @@ int sched_iso_cpu __read_mostly = 70;
  * 1: Yield only to better priority/deadline tasks. (default)
  * 2: Expire timeslice and recalculate deadline.
  */
-int sched_yield_type __read_mostly = 0;
+int sched_yield_type __read_mostly = 1;
 
 /*
  * The quota handed out to tasks of all priority levels when refilling their
