@@ -122,8 +122,8 @@ static inline int task_on_rq_migrating(struct task_struct *p)
 
 int rr_interval __read_mostly = SCHED_DEFAULT_RR;
 static u64 sched_balance_interval =
-#if JIFFY_NS + MS_TO_NS(SCHED_DEFAULT_RR) / 3 < MS_TO_NS(SCHED_DEFAULT_RR)
-MS_TO_NS(SCHED_DEFAULT_RR) / 3;
+#if JIFFY_NS + MS_TO_NS(SCHED_DEFAULT_RR) * 2 / 3 < MS_TO_NS(SCHED_DEFAULT_RR)
+MS_TO_NS(SCHED_DEFAULT_RR) * 2 / 3;
 #else
 0ULL;
 #endif
@@ -140,8 +140,8 @@ static int __init rr_interval_set(char *str)
 	}
 
 	rr_interval = rr;
-	if (JIFFY_NS + MS_TO_NS(rr_interval) / 3 < MS_TO_NS(rr_interval))
-		sched_balance_interval = MS_TO_NS(rr_interval) / 3;
+	if (JIFFY_NS + MS_TO_NS(rr_interval) * 2 / 3 < MS_TO_NS(rr_interval))
+		sched_balance_interval = MS_TO_NS(rr_interval) * 2 / 3;
 	else
 		sched_balance_interval = 0ULL;
 	pr_cont("%d\n", rr_interval);
