@@ -119,14 +119,7 @@ static inline int task_on_rq_migrating(struct task_struct *p)
  * Tunable via /proc interface.
  */
 #define SCHED_DEFAULT_RR (6)
-
 int rr_interval __read_mostly = SCHED_DEFAULT_RR;
-static u64 sched_balance_interval =
-#if JIFFY_NS + MS_TO_NS(SCHED_DEFAULT_RR) * 2 / 3 < MS_TO_NS(SCHED_DEFAULT_RR)
-MS_TO_NS(SCHED_DEFAULT_RR) * 2 / 3;
-#else
-0ULL;
-#endif
 
 static int __init rr_interval_set(char *str)
 {
@@ -140,10 +133,6 @@ static int __init rr_interval_set(char *str)
 	}
 
 	rr_interval = rr;
-	if (JIFFY_NS + MS_TO_NS(rr_interval) * 2 / 3 < MS_TO_NS(rr_interval))
-		sched_balance_interval = MS_TO_NS(rr_interval) * 2 / 3;
-	else
-		sched_balance_interval = 0ULL;
 	pr_cont("%d\n", rr_interval);
 
 	return 1;
@@ -3147,7 +3136,7 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 	if (rq->clock < rq->next_balance)
 		return false;
 
-	rq->next_balance = rq->clock + sched_balance_interval;
+	rq->next_balance = rq->clock + MS_TO_NS(rr_interval);
 
 	cpu = cpu_of(rq);
 	if (!cpumask_test_cpu(cpu, &sched_rq_pending_mask))
@@ -3656,9 +3645,6 @@ static void __sched notrace __schedule(bool preempt)
 	if (likely(prev != next)) {
 #ifdef CONFIG_SCHED_SMT
 		cpumask_clear_cpu(cpu, &sched_cpu_sb_suppress_mask);
-#endif
-#ifdef CONFIG_SMP
-		rq->next_balance = rq->clock + sched_balance_interval;
 #endif
 
 		if (unlikely(next->prio == PRIO_LIMIT))
