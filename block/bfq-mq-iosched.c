@@ -1394,7 +1394,6 @@ static void bfq_bfqq_handle_idle_busy_switch(struct bfq_data *bfqd,
 	BUG_ON(bfqq->entity.budget < bfqq->entity.service);
 
 	BUG_ON(bfqq == bfqd->in_service_queue);
-	bfqg_stats_update_io_add(bfqq_group(RQ_BFQQ(rq)), bfqq, rq->cmd_flags);
 
 	/*
 	 * bfqq deserves to be weight-raised if:
@@ -1734,7 +1733,6 @@ static void bfq_remove_request(struct request_queue *q,
 		BUG_ON(bfqq->meta_pending == 0);
 		bfqq->meta_pending--;
 	}
-	bfqg_stats_update_io_remove(bfqq_group(bfqq), rq->cmd_flags);
 }
 
 static bool bfq_bio_merge(struct blk_mq_hw_ctx *hctx, struct bio *bio)
@@ -1879,6 +1877,7 @@ static void bfq_requests_merged(struct request_queue *q, struct request *rq,
 		bfqq->next_rq = rq;
 
 	bfq_remove_request(q, next);
+	bfqg_stats_update_io_remove(bfqq_group(bfqq), next->cmd_flags);
 
 	spin_unlock_irq(&bfqq->bfqd->lock);
 end:
@@ -4077,6 +4076,10 @@ static struct request *bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 	spin_lock_irq(&bfqd->lock);
 
 	rq = __bfq_dispatch_request(hctx);
+	if (rq && RQ_BFQQ(rq))
+		bfqg_stats_update_io_remove(bfqq_group(RQ_BFQQ(rq)),
+					    rq->cmd_flags);
+
 	spin_unlock_irq(&bfqd->lock);
 
 	return rq;
@@ -4634,6 +4637,7 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 {
 	struct request_queue *q = hctx->queue;
 	struct bfq_data *bfqd = q->elevator->elevator_data;
+	struct bfq_queue *bfqq = RQ_BFQQ(rq);
 
 	spin_lock_irq(&bfqd->lock);
 	if (blk_mq_sched_try_insert_merge(q, rq)) {
@@ -4647,8 +4651,6 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 
 	spin_lock_irq(&bfqd->lock);
 	if (at_head || blk_rq_is_passthrough(rq)) {
-		struct bfq_queue *bfqq = RQ_BFQQ(rq);
-
 		if (at_head)
 			list_add(&rq->queuelist, &bfqd->dispatch);
 		else
@@ -4668,6 +4670,12 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 		rq->rq_flags &= ~RQF_GOT;
 
 		__bfq_insert_request(bfqd, rq);
+		/*
+		 * Update bfqq, because, if a queue merge has occurred
+		 * in __bfq_insert_request, then rq has been
+		 * redirected into a new queue.
+		 */
+		bfqq = RQ_BFQQ(rq);
 
 		if (rq_mergeable(rq)) {
 			elv_rqhash_add(q, rq);
@@ -4675,6 +4683,9 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 				q->last_merge = rq;
 		}
 	}
+
+	if (bfqq)
+		bfqg_stats_update_io_add(bfqq_group(bfqq), bfqq, rq->cmd_flags);
 
 	spin_unlock_irq(&bfqd->lock);
 }
@@ -4893,8 +4904,11 @@ static void bfq_finish_request(struct request *rq)
 		BUG_ON(in_interrupt());
 
 		assert_spin_locked(&bfqd->lock);
-		if (!RB_EMPTY_NODE(&rq->rb_node))
+		if (!RB_EMPTY_NODE(&rq->rb_node)) {
 			bfq_remove_request(rq->q, rq);
+			bfqg_stats_update_io_remove(bfqq_group(bfqq),
+						    rq->cmd_flags);
+		}
 		bfq_put_rq_priv_body(bfqq);
 	}
 
