@@ -145,11 +145,20 @@ static inline struct au_finfo *au_fi(struct file *file)
 
 /* ---------------------------------------------------------------------- */
 
+#define fi_read_lock(f)	au_rw_read_lock(&au_fi(f)->fi_rwsem)
+#define fi_write_lock(f)	au_rw_write_lock(&au_fi(f)->fi_rwsem)
+#define fi_read_trylock(f)	au_rw_read_trylock(&au_fi(f)->fi_rwsem)
+#define fi_write_trylock(f)	au_rw_write_trylock(&au_fi(f)->fi_rwsem)
 /*
- * fi_read_lock, fi_write_lock,
- * fi_read_unlock, fi_write_unlock, fi_downgrade_lock
- */
-AuSimpleRwsemFuncs(fi, struct file *f, &au_fi(f)->fi_rwsem);
+#define fi_read_trylock_nested(f) \
+	au_rw_read_trylock_nested(&au_fi(f)->fi_rwsem)
+#define fi_write_trylock_nested(f) \
+	au_rw_write_trylock_nested(&au_fi(f)->fi_rwsem)
+*/
+
+#define fi_read_unlock(f)	au_rw_read_unlock(&au_fi(f)->fi_rwsem)
+#define fi_write_unlock(f)	au_rw_write_unlock(&au_fi(f)->fi_rwsem)
+#define fi_downgrade_lock(f)	au_rw_dgrade_lock(&au_fi(f)->fi_rwsem)
 
 /* lock subclass for finfo */
 enum {

@@ -78,7 +78,6 @@ struct au_dr_lookup { };
 
 /* ---------------------------------------------------------------------- */
 
-struct qstr;
 struct au_branch;
 struct au_do_lookup_args;
 struct au_hinode;

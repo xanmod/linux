@@ -26,7 +26,6 @@
 
 #include <linux/fsnotify.h>
 #include "rwsem.h"
-#include "vfsub.h"
 
 struct vfsmount;
 
@@ -395,10 +394,9 @@ AuRWLockFuncs(new_child, NEW_CHILD);
 #undef AuWriteLockFunc
 #undef AuRWLockFuncs
 
-/*
- * ii_read_unlock, ii_write_unlock, ii_downgrade_lock
- */
-AuSimpleUnlockRwsemFuncs(ii, struct inode *i, &au_ii(i)->ii_rwsem);
+#define ii_read_unlock(i)	au_rw_read_unlock(&au_ii(i)->ii_rwsem)
+#define ii_write_unlock(i)	au_rw_write_unlock(&au_ii(i)->ii_rwsem)
+#define ii_downgrade_lock(i)	au_rw_dgrade_lock(&au_ii(i)->ii_rwsem)
 
 #define IiMustNoWaiters(i)	AuRwMustNoWaiters(&au_ii(i)->ii_rwsem)
 #define IiMustAnyLock(i)	AuRwMustAnyLock(&au_ii(i)->ii_rwsem)
@@ -677,12 +675,15 @@ static inline void au_hn_inode_lock_nested(struct au_hinode *hdir,
 	au_hn_suspend(hdir);
 }
 
+#if 0 /* unused */
+#include "vfsub.h"
 static inline void au_hn_inode_lock_shared_nested(struct au_hinode *hdir,
 						  unsigned int sc)
 {
 	vfsub_inode_lock_shared_nested(hdir->hi_inode, sc);
 	au_hn_suspend(hdir);
 }
+#endif
 
 static inline void au_hn_inode_unlock(struct au_hinode *hdir)
 {

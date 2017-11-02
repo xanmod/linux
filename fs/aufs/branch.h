@@ -291,15 +291,24 @@ static inline int au_sbr_whable(struct super_block *sb, aufs_bindex_t bindex)
 
 /* ---------------------------------------------------------------------- */
 
+#define wbr_wh_read_lock(wbr)	au_rw_read_lock(&(wbr)->wbr_wh_rwsem)
+#define wbr_wh_write_lock(wbr)	au_rw_write_lock(&(wbr)->wbr_wh_rwsem)
+#define wbr_wh_read_trylock(wbr)	au_rw_read_trylock(&(wbr)->wbr_wh_rwsem)
+#define wbr_wh_write_trylock(wbr)	au_rw_write_trylock(&(wbr)->wbr_wh_rwsem)
 /*
- * wbr_wh_read_lock, wbr_wh_write_lock
- * wbr_wh_read_unlock, wbr_wh_write_unlock, wbr_wh_downgrade_lock
- */
-AuSimpleRwsemFuncs(wbr_wh, struct au_wbr *wbr, &wbr->wbr_wh_rwsem);
+#define wbr_wh_read_trylock_nested(wbr) \
+	au_rw_read_trylock_nested(&(wbr)->wbr_wh_rwsem)
+#define wbr_wh_write_trylock_nested(wbr) \
+	au_rw_write_trylock_nested(&(wbr)->wbr_wh_rwsem)
+*/
 
-#define WbrWhMustNoWaiters(wbr)	AuRwMustNoWaiters(&wbr->wbr_wh_rwsem)
-#define WbrWhMustAnyLock(wbr)	AuRwMustAnyLock(&wbr->wbr_wh_rwsem)
-#define WbrWhMustWriteLock(wbr)	AuRwMustWriteLock(&wbr->wbr_wh_rwsem)
+#define wbr_wh_read_unlock(wbr)	au_rw_read_unlock(&(wbr)->wbr_wh_rwsem)
+#define wbr_wh_write_unlock(wbr)	au_rw_write_unlock(&(wbr)->wbr_wh_rwsem)
+#define wbr_wh_downgrade_lock(wbr)	au_rw_dgrade_lock(&(wbr)->wbr_wh_rwsem)
+
+#define WbrWhMustNoWaiters(wbr)	AuRwMustNoWaiters(&(wbr)->wbr_wh_rwsem)
+#define WbrWhMustAnyLock(wbr)	AuRwMustAnyLock(&(wbr)->wbr_wh_rwsem)
+#define WbrWhMustWriteLock(wbr)	AuRwMustWriteLock(&(wbr)->wbr_wh_rwsem)
 
 /* ---------------------------------------------------------------------- */
 

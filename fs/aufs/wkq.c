@@ -36,10 +36,175 @@ struct au_wkinfo {
 	au_wkq_func_t func;
 	void *args;
 
+#ifdef CONFIG_LOCKDEP
+	int dont_check;
+	struct held_lock **hlock;
+#endif
+
 	struct completion *comp;
 };
 
 /* ---------------------------------------------------------------------- */
+/*
+ * Aufs passes some operations to the workqueue such as the internal copyup.
+ * This scheme looks rather unnatural for LOCKDEP debugging feature, since the
+ * job run by workqueue depends upon the locks acquired in the other task.
+ * Delegating a small operation to the workqueue, aufs passes its lockdep
+ * information too. And the job in the workqueue restores the info in order to
+ * pretend as if it acquired those locks. This is just to make LOCKDEP work
+ * correctly and expectedly.
+ */
+
+#ifndef CONFIG_LOCKDEP
+AuStubInt0(au_wkq_lockdep_alloc, struct au_wkinfo *wkinfo);
+AuStubVoid(au_wkq_lockdep_free, struct au_wkinfo *wkinfo);
+AuStubVoid(au_wkq_lockdep_pre, struct au_wkinfo *wkinfo);
+AuStubVoid(au_wkq_lockdep_post, struct au_wkinfo *wkinfo);
+AuStubVoid(au_wkq_lockdep_init, struct au_wkinfo *wkinfo);
+#else
+static void au_wkq_lockdep_init(struct au_wkinfo *wkinfo)
+{
+	wkinfo->hlock = NULL;
+	wkinfo->dont_check = 0;
+}
+
+/*
+ * 1: matched
+ * 0: unmatched
+ */
+static int au_wkq_lockdep_test(struct lock_class_key *key, const char *name)
+{
+	static DEFINE_SPINLOCK(spin);
+	static struct {
+		char *name;
+		struct lock_class_key *key;
+	} a[] = {
+		{ .name = "&sbinfo->si_rwsem" },
+		{ .name = "&finfo->fi_rwsem" },
+		{ .name = "&dinfo->di_rwsem" },
+		{ .name = "&iinfo->ii_rwsem" }
+	};
+	static int set;
+	int i;
+
+	/* lockless read from 'set.' see below */
+	if (set == ARRAY_SIZE(a)) {
+		for (i = 0; i < ARRAY_SIZE(a); i++)
+			if (a[i].key == key)
+				goto match;
+		goto unmatch;
+	}
+
+	spin_lock(&spin);
+	if (set)
+		for (i = 0; i < ARRAY_SIZE(a); i++)
+			if (a[i].key == key) {
+				spin_unlock(&spin);
+				goto match;
+			}
+	for (i = 0; i < ARRAY_SIZE(a); i++) {
+		if (a[i].key) {
+			if (unlikely(a[i].key == key)) { /* rare but possible */
+				spin_unlock(&spin);
+				goto match;
+			} else
+				continue;
+		}
+		if (strstr(a[i].name, name)) {
+			/*
+			 * the order of these three lines is important for the
+			 * lockless read above.
+			 */
+			a[i].key = key;
+			spin_unlock(&spin);
+			set++;
+			/* AuDbg("%d, %s\n", set, name); */
+			goto match;
+		}
+	}
+	spin_unlock(&spin);
+	goto unmatch;
+
+match:
+	return 1;
+unmatch:
+	return 0;
+}
+
+static int au_wkq_lockdep_alloc(struct au_wkinfo *wkinfo)
+{
+	int err, n;
+	struct task_struct *curr;
+	struct held_lock **hl, *held_locks, *p;
+
+	err = 0;
+	curr = current;
+	wkinfo->dont_check = lockdep_recursing(curr);
+	if (wkinfo->dont_check)
+		goto out;
+	n = curr->lockdep_depth;
+	if (!n)
+		goto out;
+
+	err = -ENOMEM;
+	wkinfo->hlock = kmalloc_array(n + 1, sizeof(*wkinfo->hlock), GFP_NOFS);
+	if (unlikely(!wkinfo->hlock))
+		goto out;
+
+	err = 0;
+	if (0 && au_debug_test()) /* left for debugging */
+		lockdep_print_held_locks(curr);
+	held_locks = curr->held_locks;
+	hl = wkinfo->hlock;
+	while (n--) {
+		p = held_locks++;
+		if (au_wkq_lockdep_test(p->instance->key, p->instance->name))
+			*hl++ = p;
+	}
+	*hl = NULL;
+
+out:
+	return err;
+}
+
+static void au_wkq_lockdep_free(struct au_wkinfo *wkinfo)
+{
+	kfree(wkinfo->hlock);
+}
+
+static void au_wkq_lockdep_pre(struct au_wkinfo *wkinfo)
+{
+	struct held_lock *p, **hl = wkinfo->hlock;
+	int subclass;
+
+	if (wkinfo->dont_check)
+		lockdep_off();
+	if (!hl)
+		return;
+	while ((p = *hl++)) { /* assignment */
+		subclass = lockdep_hlock_class(p)->subclass;
+		/* AuDbg("%s, %d\n", p->instance->name, subclass); */
+		if (p->read)
+			rwsem_acquire_read(p->instance, subclass, 0,
+					   /*p->acquire_ip*/_RET_IP_);
+		else
+			rwsem_acquire(p->instance, subclass, 0,
+				      /*p->acquire_ip*/_RET_IP_);
+	}
+}
+
+static void au_wkq_lockdep_post(struct au_wkinfo *wkinfo)
+{
+	struct held_lock *p, **hl = wkinfo->hlock;
+
+	if (wkinfo->dont_check)
+		lockdep_on();
+	if (!hl)
+		return;
+	while ((p = *hl++)) /* assignment */
+		rwsem_release(p->instance, 0, /*p->acquire_ip*/_RET_IP_);
+}
+#endif
 
 static void wkq_func(struct work_struct *wk)
 {
@@ -48,7 +213,9 @@ static void wkq_func(struct work_struct *wk)
 	AuDebugOn(!uid_eq(current_fsuid(), GLOBAL_ROOT_UID));
 	AuDebugOn(rlimit(RLIMIT_FSIZE) != RLIM_INFINITY);
 
+	au_wkq_lockdep_pre(wkinfo);
 	wkinfo->func(wkinfo->args);
+	au_wkq_lockdep_post(wkinfo);
 	if (au_ftest_wkq(wkinfo->flags, WAIT))
 		complete(wkinfo->comp);
 	else {
@@ -136,16 +303,23 @@ int au_wkq_do_wait(unsigned int flags, au_wkq_func_t func, void *args)
 	};
 
 	err = au_wkq_comp_alloc(&wkinfo, &comp);
+	if (unlikely(err))
+		goto out;
+	err = au_wkq_lockdep_alloc(&wkinfo);
+	if (unlikely(err))
+		goto out_comp;
 	if (!err) {
 		au_wkq_run(&wkinfo);
 		/* no timeout, no interrupt */
 		wait_for_completion(wkinfo.comp);
-		au_wkq_comp_free(comp);
-		destroy_work_on_stack(&wkinfo.wk);
 	}
+	au_wkq_lockdep_free(&wkinfo);
 
+out_comp:
+	au_wkq_comp_free(comp);
+out:
+	destroy_work_on_stack(&wkinfo.wk);
 	return err;
-
 }
 
 /*
@@ -172,6 +346,7 @@ int au_wkq_nowait(au_wkq_func_t func, void *args, struct super_block *sb,
 		wkinfo->func = func;
 		wkinfo->args = args;
 		wkinfo->comp = NULL;
+		au_wkq_lockdep_init(wkinfo);
 		kobject_get(wkinfo->kobj);
 		__module_get(THIS_MODULE); /* todo: ?? */
 

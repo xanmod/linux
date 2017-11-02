@@ -26,8 +26,8 @@
 
 #include <linux/fs.h>
 #include <linux/kobject.h>
-#include "rwsem.h"
 #include "hbl.h"
+#include "rwsem.h"
 #include "wkq.h"
 
 /* policies to select one among multiple writable branches */
@@ -459,11 +459,20 @@ static inline void si_pid_set(struct super_block *sb)
 /* ---------------------------------------------------------------------- */
 
 /* lock superblock. mainly for entry point functions */
+#define __si_read_lock(sb)	au_rw_read_lock(&au_sbi(sb)->si_rwsem)
+#define __si_write_lock(sb)	au_rw_write_lock(&au_sbi(sb)->si_rwsem)
+#define __si_read_trylock(sb)	au_rw_read_trylock(&au_sbi(sb)->si_rwsem)
+#define __si_write_trylock(sb)	au_rw_write_trylock(&au_sbi(sb)->si_rwsem)
 /*
- * __si_read_lock, __si_write_lock,
- * __si_read_unlock, __si_write_unlock, __si_downgrade_lock
- */
-AuSimpleRwsemFuncs(__si, struct super_block *sb, &au_sbi(sb)->si_rwsem);
+#define __si_read_trylock_nested(sb) \
+	au_rw_read_trylock_nested(&au_sbi(sb)->si_rwsem)
+#define __si_write_trylock_nested(sb) \
+	au_rw_write_trylock_nested(&au_sbi(sb)->si_rwsem)
+*/
+
+#define __si_read_unlock(sb)	au_rw_read_unlock(&au_sbi(sb)->si_rwsem)
+#define __si_write_unlock(sb)	au_rw_write_unlock(&au_sbi(sb)->si_rwsem)
+#define __si_downgrade_lock(sb)	au_rw_dgrade_lock(&au_sbi(sb)->si_rwsem)
 
 #define SiMustNoWaiters(sb)	AuRwMustNoWaiters(&au_sbi(sb)->si_rwsem)
 #define SiMustAnyLock(sb)	AuRwMustAnyLock(&au_sbi(sb)->si_rwsem)

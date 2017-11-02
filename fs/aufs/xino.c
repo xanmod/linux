@@ -144,8 +144,11 @@ ssize_t xino_fwrite(vfs_writef_t func, struct file *file, void *buf,
 		lockdep_off();
 		err = do_xino_fwrite(func, file, buf, size, pos);
 		lockdep_on();
-	} else
+	} else {
+		lockdep_off();
 		err = xino_fwrite_wkq(func, file, buf, size, pos);
+		lockdep_on();
+	}
 
 	return err;
 }
