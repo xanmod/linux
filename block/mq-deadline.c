@@ -658,6 +658,7 @@ static struct elevator_type mq_deadline = {
 #endif
 	.elevator_attrs = deadline_attrs,
 	.elevator_name = "mq-deadline",
+	.elevator_alias = "deadline",
 	.elevator_owner = THIS_MODULE,
 };
 
