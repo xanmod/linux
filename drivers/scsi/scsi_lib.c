@@ -1924,14 +1924,6 @@ static void scsi_mq_put_budget(struct blk_mq_hw_ctx *hctx)
 	put_device(&sdev->sdev_gendev);
 }
 
-static void scsi_mq_run_idle_hctx(struct scsi_device *sdev,
-		struct blk_mq_hw_ctx *hctx)
-{
-	if (atomic_read(&sdev->device_busy) == 0 &&
-	    !scsi_device_blocked(sdev))
-		blk_mq_delay_run_hw_queue(hctx, SCSI_QUEUE_DELAY);
-}
-
 static blk_status_t scsi_mq_get_budget(struct blk_mq_hw_ctx *hctx)
 {
 	struct request_queue *q = hctx->queue;
@@ -1962,7 +1954,6 @@ out_dec_device_busy:
 out_put_device:
 	put_device(&sdev->sdev_gendev);
 out:
-	scsi_mq_run_idle_hctx(sdev, hctx);
 	return BLK_STS_RESOURCE;
 }
 
@@ -2013,7 +2004,9 @@ out_put_budget:
 	case BLK_STS_OK:
 		break;
 	case BLK_STS_RESOURCE:
-		scsi_mq_run_idle_hctx(sdev, hctx);
+		if (atomic_read(&sdev->device_busy) == 0 &&
+		    !scsi_device_blocked(sdev))
+			blk_mq_delay_run_hw_queue(hctx, SCSI_QUEUE_DELAY);
 		break;
 	default:
 		/*
