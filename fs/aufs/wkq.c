@@ -141,11 +141,10 @@ int au_wkq_do_wait(unsigned int flags, au_wkq_func_t func, void *args)
 		/* no timeout, no interrupt */
 		wait_for_completion(wkinfo.comp);
 		au_wkq_comp_free(comp);
-		destroy_work_on_stack(&wkinfo.wk);
 	}
 
+	destroy_work_on_stack(&wkinfo.wk);
 	return err;
-
 }
 
 /*
