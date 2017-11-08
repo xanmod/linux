@@ -31,15 +31,21 @@ latency and throughput, or on how to maximize throughput.
 
 BFQ has a non-null overhead, which limits the maximum IOPS that the
 CPU can process for a device scheduled with BFQ. To give an idea of
-the limits on slow or average CPUs, here are BFQ limits for three
-different CPUs, on, respectively, an average laptop, an old desktop,
-and a cheap embedded system, in case full hierarchical support is
-enabled (i.e., CONFIG_BFQ_SQ_GROUP_IOSCHED is set for bfq-sq, or
-CONFIG_MQ_BFQ_GROUP_IOSCHED is set for bfq-mq, or, finally,
-CONFIG_BFQ_GROUP_IOSCHED is set for bfq):
+the limits on slow or average CPUs, here are, first, the limits of
+bfq-sq for three different CPUs, on, respectively, an average laptop,
+an old desktop, and a cheap embedded system, in case full hierarchical
+support is enabled (i.e., CONFIG_BFQ_SQ_GROUP_IOSCHED is set):
 - Intel i7-4850HQ: 250 KIOPS
 - AMD A8-3850: 170 KIOPS
 - ARM CortexTM-A53 Octa-core: 45 KIOPS
+
+bfq-mq and bfq instances reach, instead, a higher sustainable
+throughput. Their limits, on the same systems as above, are, with full
+hierarchical support enabled (i.e., CONFIG_MQ_BFQ_GROUP_IOSCHED set
+for bfq-mq, or CONFIG_BFQ_GROUP_IOSCHED set for bfq):
+- Intel i7-4850HQ: 310 KIOPS
+- AMD A8-3850: 200 KIOPS
+- ARM CortexTM-A53 Octa-core: 56 KIOPS
 
 BFQ works for multi-queue devices too (bfq and bfq-mq instances).
 
