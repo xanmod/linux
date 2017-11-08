@@ -152,8 +152,10 @@ static int au_wkq_lockdep_alloc(struct au_wkinfo *wkinfo)
 		goto out;
 
 	err = 0;
+#if 0
 	if (0 && au_debug_test()) /* left for debugging */
 		lockdep_print_held_locks(curr);
+#endif
 	held_locks = curr->held_locks;
 	hl = wkinfo->hlock;
 	while (n--) {

@@ -294,7 +294,7 @@ static inline int au_sbr_whable(struct super_block *sb, aufs_bindex_t bindex)
 #define wbr_wh_read_lock(wbr)	au_rw_read_lock(&(wbr)->wbr_wh_rwsem)
 #define wbr_wh_write_lock(wbr)	au_rw_write_lock(&(wbr)->wbr_wh_rwsem)
 #define wbr_wh_read_trylock(wbr)	au_rw_read_trylock(&(wbr)->wbr_wh_rwsem)
-#define wbr_wh_write_trylock(wbr)	au_rw_write_trylock(&(wbr)->wbr_wh_rwsem)
+#define wbr_wh_write_trylock(wbr) au_rw_write_trylock(&(wbr)->wbr_wh_rwsem)
 /*
 #define wbr_wh_read_trylock_nested(wbr) \
 	au_rw_read_trylock_nested(&(wbr)->wbr_wh_rwsem)

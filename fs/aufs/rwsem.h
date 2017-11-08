@@ -26,15 +26,6 @@
 
 #include "debug.h"
 
-#ifdef CONFIG_LOCKDEP
-#define au_lockdep_set_name(rw)						\
-	lockdep_set_class_and_name(&(rw)->rwsem,			\
-				   /*original key*/(rw)->rwsem.dep_map.key, \
-				   /*name*/#rw)
-#else
-#define au_lockdep_set_name(rw) do {} while (0)
-#endif
-
 /* in the futre, the name 'au_rwsem' will be totally gone */
 #define au_rwsem	rw_semaphore
 
