@@ -4070,14 +4070,14 @@ static struct request *bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 {
 	struct bfq_data *bfqd = hctx->queue->elevator->elevator_data;
 	struct request *rq;
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 	struct bfq_queue *in_serv_queue, *bfqq;
 	bool waiting_rq, idle_timer_disabled;
 #endif
 
 	spin_lock_irq(&bfqd->lock);
 
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 	in_serv_queue = bfqd->in_service_queue;
 	waiting_rq = in_serv_queue && bfq_bfqq_wait_request(in_serv_queue);
 
@@ -4091,7 +4091,7 @@ static struct request *bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 #endif
 	spin_unlock_irq(&bfqd->lock);
 
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 	bfqq = rq ? RQ_BFQQ(rq) : NULL;
 	if (!idle_timer_disabled && !bfqq)
 		return rq;
@@ -4691,7 +4691,7 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 	struct request_queue *q = hctx->queue;
 	struct bfq_data *bfqd = q->elevator->elevator_data;
 	struct bfq_queue *bfqq = RQ_BFQQ(rq);
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 	bool idle_timer_disabled = false;
 	unsigned int cmd_flags;
 #endif
@@ -4726,7 +4726,7 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 		BUG_ON(!(rq->rq_flags & RQF_GOT));
 		rq->rq_flags &= ~RQF_GOT;
 
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 		idle_timer_disabled = __bfq_insert_request(bfqd, rq);
 		/*
 		 * Update bfqq, because, if a queue merge has occurred
@@ -4744,7 +4744,7 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 				q->last_merge = rq;
 		}
 	}
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 	/*
 	 * Cache cmd_flags before releasing scheduler lock, because rq
 	 * may disappear afterwards (for example, because of a request
@@ -4753,7 +4753,7 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 	cmd_flags = rq->cmd_flags;
 #endif
 	spin_unlock_irq(&bfqd->lock);
-#ifdef BFQ_GROUP_IOSCHED_ENABLED
+#if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 	if (!bfqq)
 		return;
 	/*
