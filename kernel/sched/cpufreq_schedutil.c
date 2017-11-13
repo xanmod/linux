@@ -173,15 +173,23 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 
 static void sugov_get_util(struct sugov_cpu *sg_cpu)
 {
+#ifdef CONFIG_SCHED_PDS
+	sg_cpu->max = arch_scale_cpu_capacity(NULL, sg_cpu->cpu);
+#else
 	struct rq *rq = cpu_rq(sg_cpu->cpu);
+	struct rq *rq = cpu_rq(cpu);
 
 	sg_cpu->max = arch_scale_cpu_capacity(NULL, sg_cpu->cpu);
 	sg_cpu->util_cfs = cpu_util_cfs(rq);
 	sg_cpu->util_dl  = cpu_util_dl(rq);
+#endif
 }
 
 static unsigned long sugov_aggregate_util(struct sugov_cpu *sg_cpu)
 {
+#ifdef CONFIG_SCHED_PDS
+	return sg_cpu->max;
+#else
 	struct rq *rq = cpu_rq(sg_cpu->cpu);
 	unsigned long util;
 
@@ -199,6 +207,7 @@ static unsigned long sugov_aggregate_util(struct sugov_cpu *sg_cpu)
 	 * ready for such an interface. So, we only do the latter for now.
 	 */
 	return min(util, sg_cpu->max);
+#endif
 }
 
 static void sugov_set_iowait_boost(struct sugov_cpu *sg_cpu, u64 time, unsigned int flags)

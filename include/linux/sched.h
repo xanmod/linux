@@ -27,6 +27,7 @@
 #include <linux/signal_types.h>
 #include <linux/mm_types_task.h>
 #include <linux/task_io_accounting.h>
+#include <linux/skip_list.h>
 
 /* task_struct member predeclarations (sorted alphabetically): */
 struct audit_context;
@@ -612,9 +613,13 @@ struct task_struct {
 	unsigned int			flags;
 	unsigned int			ptrace;
 
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && !defined(CONFIG_SCHED_PDS)
 	struct llist_node		wake_entry;
+#endif
+#if defined(CONFIG_SMP) || defined(CONFIG_SCHED_PDS)
 	int				on_cpu;
+#endif
+#ifdef CONFIG_SMP
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/* Current CPU: */
 	unsigned int			cpu;
@@ -640,13 +645,36 @@ struct task_struct {
 	int				normal_prio;
 	unsigned int			rt_priority;
 
+#ifdef CONFIG_SCHED_PDS
+	int				time_slice;
+	u64				deadline;
+	/* skip list level */
+	int				sl_level;
+	/* skip list node */
+	struct skiplist_node		sl_node;
+	/* 8bits prio and 56bits deadline for quick processing */
+	u64				priodl;
+	u64				last_ran;
+	/* sched_clock time spent running */
+	u64				sched_time;
+#ifdef CONFIG_SMT_NICE
+	/* Policy/nice level bias across smt siblings */
+	int				smt_bias;
+#endif
+#ifdef CONFIG_HOTPLUG_CPU
+	/* Bound to CPU0 for hotplug */
+	bool				zerobound;
+#endif
+	unsigned long			rt_timeout;
+#else /* CONFIG_SCHED_PDS */
 	const struct sched_class	*sched_class;
 	struct sched_entity		se;
 	struct sched_rt_entity		rt;
+	struct sched_dl_entity		dl;
+#endif
 #ifdef CONFIG_CGROUP_SCHED
 	struct task_group		*sched_task_group;
 #endif
-	struct sched_dl_entity		dl;
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* List of struct preempt_notifier: */
@@ -1184,6 +1212,33 @@ struct task_struct {
 	 * Do not put anything below here!
 	 */
 };
+
+#ifdef CONFIG_SCHED_PDS
+void cpu_scaling(int cpu);
+void cpu_nonscaling(int cpu);
+#define tsk_seruntime(t)		((t)->sched_time)
+#define tsk_rttimeout(t)		((t)->rt_timeout)
+
+#define is_idle_policy(policy)	((policy) == SCHED_IDLE)
+#define idleprio_task(p)	unlikely(is_idle_policy((p)->policy))
+
+#define is_iso_policy(policy)	((policy) == SCHED_ISO)
+#define iso_task(p)		unlikely(is_iso_policy((p)->policy))
+
+#else /* CFS */
+extern int runqueue_is_locked(int cpu);
+static inline void cpu_scaling(int cpu)
+{
+}
+
+static inline void cpu_nonscaling(int cpu)
+{
+}
+#define tsk_seruntime(t)	((t)->se.sum_exec_runtime)
+#define tsk_rttimeout(t)	((t)->rt.timeout)
+
+#define iso_task(p)		(false)
+#endif /* CONFIG_SCHED_PDS */
 
 static inline struct pid *task_pid(struct task_struct *task)
 {

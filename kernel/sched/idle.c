@@ -380,6 +380,7 @@ select_task_rq_idle(struct task_struct *p, int cpu, int sd_flag, int flags)
 }
 #endif
 
+#ifndef CONFIG_PDS
 /*
  * Idle tasks are unconditionally rescheduled:
  */
@@ -480,3 +481,4 @@ const struct sched_class idle_sched_class = {
 	.switched_to		= switched_to_idle,
 	.update_curr		= update_curr_idle,
 };
+#endif

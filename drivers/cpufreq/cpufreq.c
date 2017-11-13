@@ -25,6 +25,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
@@ -1958,7 +1959,7 @@ int __cpufreq_driver_target(struct cpufreq_policy *policy,
 			    unsigned int relation)
 {
 	unsigned int old_target_freq = target_freq;
-	int index;
+	int index, retval;
 
 	if (cpufreq_disabled())
 		return -ENODEV;
@@ -1989,7 +1990,15 @@ int __cpufreq_driver_target(struct cpufreq_policy *policy,
 
 	index = cpufreq_frequency_table_target(policy, target_freq, relation);
 
-	return __target_index(policy, index);
+	retval = __target_index(policy, index);
+
+	if (likely(retval != -EINVAL)) {
+		if (target_freq == policy->max)
+			cpu_nonscaling(policy->cpu);
+		else if (policy->restore_freq == policy->max)
+			cpu_scaling(policy->cpu);
+	}
+	return retval;
 }
 EXPORT_SYMBOL_GPL(__cpufreq_driver_target);
 
