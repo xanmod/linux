@@ -178,6 +178,9 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 
 static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu)
 {
+#ifdef CONFIG_SCHED_PDS
+	*util = *max = arch_scale_cpu_capacity(NULL, cpu);
+#else
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long cfs_max;
 
@@ -185,6 +188,7 @@ static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu)
 
 	*util = min(rq->cfs.avg.util_avg, cfs_max);
 	*max = cfs_max;
+#endif
 }
 
 static void sugov_set_iowait_boost(struct sugov_cpu *sg_cpu, u64 time,

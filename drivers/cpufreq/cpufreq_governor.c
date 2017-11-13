@@ -526,6 +526,8 @@ int cpufreq_dbs_governor_start(struct cpufreq_policy *policy)
 	gov->start(policy);
 
 	gov_set_update_util(policy_dbs, sampling_rate);
+
+	cpu_nonscaling(policy->cpu);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(cpufreq_dbs_governor_start);
@@ -539,6 +541,8 @@ void cpufreq_dbs_governor_stop(struct cpufreq_policy *policy)
 	cancel_work_sync(&policy_dbs->work);
 	atomic_set(&policy_dbs->work_count, 0);
 	policy_dbs->work_in_progress = false;
+
+	cpu_nonscaling(policy->cpu);
 }
 EXPORT_SYMBOL_GPL(cpufreq_dbs_governor_stop);
 
