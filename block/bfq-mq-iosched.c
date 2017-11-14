@@ -1540,6 +1540,8 @@ static void bfq_add_request(struct request *rq)
 
 	BUG_ON(!RQ_BFQQ(rq));
 	BUG_ON(RQ_BFQQ(rq) != bfqq);
+	WARN_ON(blk_rq_sectors(rq) == 0);
+
 	elv_rb_add(&bfqq->sort_list, rq);
 
 	/*
@@ -4962,7 +4964,7 @@ static void bfq_finish_request(struct request *rq)
 					     rq_io_start_time_ns(rq),
 					     rq->cmd_flags);
 
-	BUG_ON(blk_rq_sectors(rq) == 0 && !(rq->rq_flags & RQF_STARTED));
+	WARN_ON(blk_rq_sectors(rq) == 0 && !(rq->rq_flags & RQF_STARTED));
 
 	if (likely(rq->rq_flags & RQF_STARTED)) {
 		unsigned long flags;
