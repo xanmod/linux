@@ -2860,6 +2860,19 @@ DEFINE_PER_CPU(struct kernel_cpustat, kernel_cpustat);
 EXPORT_PER_CPU_SYMBOL(kstat);
 EXPORT_PER_CPU_SYMBOL(kernel_cpustat);
 
+static inline void pds_update_curr(struct rq *rq, struct task_struct *p)
+{
+	s64 ns = rq->clock_task - p->last_ran;
+
+	p->sched_time += ns;
+	account_group_exec_runtime(p, ns);
+
+	/* time_slice accounting is done in usecs to avoid overflow on 32bit */
+	if (likely(p->policy != SCHED_FIFO))
+		p->time_slice -= NS_TO_US(ns);
+	p->last_ran = rq->clock_task;
+}
+
 /*
  * Return accounted runtime for the task.
  * Return separately the current's pending runtime that have not been
@@ -2884,7 +2897,7 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 	 * If we see ->on_cpu without ->on_rq, the task is leaving, and has
 	 * been accounted, so we're correct here as well.
 	 */
-	if (!p->on_cpu || !p->on_rq)
+	if (!p->on_cpu || !task_on_rq_queued(p))
 		return tsk_seruntime(p);
 #endif
 
@@ -2894,12 +2907,9 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 	 * project cycles that may never be accounted to this
 	 * thread, breaking clock_gettime().
 	 */
-	if (p == rq->curr && p->on_rq) {
+	if (p == rq->curr && task_on_rq_queued(p)) {
 		update_rq_clock(rq);
-		ns = rq->clock_task - p->last_ran;
-		if (unlikely((s64)ns < 0))
-			ns = 0;
-		p->sched_time += ns;
+		pds_update_curr(rq, p);
 	}
 	ns = tsk_seruntime(p);
 	task_access_unlock_irqrestore(p, lock, &flags);
@@ -2948,20 +2958,6 @@ static inline void no_iso_tick(struct rq *rq)
 		    ISO_PERIOD * (sched_iso_cpu * 115 / 128)))
 			rq->iso_refractory = false;
 	}
-}
-
-static inline void pds_update_curr(struct rq *rq, struct task_struct *p)
-{
-	s64 ns = rq->clock_task - p->last_ran;
-
-	p->sched_time += ns;
-	account_group_exec_runtime(p, ns);
-
-	/* time_slice accounting is done in usecs to avoid overflow on 32bit */
-	if (likely(p->policy != SCHED_FIFO)) {
-		p->time_slice -= NS_TO_US(ns);
-	}
-	p->last_ran = rq->clock_task;
 }
 
 /* This manages tasks that have run out of timeslice during a scheduler_tick */
