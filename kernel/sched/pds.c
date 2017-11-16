@@ -3452,8 +3452,9 @@ static inline struct task_struct *choose_next_task(struct rq *rq, int cpu)
 		return next;
 
 #ifdef	CONFIG_SMP
-	if ((next = take_other_rq_task(cpu)))
-		return next;
+	if (likely(rq->online))
+		if ((next = take_other_rq_task(cpu)))
+			return next;
 #endif
 	return rq->idle;
 }
