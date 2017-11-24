@@ -928,8 +928,6 @@ static enum hrtimer_restart hrtick(struct hrtimer *timer)
 	WARN_ON_ONCE(cpu_of(rq) != smp_processor_id());
 
 	raw_spin_lock(&rq->lock);
-	update_rq_clock(rq);
-
 	p = rq->curr;
 	p->time_slice = 0;
 	resched_curr(rq);
