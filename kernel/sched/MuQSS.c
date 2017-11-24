@@ -658,8 +658,6 @@ static inline void finish_lock_switch(struct rq *rq, struct task_struct *prev)
 		raw_spin_unlock(&prev->pi_lock);
 	}
 #endif
-	/* Accurately set nr_running here for load average calculations */
-	rq->nr_running = rq->sl->entries + !rq_idle(rq);
 	rq_unlock(rq);
 
 	do_pending_softirq(rq, current);
@@ -759,6 +757,7 @@ static void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 
 	if (!(flags & DEQUEUE_SAVE))
 		sched_info_dequeued(task_rq(p), p);
+	rq->nr_running--;
 	update_load_avg(rq, flags);
 }
 
@@ -842,6 +841,7 @@ static void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 	rq->best_key = rq->node->next[0]->key;
 	if (p->in_iowait)
 		cflags |= SCHED_CPUFREQ_IOWAIT;
+	rq->nr_running++;
 	update_load_avg(rq, cflags);
 }
 
@@ -3776,12 +3776,15 @@ static void __sched notrace __schedule(bool preempt)
 		/*
 		 * Don't reschedule an idle task or deactivated tasks
 		 */
-		if (prev != idle && !deactivate)
+		if (prev == idle)
+			rq->nr_running++;
+		else if (!deactivate)
 			resched_suitable_idle(prev);
-		if (next != idle)
-			check_siblings(rq);
-		else
+		if (unlikely(next == idle)) {
+			rq->nr_running--;
 			wake_siblings(rq);
+		} else
+			check_siblings(rq);
 		rq->nr_switches++;
 		rq->curr = next;
 		/*
