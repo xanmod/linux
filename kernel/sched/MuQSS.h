@@ -131,7 +131,8 @@ static inline int cpupri_init(void __maybe_unused *cpupri)
  * This data should only be modified by the local cpu.
  */
 struct rq {
-	raw_spinlock_t lock;
+	raw_spinlock_t *lock;
+	raw_spinlock_t *orig_lock;
 
 	struct task_struct *curr, *idle, *stop;
 	struct mm_struct *prev_mm;
@@ -170,7 +171,7 @@ struct rq {
 		iowait_ns, idle_ns;
 	atomic_t nr_iowait;
 
-	skiplist_node node;
+	skiplist_node *node;
 	skiplist *sl;
 #ifdef CONFIG_SMP
 	struct task_struct *preempt; /* Preempt triggered on this task */
@@ -188,11 +189,17 @@ struct rq {
 	struct rq **rq_order; /* RQs ordered by relative cache distance */
 
 #ifdef CONFIG_SCHED_SMT
+#ifdef CONFIG_RQSHARE_SMT
+	struct rq *smt_leader; /* First logical CPU in SMT siblings */
+#endif
 	cpumask_t thread_mask;
 	bool (*siblings_idle)(struct rq *rq);
 	/* See if all smt siblings are idle */
 #endif /* CONFIG_SCHED_SMT */
 #ifdef CONFIG_SCHED_MC
+#ifdef CONFIG_RQSHARE_MC
+	struct rq *mc_leader; /* First logical CPU in MC siblings */
+#endif
 	cpumask_t core_mask;
 	bool (*cache_idle)(struct rq *rq);
 	/* See if all cache siblings are idle */
@@ -284,37 +291,37 @@ static inline int task_running(struct rq *rq, struct task_struct *p)
 static inline void rq_lock(struct rq *rq)
 	__acquires(rq->lock)
 {
-	raw_spin_lock(&rq->lock);
+	raw_spin_lock(rq->lock);
 }
 
 static inline void rq_unlock(struct rq *rq)
 	__releases(rq->lock)
 {
-	raw_spin_unlock(&rq->lock);
+	raw_spin_unlock(rq->lock);
 }
 
 static inline void rq_lock_irq(struct rq *rq)
 	__acquires(rq->lock)
 {
-	raw_spin_lock_irq(&rq->lock);
+	raw_spin_lock_irq(rq->lock);
 }
 
 static inline void rq_unlock_irq(struct rq *rq)
 	__releases(rq->lock)
 {
-	raw_spin_unlock_irq(&rq->lock);
+	raw_spin_unlock_irq(rq->lock);
 }
 
 static inline void rq_lock_irqsave(struct rq *rq, unsigned long *flags)
 	__acquires(rq->lock)
 {
-	raw_spin_lock_irqsave(&rq->lock, *flags);
+	raw_spin_lock_irqsave(rq->lock, *flags);
 }
 
 static inline void rq_unlock_irqrestore(struct rq *rq, unsigned long *flags)
 	__releases(rq->lock)
 {
-	raw_spin_unlock_irqrestore(&rq->lock, *flags);
+	raw_spin_unlock_irqrestore(rq->lock, *flags);
 }
 
 static inline struct rq *task_rq_lock(struct task_struct *p, unsigned long *flags)
@@ -326,10 +333,10 @@ static inline struct rq *task_rq_lock(struct task_struct *p, unsigned long *flag
 	while (42) {
 		raw_spin_lock_irqsave(&p->pi_lock, *flags);
 		rq = task_rq(p);
-		raw_spin_lock(&rq->lock);
+		raw_spin_lock(rq->lock);
 		if (likely(rq == task_rq(p)))
 			break;
-		raw_spin_unlock(&rq->lock);
+		raw_spin_unlock(rq->lock);
 		raw_spin_unlock_irqrestore(&p->pi_lock, *flags);
 	}
 	return rq;
@@ -352,10 +359,10 @@ static inline struct rq *__task_rq_lock(struct task_struct *p)
 
 	while (42) {
 		rq = task_rq(p);
-		raw_spin_lock(&rq->lock);
+		raw_spin_lock(rq->lock);
 		if (likely(rq == task_rq(p)))
 			break;
-		raw_spin_unlock(&rq->lock);
+		raw_spin_unlock(rq->lock);
 	}
 	return rq;
 }
@@ -395,14 +402,14 @@ static inline u64 __rq_clock_broken(struct rq *rq)
 
 static inline u64 rq_clock(struct rq *rq)
 {
-	lockdep_assert_held(&rq->lock);
+	lockdep_assert_held(rq->lock);
 
 	return rq->clock;
 }
 
 static inline u64 rq_clock_task(struct rq *rq)
 {
-	lockdep_assert_held(&rq->lock);
+	lockdep_assert_held(rq->lock);
 
 	return rq->clock_task;
 }
