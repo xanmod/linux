@@ -6270,8 +6270,10 @@ void __init sched_init(void)
 		rq->iso_refractory = 0;
 		init_rq_hrtick(rq);
 	}
+#ifdef CONFIG_SMP
 	/* Set rq->online for cpu 0 */
 	cpu_rq(0)->online = true;
+#endif
 
 	/*
 	 * The boot idle thread does lazy MMU switching as well:
