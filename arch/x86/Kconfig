@@ -947,25 +947,9 @@ config SCHED_SMT
 	depends on SMP
 	---help---
 	  SMT scheduler support improves the CPU scheduler's decision making
-	  when dealing with Intel P4/Core 2 chips with HyperThreading at a
+	  when dealing with Intel Pentium 4 chips with HyperThreading at a
 	  cost of slightly increased overhead in some places. If unsure say
 	  N here.
-
-config SMT_NICE
-	bool "SMT (Hyperthreading) aware nice priority and policy support"
-	depends on SCHED_MUQSS && SCHED_SMT
-	default y
-	---help---
-	  Enabling Hyperthreading on Intel CPUs decreases the effectiveness
-	  of the use of 'nice' levels and different scheduling policies
-	  (e.g. realtime) due to sharing of CPU power between hyperthreads.
-	  SMT nice support makes each logical CPU aware of what is running on
-	  its hyperthread siblings, maintaining appropriate distribution of
-	  CPU according to nice levels and scheduling policies at the expense
-	  of slightly increased overhead.
-
-	  If unsure say Y here.
-
 
 config SCHED_MC
 	def_bool y
@@ -996,48 +980,6 @@ config SCHED_MC_PRIO
 	  This feature will have no effect on CPUs without this feature.
 
 	  If unsure say Y here.
-
-choice
-	prompt "CPU scheduler runqueue sharing"
-	default RQSHARE_NONE if !SCHED_MUQSS
-	default RQSHARE_SMT if SCHED_MUQSS
-
-config RQSHARE_NONE
-	bool "No sharing"
-	help
-	  This is the default behaviour where the CPU scheduler has one runqueue
-	  per CPU, whether it is a physical or logical CPU (hyperthread).
-
-	  If not using MuQSS, this is the only option.
-	  If unsure, say N.
-
-config RQSHARE_SMT
-	bool "SMT (hyperthread) siblings"
-	depends on SCHED_MUQSS && SCHED_SMT
-	help
-	  With this option enabled, the CPU scheduler will have one runqueue
-	  shared by SMT (hyperthread) siblings. As these logical cores share
-	  one physical core, sharing the runqueue resource can lead to decreased
-	  overhead, lower latency and higher throughput.
-
-	  If unsure, say Y.
-
-config RQSHARE_MC
-	bool "Multicore siblings"
-	depends on SCHED_MUQSS && SCHED_MC
-	help
-	  With this option enabled, the CPU scheduler will have one runqueue
-	  shared by multicore siblings in addition to any SMT siblings.
-	  As these physical cores share caches, sharing the runqueue resource
-	  will lead to lower latency, but its effects on overhead and throughput
-	  are less predictable. As a general rule, 4 or fewer cores will likely
-	  benefit from this in all ways, while larger CPUs will only derive a
-	  latency benefit. If you are concerned about throughput then enable
-	  this only for CPUs with few cores. If you only care about latency then
-	  enable this regardless.
-
-	  If unsure, say N.
-endchoice
 
 source "kernel/Kconfig.preempt"
 
