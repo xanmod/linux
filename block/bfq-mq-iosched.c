@@ -4018,20 +4018,20 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 			/*
 			 * TESTING: reset DISP_LIST flag, because: 1)
 			 * this rq this request has passed through
-			 * get_rq_private, 2) then it will have
-			 * put_rq_private invoked on it, and 3) in
-			 * put_rq_private we use this flag to check
-			 * that put_rq_private is not invoked on
-			 * requests for which get_rq_private has been
-			 * invoked.
+			 * bfq_prepare_request, 2) then it will have
+			 * bfq_finish_request invoked on it, and 3) in
+			 * bfq_finish_request we use this flag to check
+			 * that bfq_finish_request is not invoked on
+			 * requests for which bfq_prepare_request has
+			 * been invoked.
 			 */
 			rq->rq_flags &= ~RQF_DISP_LIST;
 			goto inc_in_driver_start_rq;
 		}
 
 		/*
-		 * We exploit the put_rq_private hook to decrement
-		 * rq_in_driver, but put_rq_private will not be
+		 * We exploit the bfq_finish_request hook to decrement
+		 * rq_in_driver, but bfq_finish_request will not be
 		 * invoked on this request. So, to avoid unbalance,
 		 * just start this request, without incrementing
 		 * rq_in_driver. As a negative consequence,
@@ -4040,14 +4040,14 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 		 * bfq_schedule_dispatch to be invoked uselessly.
 		 *
 		 * As for implementing an exact solution, the
-		 * put_request hook, if defined, is probably invoked
-		 * also on this request. So, by exploiting this hook,
-		 * we could 1) increment rq_in_driver here, and 2)
-		 * decrement it in put_request. Such a solution would
-		 * let the value of the counter be always accurate,
-		 * but it would entail using an extra interface
-		 * function. This cost seems higher than the benefit,
-		 * being the frequency of non-elevator-private
+		 * bfq_finish_request hook, if defined, is probably
+		 * invoked also on this request. So, by exploiting
+		 * this hook, we could 1) increment rq_in_driver here,
+		 * and 2) decrement it in bfq_finish_request. Such a
+		 * solution would let the value of the counter be
+		 * always accurate, but it would entail using an extra
+		 * interface function. This cost seems higher than the
+		 * benefit, being the frequency of non-elevator-private
 		 * requests very low.
 		 */
 		goto start_rq;
@@ -4963,7 +4963,7 @@ static void bfq_completed_request(struct bfq_queue *bfqq, struct bfq_data *bfqd)
 	}
 }
 
-static void bfq_put_rq_priv_body(struct bfq_queue *bfqq)
+static void bfq_finish_request_body(struct bfq_queue *bfqq)
 {
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
 		     "put_request_body: allocated %d", bfqq->allocated);
@@ -5019,7 +5019,7 @@ static void bfq_finish_request(struct request *rq)
 		spin_lock_irqsave(&bfqd->lock, flags);
 
 		bfq_completed_request(bfqq, bfqd);
-		bfq_put_rq_priv_body(bfqq);
+		bfq_finish_request_body(bfqq);
 
 		spin_unlock_irqrestore(&bfqd->lock, flags);
 	} else {
@@ -5042,7 +5042,7 @@ static void bfq_finish_request(struct request *rq)
 			bfqg_stats_update_io_remove(bfqq_group(bfqq),
 						    rq->cmd_flags);
 		}
-		bfq_put_rq_priv_body(bfqq);
+		bfq_finish_request_body(bfqq);
 	}
 
 	rq->elv.priv[0] = NULL;
