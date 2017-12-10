@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 
 include ${src}/magic.mk
 ifeq (${CONFIG_AUFS_FS},m)
