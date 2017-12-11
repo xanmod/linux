@@ -4565,9 +4565,12 @@ static void bfq_completed_request(struct request_queue *q, struct request *rq)
 
 	bfq_log(bfqd, "rq_completed: delta %uus/%luus max_size %u rate %llu/%llu",
 		delta_us, BFQ_MIN_TT/NSEC_PER_USEC, bfqd->last_rq_max_size,
+		delta_us > 0 ?
 		(USEC_PER_SEC*
 		(u64)((bfqd->last_rq_max_size<<BFQ_RATE_SHIFT)/delta_us))
-			>>BFQ_RATE_SHIFT,
+			>>BFQ_RATE_SHIFT :
+		(USEC_PER_SEC*
+		(u64)(bfqd->last_rq_max_size<<BFQ_RATE_SHIFT))>>BFQ_RATE_SHIFT,
 		(USEC_PER_SEC*(u64)(1UL<<(BFQ_RATE_SHIFT-10)))>>BFQ_RATE_SHIFT);
 
 	/*
