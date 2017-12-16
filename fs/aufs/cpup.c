@@ -473,8 +473,7 @@ static int au_cp_regular(struct au_cp_generic *cpg)
 	if (tsk->flags & PF_KTHREAD)
 		__fput_sync(file[DST].file);
 	else {
-		WARN(1, "%pD\nPlease report this warning to aufs-users ML",
-		     file[DST].file);
+		/* it happend actually */
 		fput(file[DST].file);
 		/*
 		 * too bad.
