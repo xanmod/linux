@@ -31,8 +31,6 @@ struct blk_mq_hw_ctx {
 
 	struct sbitmap		ctx_map;
 
-	struct blk_mq_ctx	*dispatch_from;
-
 	struct blk_mq_ctx	**ctxs;
 	unsigned int		nr_ctx;
 
@@ -93,8 +91,6 @@ struct blk_mq_queue_data {
 
 typedef blk_status_t (queue_rq_fn)(struct blk_mq_hw_ctx *,
 		const struct blk_mq_queue_data *);
-typedef blk_status_t (get_budget_fn)(struct blk_mq_hw_ctx *);
-typedef void (put_budget_fn)(struct blk_mq_hw_ctx *);
 typedef enum blk_eh_timer_return (timeout_fn)(struct request *, bool);
 typedef int (init_hctx_fn)(struct blk_mq_hw_ctx *, void *, unsigned int);
 typedef void (exit_hctx_fn)(struct blk_mq_hw_ctx *, unsigned int);
@@ -115,15 +111,6 @@ struct blk_mq_ops {
 	 * Queue request
 	 */
 	queue_rq_fn		*queue_rq;
-
-	/*
-	 * Reserve budget before queue request, once .queue_rq is
-	 * run, it is driver's responsibility to release the
-	 * reserved budget. Also we have to handle failure case
-	 * of .get_budget for avoiding I/O deadlock.
-	 */
-	get_budget_fn		*get_budget;
-	put_budget_fn		*put_budget;
 
 	/*
 	 * Called on request timeout
