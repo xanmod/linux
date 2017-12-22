@@ -2302,7 +2302,9 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 		if (idleprio_task(p) || batch_task(p)) {
 			rq->curr->time_slice /= 2;
 			p->time_slice = rq->curr->time_slice;
+#ifdef CONFIG_SCHED_HRTICK
 			hrtick_start(rq, rq->curr->time_slice);
+#endif
 		} else
 			p->time_slice = rq->curr->time_slice / 2;
 
