@@ -6155,7 +6155,16 @@ static void sched_init_topology_cpumask(void)
 		per_cpu(sd_llc_id, cpu) =
 			cpumask_first(cpu_coregroup_mask(cpu));
 
+#ifdef CONFIG_SCHED_MC
 		cpumask_complement(&tmp, cpu_coregroup_mask(cpu));
+#else
+#ifdef CONFIG_SCHED_SMT
+		cpumask_complement(&tmp, topology_sibling_cpumask(cpu));
+#else
+		cpumask_setall(&tmp);
+		cpumask_clear_cpu(cpu, &tmp);
+#endif
+#endif
 		if (cpumask_and(&tmp, &tmp, topology_core_cpumask(cpu))) {
 			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] core 0x%08lx",
 			       cpu, tmp.bits[0]);
