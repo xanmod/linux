@@ -5833,18 +5833,18 @@ static void migrate_tasks(struct rq *dead_rq)
 
 	rq->stop = stop;
 }
+
+static void set_rq_offline(struct rq *rq)
+{
+	if (rq->online)
+		rq->online = false;
+}
 #endif /* CONFIG_HOTPLUG_CPU */
 
 static void set_rq_online(struct rq *rq)
 {
 	if (!rq->online)
 		rq->online = true;
-}
-
-static void set_rq_offline(struct rq *rq)
-{
-	if (rq->online)
-		rq->online = false;
 }
 
 #ifdef CONFIG_SCHED_DEBUG
