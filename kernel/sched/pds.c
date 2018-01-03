@@ -158,6 +158,14 @@ static const u64 sched_prio_to_deadline[NICE_WIDTH] = {
  */
 int sched_iso_cpu __read_mostly = 70;
 
+/**
+ * sched_yield_type - Choose what sort of yield sched_yield will perform.
+ * 0: No yield.
+ * 1: Yield only to better priority/deadline tasks. (default)
+ * 2: Expire timeslice and recalculate deadline.
+ */
+int sched_yield_type __read_mostly = 0;
+
 /*
  * The quota handed out to tasks of all priority levels when refilling their
  * time_slice.
@@ -5169,6 +5177,32 @@ SYSCALL_DEFINE3(sched_getaffinity, pid_t, pid, unsigned int, len,
  */
 SYSCALL_DEFINE0(sched_yield)
 {
+	struct rq *rq;
+
+	if (unlikely(!sched_yield_type))
+		return 0;
+
+	local_irq_disable();
+	rq = this_rq();
+	raw_spin_lock(&rq->lock);
+
+	if (unlikely(sched_yield_type > 1)) {
+		time_slice_expired(current, rq);
+		requeue_task(current, rq);
+	}
+	schedstat_inc(rq->yld_count);
+
+	/*
+	 * Since we are going to call schedule() anyway, there's
+	 * no need to preempt or enable interrupts:
+	 */
+	__release(&rq->lock);
+	spin_release(&rq->lock.dep_map, 1, _THIS_IP_);
+	do_raw_spin_unlock(&rq->lock);
+	sched_preempt_enable_no_resched();
+
+	schedule();
+
 	return 0;
 }
 
@@ -5265,7 +5299,7 @@ EXPORT_SYMBOL(yield);
  * It's the caller's job to ensure that the target task struct
  * can't go away on us before we can do any checks.
  *
- * In PDS, yield_to is not supported.
+ * In PDS, only accelerate the thread toward the processor it's on.
  *
  * Return:
  *	true (>0) if we indeed boosted the target task.
@@ -5274,7 +5308,38 @@ EXPORT_SYMBOL(yield);
  */
 int __sched yield_to(struct task_struct *p, bool preempt)
 {
-	return 0;
+	struct rq *rq;
+	struct task_struct *rq_curr;
+	raw_spinlock_t *lock;
+	unsigned long flags;
+	int yielded = 0;
+
+	rq = task_access_lock_irqsave(p, &lock, &flags);
+
+	if (task_running(p) || p->state) {
+		yielded = -ESRCH;
+		goto out_unlock;
+	}
+
+	rq_curr = rq->curr;
+	yielded = 1;
+	p->time_slice += rq_curr->time_slice;
+	if (p->time_slice > timeslice())
+		p->time_slice = timeslice();
+	time_slice_expired(rq_curr, rq);
+	requeue_task(rq_curr, rq);
+
+	if (p->deadline > rq_curr->deadline) {
+		p->deadline = rq_curr->deadline;
+		update_task_priodl(p);
+		requeue_task(p, rq);
+	}
+	if (preempt && cpu_of(rq) != smp_processor_id())
+		resched_curr(rq);
+out_unlock:
+	task_access_unlock_irqrestore(p, lock, &flags);
+
+	return yielded;
 }
 EXPORT_SYMBOL_GPL(yield_to);
 
