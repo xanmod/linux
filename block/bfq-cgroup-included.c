@@ -885,12 +885,12 @@ static void bfq_pd_offline(struct blkg_policy_data *pd)
 
 	entity = bfqg->my_entity;
 
-	if (!entity) /* root group */
-		return;
-
 #ifdef BFQ_MQ
 	spin_lock_irqsave(&bfqd->lock, flags);
 #endif
+
+	if (!entity) /* root group */
+		goto put_async_queues;
 
 	/*
 	 * Empty all service_trees belonging to this group before
@@ -926,6 +926,8 @@ static void bfq_pd_offline(struct blkg_policy_data *pd)
 	BUG_ON(bfqg->sched_data.in_service_entity);
 
 	__bfq_deactivate_entity(entity, false);
+
+put_async_queues:
 	bfq_put_async_queues(bfqd, bfqg);
 
 #ifdef BFQ_MQ
