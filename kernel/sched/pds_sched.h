@@ -27,6 +27,7 @@
 #include <linux/irq_work.h>
 #include <linux/tick.h>
 #include <linux/slab.h>
+#include <linux/cgroup.h>
 
 #include <linux/skip_list.h>
 
@@ -35,7 +36,6 @@
 #endif
 
 #include "cpupri.h"
-#include "cpuacct.h"
 
 /*
  * This is the main, per-CPU runqueue data structure.
