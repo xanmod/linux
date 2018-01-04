@@ -29,6 +29,7 @@
 #include <linux/profile.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
+#include <linux/sched/isolation.h>
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
@@ -246,9 +247,6 @@ DEFINE_PER_CPU(int, sd_llc_id);
 #endif /* CONFIG_SMP */
 
 static DEFINE_MUTEX(sched_hotcpu_mutex);
-
-/* CPUs with isolated domains */
-cpumask_var_t cpu_isolated_map;
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 #ifdef CONFIG_SMP
@@ -5738,20 +5736,20 @@ int get_nohz_timer_target(void)
 	int i, cpu = smp_processor_id();
 	struct cpumask *affinity_mask, *end;
 
-	if (!idle_cpu(cpu) && is_housekeeping_cpu(cpu))
+	if (!idle_cpu(cpu) && housekeeping_cpu(cpu, HK_FLAG_TIMER))
 		return cpu;
 
 	affinity_mask = &sched_cpu_affinity_chk_masks[cpu][0];
 	end = sched_cpu_affinity_chk_end_masks[cpu];
 	for (;affinity_mask < end; affinity_mask++) {
 		for_each_cpu(i, affinity_mask) {
-			if (!idle_cpu(i) && is_housekeeping_cpu(i))
+			if (!idle_cpu(i) && housekeeping_cpu(i, HK_FLAG_TIMER))
 				return cpu;
 		}
 	}
 
-	if (!is_housekeeping_cpu(cpu))
-		cpu = housekeeping_any_cpu();
+	if (!housekeeping_cpu(cpu, HK_FLAG_TIMER))
+		cpu = housekeeping_any_cpu(HK_FLAG_TIMER);
 
 	return cpu;
 }
@@ -5919,21 +5917,6 @@ bool cpus_share_cache(int this_cpu, int that_cpu)
 	return per_cpu(sd_llc_id, this_cpu) == per_cpu(sd_llc_id, that_cpu);
 }
 #endif
-
-/* Setup the mask of cpus configured for isolated domains */
-static int __init isolated_cpu_setup(char *str)
-{
-	int ret;
-
-	alloc_bootmem_cpumask_var(&cpu_isolated_map);
-	ret = cpulist_parse(str, cpu_isolated_map);
-	if (ret) {
-		pr_err("sched: Error, all isolcpus= values must be between 0 and %d\n", nr_cpu_ids);
-		return 0;
-	}
-	return 1;
-}
-__setup("isolcpus=", isolated_cpu_setup);
 
 /*
  * Topology list, bottom-up.
@@ -6233,23 +6216,9 @@ static void sched_init_topology_cpumask(void)
 
 void __init sched_init_smp(void)
 {
-	cpumask_var_t non_isolated_cpus;
-
-	alloc_cpumask_var(&non_isolated_cpus, GFP_KERNEL);
-
-	/*
-	 * There's no userspace yet to cause hotplug operations; hence all the
-	 * CPU masks are stable and all blatant races in the below code cannot
-	 * happen.
-	 */
-	cpumask_andnot(non_isolated_cpus, cpu_possible_mask, cpu_isolated_map);
-	if (cpumask_empty(non_isolated_cpus))
-		cpumask_set_cpu(smp_processor_id(), non_isolated_cpus);
-
 	/* Move init over to a non-isolated CPU */
-	if (set_cpus_allowed_ptr(current, non_isolated_cpus) < 0)
+	if (set_cpus_allowed_ptr(current, housekeeping_cpumask(HK_FLAG_DOMAIN)) < 0)
 		BUG();
-	free_cpumask_var(non_isolated_cpus);
 
 #ifdef CONFIG_SCHED_SMT
 	sched_cpu_nr_sibling = cpumask_weight(cpu_smt_mask(0));
@@ -6347,9 +6316,6 @@ void __init sched_init(void)
 	calc_load_update = jiffies + LOAD_FREQ;
 
 #ifdef CONFIG_SMP
-	/* May be allocated at isolcpus cmdline parse time */
-	if (cpu_isolated_map == NULL)
-		zalloc_cpumask_var(&cpu_isolated_map, GFP_NOWAIT);
 	idle_thread_set_boot_cpu();
 
 	sched_init_topology_cpumask_early();
