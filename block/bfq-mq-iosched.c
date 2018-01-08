@@ -5507,6 +5507,9 @@ static void bfq_exit_queue(struct elevator_queue *e)
 
 	BUG_ON(hrtimer_active(&bfqd->idle_slice_timer));
 
+	/* release oom-queue reference to root group */
+	bfqg_and_blkg_put(bfqd->root_group);
+
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	blkcg_deactivate_policy(bfqd->queue, &blkcg_policy_bfq);
 #else
