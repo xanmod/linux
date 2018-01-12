@@ -640,7 +640,7 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= $(call cc-option,-Oz,-Os)
 else
-KBUILD_CFLAGS   += -O2 -falign-functions=32
+KBUILD_CFLAGS   += -O2
 endif
 
 # Tell gcc to never replace conditional load with a non-conditional one
