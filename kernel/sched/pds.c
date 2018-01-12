@@ -19,6 +19,7 @@
 #include <linux/init_task.h>
 #include <linux/context_tracking.h>
 #include <linux/rcupdate_wait.h>
+#include <linux/compat.h>
 
 #include <linux/blkdev.h>
 #include <linux/kprobes.h>
@@ -5416,23 +5417,12 @@ SYSCALL_DEFINE1(sched_get_priority_min, int, policy)
 	return ret;
 }
 
-/**
- * sys_sched_rr_get_interval - return the default timeslice of a process.
- * @pid: pid of the process.
- * @interval: userspace pointer to the timeslice value.
- *
- *
- * Return: On success, 0 and the timeslice is in @interval. Otherwise,
- * an error code.
- */
-SYSCALL_DEFINE2(sched_rr_get_interval, pid_t, pid,
-		struct timespec __user *, interval)
+static int sched_rr_get_interval(pid_t pid, struct timespec64 *t)
 {
 	struct task_struct *p;
 	unsigned int time_slice;
 	unsigned long flags;
 	int retval;
-	struct timespec t;
 	raw_spinlock_t *lock;
 
 	if (pid < 0)
@@ -5453,14 +5443,48 @@ SYSCALL_DEFINE2(sched_rr_get_interval, pid_t, pid,
 	task_access_unlock_irqrestore(p, lock, &flags);
 
 	rcu_read_unlock();
-	t = ns_to_timespec(time_slice);
-	retval = copy_to_user(interval, &t, sizeof(t)) ? -EFAULT : 0;
-	return retval;
+	*t = ns_to_timespec64(time_slice);
+	return 0;
 
 out_unlock:
 	rcu_read_unlock();
 	return retval;
 }
+
+/**
+ * sys_sched_rr_get_interval - return the default timeslice of a process.
+ * @pid: pid of the process.
+ * @interval: userspace pointer to the timeslice value.
+ *
+ *
+ * Return: On success, 0 and the timeslice is in @interval. Otherwise,
+ * an error code.
+ */
+SYSCALL_DEFINE2(sched_rr_get_interval, pid_t, pid,
+		struct timespec __user *, interval)
+{
+	struct timespec64 t;
+	int retval = sched_rr_get_interval(pid, &t);
+
+	if (retval == 0)
+		retval = put_timespec64(&t, interval);
+
+	return retval;
+}
+
+#ifdef CONFIG_COMPAT
+COMPAT_SYSCALL_DEFINE2(sched_rr_get_interval,
+		       compat_pid_t, pid,
+		       struct compat_timespec __user *, interval)
+{
+	struct timespec64 t;
+	int retval = sched_rr_get_interval(pid, &t);
+
+	if (retval == 0)
+		retval = compat_put_timespec64(&t, interval);
+	return retval;
+}
+#endif
 
 void sched_show_task(struct task_struct *p)
 {
