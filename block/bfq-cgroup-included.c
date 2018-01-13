@@ -267,8 +267,6 @@ static struct bfq_group *bfqq_group(struct bfq_queue *bfqq)
 
 static void bfqg_get(struct bfq_group *bfqg)
 {
-	trace_printk("bfqg %p\n", bfqg);
-
 #ifdef BFQ_MQ
 	bfqg->ref++;
 #else
@@ -282,9 +280,6 @@ static void bfqg_put(struct bfq_group *bfqg)
 	bfqg->ref--;
 
 	BUG_ON(bfqg->ref < 0);
-	trace_printk("putting bfqg %p %s\n", bfqg,
-		     bfqg->ref == 0 ? "and freeing it" : "");
-
 	if (bfqg->ref == 0)
 		kfree(bfqg);
 #else
@@ -298,7 +293,6 @@ static void bfqg_and_blkg_get(struct bfq_group *bfqg)
 	/* see comments in bfq_bic_update_cgroup for why refcounting bfqg */
 	bfqg_get(bfqg);
 
-	trace_printk("getting blkg for bfqg %p\n", bfqg);
 	blkg_get(bfqg_to_blkg(bfqg));
 }
 
@@ -306,7 +300,6 @@ static void bfqg_and_blkg_put(struct bfq_group *bfqg)
 {
 	bfqg_put(bfqg);
 
-	trace_printk("putting blkg for bfqg %p\n", bfqg);
 	blkg_put(bfqg_to_blkg(bfqg));
 }
 #endif
@@ -484,8 +477,6 @@ static struct blkg_policy_data *bfq_pd_alloc(gfp_t gfp, int node)
 		kfree(bfqg);
 		return NULL;
 	}
-	trace_printk("bfqg %p\n", bfqg);
-
 #ifdef BFQ_MQ
 	/* see comments in bfq_bic_update_cgroup for why refcounting */
 	bfqg_get(bfqg);
@@ -523,7 +514,6 @@ static void bfq_pd_init(struct blkg_policy_data *pd)
 static void bfq_pd_free(struct blkg_policy_data *pd)
 {
 	struct bfq_group *bfqg = pd_to_bfqg(pd);
-	trace_printk("bfqg %p\n", bfqg);
 
 	bfqg_stats_exit(&bfqg->stats);
 #ifdef BFQ_MQ
