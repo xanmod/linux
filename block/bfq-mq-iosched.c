@@ -4162,9 +4162,9 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 			 * TESTING: reset DISP_LIST flag, because: 1)
 			 * this rq this request has passed through
 			 * bfq_prepare_request, 2) then it will have
-			 * bfq_finish_request invoked on it, and 3) in
-			 * bfq_finish_request we use this flag to check
-			 * that bfq_finish_request is not invoked on
+			 * bfq_finish_requeue_request invoked on it, and 3) in
+			 * bfq_finish_requeue_request we use this flag to check
+			 * that bfq_finish_requeue_request is not invoked on
 			 * requests for which bfq_prepare_request has
 			 * been invoked.
 			 */
@@ -4173,8 +4173,8 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 		}
 
 		/*
-		 * We exploit the bfq_finish_request hook to decrement
-		 * rq_in_driver, but bfq_finish_request will not be
+		 * We exploit the bfq_finish_requeue_request hook to decrement
+		 * rq_in_driver, but bfq_finish_requeue_request will not be
 		 * invoked on this request. So, to avoid unbalance,
 		 * just start this request, without incrementing
 		 * rq_in_driver. As a negative consequence,
@@ -4183,10 +4183,10 @@ static struct request *__bfq_dispatch_request(struct blk_mq_hw_ctx *hctx)
 		 * bfq_schedule_dispatch to be invoked uselessly.
 		 *
 		 * As for implementing an exact solution, the
-		 * bfq_finish_request hook, if defined, is probably
+		 * bfq_finish_requeue_request hook, if defined, is probably
 		 * invoked also on this request. So, by exploiting
 		 * this hook, we could 1) increment rq_in_driver here,
-		 * and 2) decrement it in bfq_finish_request. Such a
+		 * and 2) decrement it in bfq_finish_requeue_request. Such a
 		 * solution would let the value of the counter be
 		 * always accurate, but it would entail using an extra
 		 * interface function. This cost seems higher than the
@@ -4878,6 +4878,8 @@ static bool __bfq_insert_request(struct bfq_data *bfqd, struct request *rq)
 	return idle_timer_disabled;
 }
 
+static void bfq_prepare_request(struct request *rq, struct bio *bio);
+
 static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 			       bool at_head)
 {
@@ -4918,6 +4920,20 @@ static void bfq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 	} else {
 		BUG_ON(!(rq->rq_flags & RQF_GOT));
 		rq->rq_flags &= ~RQF_GOT;
+
+		if (!bfqq) {
+			/*
+			 * This should never happen. Most likely rq is
+			 * a requeued regular request, being
+			 * re-inserted without being first
+			 * re-prepared. Do a prepare, to avoid
+			 * failure.
+			 */
+			pr_warn("Regular request associated with no queue");
+			WARN_ON(1);
+			bfq_prepare_request(rq, rq->bio);
+			bfqq = RQ_BFQQ(rq);
+		}
 
 #if defined(BFQ_GROUP_IOSCHED_ENABLED) &&  defined(CONFIG_DEBUG_BLK_CGROUP)
 		idle_timer_disabled = __bfq_insert_request(bfqd, rq);
@@ -5110,7 +5126,7 @@ static void bfq_completed_request(struct bfq_queue *bfqq, struct bfq_data *bfqd)
 	}
 }
 
-static void bfq_finish_request_body(struct bfq_queue *bfqq)
+static void bfq_finish_requeue_request_body(struct bfq_queue *bfqq)
 {
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
 		     "put_request_body: allocated %d", bfqq->allocated);
@@ -5120,7 +5136,13 @@ static void bfq_finish_request_body(struct bfq_queue *bfqq)
 	bfq_put_queue(bfqq);
 }
 
-static void bfq_finish_request(struct request *rq)
+/*
+ * Handle either a requeue or a finish for rq. The things to do are
+ * the same in both cases: all references to rq are to be dropped. In
+ * particular, rq is considered completed from the point of view of
+ * the scheduler.
+ */
+static void bfq_finish_requeue_request(struct request *rq)
 {
 	struct bfq_queue *bfqq;
 	struct bfq_data *bfqd;
@@ -5128,11 +5150,27 @@ static void bfq_finish_request(struct request *rq)
 
 	BUG_ON(!rq);
 
-	if (!rq->elv.icq)
+	bfqq = RQ_BFQQ(rq);
+
+	/*
+	 * Requeue and finish hooks are invoked in blk-mq without
+	 * checking whether the involved request is actually still
+	 * referenced in the scheduler. To handle this fact, the
+	 * following two checks make this function exit in case of
+	 * spurious invocations, for which there is nothing to do.
+	 *
+	 * First, check whether rq has nothing to do with an elevator.
+	 */
+	if (unlikely(!(rq->rq_flags & RQF_ELVPRIV)))
 		return;
 
-	bfqq = RQ_BFQQ(rq);
-	BUG_ON(!bfqq);
+	/*
+	 * rq either is not associated with any icq, or is an already
+	 * requeued request that has not (yet) been re-inserted into
+	 * a bfq_queue.
+	 */
+	if (!rq->elv.icq || !bfqq)
+		return;
 
 	bic = RQ_BIC(rq);
 	BUG_ON(!bic);
@@ -5145,7 +5183,6 @@ static void bfq_finish_request(struct request *rq)
 		BUG();
 	}
 	BUG_ON(rq->rq_flags & RQF_QUEUED);
-	BUG_ON(!(rq->rq_flags & RQF_ELVPRIV));
 
 	bfq_log_bfqq(bfqd, bfqq,
 		     "putting rq %p with %u sects left, STARTED %d",
@@ -5166,13 +5203,14 @@ static void bfq_finish_request(struct request *rq)
 		spin_lock_irqsave(&bfqd->lock, flags);
 
 		bfq_completed_request(bfqq, bfqd);
-		bfq_finish_request_body(bfqq);
+		bfq_finish_requeue_request_body(bfqq);
 
 		spin_unlock_irqrestore(&bfqd->lock, flags);
 	} else {
 		/*
 		 * Request rq may be still/already in the scheduler,
-		 * in which case we need to remove it. And we cannot
+		 * in which case we need to remove it (this should
+		 * never happen in case of requeue). And we cannot
 		 * defer such a check and removal, to avoid
 		 * inconsistencies in the time interval from the end
 		 * of this function to the start of the deferred work.
@@ -5189,9 +5227,26 @@ static void bfq_finish_request(struct request *rq)
 			bfqg_stats_update_io_remove(bfqq_group(bfqq),
 						    rq->cmd_flags);
 		}
-		bfq_finish_request_body(bfqq);
+		bfq_finish_requeue_request_body(bfqq);
 	}
 
+	/*
+	 * Reset private fields. In case of a requeue, this allows
+	 * this function to correctly do nothing if it is spuriously
+	 * invoked again on this same request (see the check at the
+	 * beginning of the function). Probably, a better general
+	 * design would be to prevent blk-mq from invoking the requeue
+	 * or finish hooks of an elevator, for a request that is not
+	 * referred by that elevator.
+	 *
+	 * Resetting the following fields would break the
+	 * request-insertion logic if rq is re-inserted into a bfq
+	 * internal queue, without a re-preparation. Here we assume
+	 * that re-insertions of requeued requests, without
+	 * re-preparation, can happen only for pass_through or at_head
+	 * requests (which are not re-inserted into bfq internal
+	 * queues).
+	 */
 	rq->elv.priv[0] = NULL;
 	rq->elv.priv[1] = NULL;
 }
@@ -5960,7 +6015,8 @@ static struct elevator_type iosched_bfq_mq = {
 	.ops.mq = {
 		.limit_depth		= bfq_limit_depth,
 		.prepare_request        = bfq_prepare_request,
-		.finish_request         = bfq_finish_request,
+		.requeue_request	= bfq_finish_requeue_request,
+		.finish_request         = bfq_finish_requeue_request,
 		.exit_icq		= bfq_exit_icq,
 		.insert_requests	= bfq_insert_requests,
 		.dispatch_request	= bfq_dispatch_request,
