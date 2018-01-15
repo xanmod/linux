@@ -83,6 +83,12 @@
 
 #define MIN_VISIBLE_DEADLINE	(1 << 8)
 
+/*
+ * BALANCE_INTERVAL should be power of 2 for quick calculation
+ */
+#define BALANCE_INTERVAL	(MS_TO_NS(16ULL))
+#define BALANCE_INTERVAL_MASK	(~(BALANCE_INTERVAL - 1ULL))
+
 enum {
 	BASE_CPU_AFFINITY_CHK_LEVEL = 1,
 #ifdef CONFIG_SCHED_SMT
@@ -3150,7 +3156,7 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 	if (rq->clock < rq->next_balance)
 		return false;
 
-	rq->next_balance = rq->clock + MS_TO_NS(rr_interval);
+	rq->next_balance = (rq->clock & BALANCE_INTERVAL_MASK) + rq->balance_inc;
 
 	cpu = cpu_of(rq);
 	if (!cpumask_test_cpu(cpu, &sched_rq_pending_mask))
@@ -6162,6 +6168,9 @@ static void sched_init_topology_cpumask(void)
 	cpumask_t *chk;
 
 	for_each_online_cpu(cpu) {
+		cpu_rq(cpu)->balance_inc = BALANCE_INTERVAL +
+			BALANCE_INTERVAL / num_online_cpus() * cpu;
+
 		chk = &sched_cpu_affinity_chk_masks[cpu][0];
 #ifdef CONFIG_SCHED_SMT
 		cpumask_copy(&tmp, topology_sibling_cpumask(cpu));
