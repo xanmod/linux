@@ -1,4 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#ifdef CONFIG_SCHED_PDS
+#include "pds_sched.h"
+#else
 
 #include <linux/sched.h>
 #include <linux/sched/autogroup.h>
@@ -2125,3 +2128,5 @@ static inline void cpufreq_update_util(struct rq *rq, unsigned int flags) {}
 #else /* arch_scale_freq_capacity */
 #define arch_scale_freq_invariant()	(false)
 #endif
+
+#endif /* CONFIG_SCHED_PDS */

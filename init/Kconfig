@@ -38,6 +38,21 @@ config THREAD_INFO_IN_TASK
 
 menu "General setup"
 
+config SCHED_PDS
+	bool "PDS-mq cpu scheduler"
+	help
+	  The Priority and Deadline based Skip list multiple queue CPU
+	  Scheduler for excellent interactivity and responsiveness on the
+	  desktop and solid scalability on normal hardware and commodity
+	  servers.
+
+	  Currently incompatible with the Group CPU scheduler, and RCU TORTURE
+          TEST so these options are disabled.
+
+          Say Y here.
+	default y
+
+
 config BROKEN
 	bool
 
@@ -619,6 +634,7 @@ config NUMA_BALANCING
 	depends on ARCH_SUPPORTS_NUMA_BALANCING
 	depends on !ARCH_WANT_NUMA_VARIABLE_LOCALITY
 	depends on SMP && NUMA && MIGRATION
+	depends on !SCHED_PDS
 	help
 	  This option adds support for automatic NUMA aware memory/task placement.
 	  The mechanism is quite primitive and is based on migrating memory when
@@ -717,6 +733,7 @@ config CGROUP_WRITEBACK
 
 menuconfig CGROUP_SCHED
 	bool "CPU controller"
+	depends on !SCHED_PDS
 	default n
 	help
 	  This feature lets CPU scheduler recognize task groups and control CPU
@@ -830,6 +847,7 @@ config CGROUP_DEVICE
 
 config CGROUP_CPUACCT
 	bool "Simple CPU accounting controller"
+	depends on !SCHED_PDS
 	help
 	  Provides a simple controller for monitoring the
 	  total CPU consumed by the tasks in a cgroup.
@@ -936,6 +954,7 @@ endif # NAMESPACES
 
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
+	depends on !SCHED_PDS
 	select CGROUPS
 	select CGROUP_SCHED
 	select FAIR_GROUP_SCHED
