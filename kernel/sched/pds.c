@@ -2134,7 +2134,7 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 	p->state = TASK_WAKING;
 
 	if (p->in_iowait) {
-		delayacct_blkio_end();
+		delayacct_blkio_end(p);
 		atomic_dec(&task_rq(p)->nr_iowait);
 	}
 
@@ -2148,7 +2148,7 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 #else /* CONFIG_SMP */
 
 	if (p->in_iowait) {
-		delayacct_blkio_end();
+		delayacct_blkio_end(p);
 		atomic_dec(&task_rq(p)->nr_iowait);
 	}
 	prq = cpu_rq(cpu);
@@ -2205,7 +2205,7 @@ static void try_to_wake_up_local(struct task_struct *p)
 
 	if (!task_queued(p)) {
 		if (p->in_iowait) {
-			delayacct_blkio_end();
+			delayacct_blkio_end(p);
 			atomic_dec(&task_rq(p)->nr_iowait);
 		}
 
