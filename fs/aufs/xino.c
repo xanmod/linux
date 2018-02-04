@@ -23,6 +23,9 @@
 #include <linux/statfs.h>
 #include "aufs.h"
 
+static ssize_t xino_fread_wkq(vfs_readf_t func, struct file *file, void *buf,
+			      size_t size, loff_t *pos);
+
 /* todo: unnecessary to support mmap_sem since kernel-space? */
 ssize_t xino_fread(vfs_readf_t func, struct file *file, void *kbuf, size_t size,
 		   loff_t *pos)
@@ -33,20 +36,68 @@ ssize_t xino_fread(vfs_readf_t func, struct file *file, void *kbuf, size_t size,
 		void *k;
 		char __user *u;
 	} buf;
+	int i;
+	const int prevent_endless = 10;
 
+	i = 0;
 	buf.k = kbuf;
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
 	do {
-		/* todo: signal_pending? */
 		err = func(file, buf.u, size, pos);
-	} while (err == -EAGAIN || err == -EINTR);
+		if (err == -EINTR
+		    && !au_wkq_test()
+		    && fatal_signal_pending(current)) {
+			set_fs(oldfs);
+			err = xino_fread_wkq(func, file, kbuf, size, pos);
+			BUG_ON(err == -EINTR);
+			oldfs = get_fs();
+			set_fs(KERNEL_DS);
+		}
+	} while (i++ < prevent_endless
+		 && (err == -EAGAIN || err == -EINTR));
 	set_fs(oldfs);
 
 #if 0 /* reserved for future use */
 	if (err > 0)
 		fsnotify_access(file->f_path.dentry);
 #endif
+
+	return err;
+}
+
+struct xino_fread_args {
+	ssize_t *errp;
+	vfs_readf_t func;
+	struct file *file;
+	void *buf;
+	size_t size;
+	loff_t *pos;
+};
+
+static void call_xino_fread(void *args)
+{
+	struct xino_fread_args *a = args;
+	*a->errp = xino_fread(a->func, a->file, a->buf, a->size, a->pos);
+}
+
+static ssize_t xino_fread_wkq(vfs_readf_t func, struct file *file, void *buf,
+			       size_t size, loff_t *pos)
+{
+	ssize_t err;
+	int wkq_err;
+	struct xino_fread_args args = {
+		.errp	= &err,
+		.func	= func,
+		.file	= file,
+		.buf	= buf,
+		.size	= size,
+		.pos	= pos
+	};
+
+	wkq_err = au_wkq_wait(call_xino_fread, &args);
+	if (unlikely(wkq_err))
+		err = wkq_err;
 
 	return err;
 }
