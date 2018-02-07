@@ -1731,7 +1731,7 @@ out:
  * @p: task wants to preempt CPU
  * @only_preempt_low_policy: indicate only preempt rq running low policy than @p
  */
-static inline struct rq*
+static inline int
 task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 		    int only_preempt_low_policy)
 {
@@ -1749,10 +1749,10 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 
 			if (cpumask_and(&smt_tmp, &tmp, &sched_cpu_sg_idle_mask)) {
 				cpu = best_mask_cpu(task_cpu(p), &smt_tmp);
-				return cpu_rq(cpu);
+				return cpu;
 			}
 			cpu = best_mask_cpu(task_cpu(p), &tmp);
-			return cpu_rq(cpu);
+			return cpu;
 		}
 		level = find_next_bit(sched_rq_queued_masks_bitmap,
 				      NR_SCHED_RQ_QUEUED_LEVEL,
@@ -1763,7 +1763,7 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 	while (level < preempt_level) {
 		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level])) {
 			cpu = best_mask_cpu(task_cpu(p), &tmp);
-			return cpu_rq(cpu);
+			return cpu;
 		}
 		level = find_next_bit(sched_rq_queued_masks_bitmap,
 				      NR_SCHED_RQ_QUEUED_LEVEL,
@@ -1772,28 +1772,28 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 
 #ifdef	CONFIG_64BIT
 	if (likely(level != preempt_level))
-		return NULL;
+		return nr_cpu_ids;
 
 	/*
 	 * only_preempt_low_policy indicate just preempt rq running lower
 	 * policy task than p
 	 */
 	if (unlikely(only_preempt_low_policy))
-		return NULL;
+		return nr_cpu_ids;
 
 	/* IDLEPRIO tasks never preempt anything but idle */
 	if (unlikely(idleprio_task(p)))
-		return NULL;
+		return nr_cpu_ids;
 
 	if (!cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level]))
-		return NULL;
+		return nr_cpu_ids;
 
 	for_each_cpu (cpu, &tmp)
 		if (likely(p->priodl < sched_rq_priodls[cpu]))
-			return cpu_rq(cpu);
+			return cpu;
 #endif
 
-	return NULL;
+	return nr_cpu_ids;
 }
 
 /*
@@ -1819,14 +1819,13 @@ static inline unsigned int cpumask_random(unsigned int rand,
 #define WF_FORK		0x02		/* child wakeup after fork */
 #define WF_MIGRATED	0x04		/* internal use, task got migrated */
 
-static inline struct rq *
-select_task_rq(struct task_struct *p, int wake_flags)
+static inline int select_task_rq(struct task_struct *p, int wake_flags)
 {
 	cpumask_t chk_mask;
-	struct rq *rq;
+	int cpu;
 
 	if (unlikely(!cpumask_and(&chk_mask, &p->cpus_allowed, cpu_online_mask)))
-		return cpu_rq(select_fallback_rq(task_cpu(p), p));
+		return select_fallback_rq(task_cpu(p), p);
 
 	/*
 	 * Sync wakeups (i.e. those types of wakeups where the waker
@@ -1834,17 +1833,16 @@ select_task_rq(struct task_struct *p, int wake_flags)
 	 * don't trigger a preemption if there are no idle cpus,
 	 * instead waiting for current to deschedule.
 	 */
-	rq = task_preemptible_rq(p, &chk_mask, wake_flags & WF_SYNC);
-	if (NULL == rq)
-		rq = cpu_rq(cpumask_random(task_cpu(p), &chk_mask));
+	cpu = task_preemptible_rq(p, &chk_mask, wake_flags & WF_SYNC);
+	if (nr_cpu_ids == cpu)
+		return cpumask_random(task_cpu(p), &chk_mask);
 
-	return rq;
+	return cpu;
 }
 #else /* CONFIG_SMP */
-static inline struct rq *
-select_task_rq(struct task_struct *p, int wake_flags)
+static inline int select_task_rq(struct task_struct *p, int wake_flags)
 {
-	return uprq;
+	return 0;
 }
 #endif /* CONFIG_SMP */
 
@@ -2053,7 +2051,7 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 			  int wake_flags)
 {
 	unsigned long flags;
-	struct rq *prq;
+	struct rq *rq;
 	int cpu, success = 0;
 
 	/*
@@ -2137,28 +2135,25 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 		atomic_dec(&task_rq(p)->nr_iowait);
 	}
 
-	prq = select_task_rq(p, wake_flags);
+	cpu = select_task_rq(p, wake_flags);
 
-	cpu = cpu_of(prq);
 	if (cpu != task_cpu(p)) {
 		wake_flags |= WF_MIGRATED;
 		set_task_cpu(p, cpu);
 	}
 #else /* CONFIG_SMP */
-
 	if (p->in_iowait) {
 		delayacct_blkio_end(p);
 		atomic_dec(&task_rq(p)->nr_iowait);
 	}
-	prq = cpu_rq(cpu);
-
 #endif
 
-	raw_spin_lock(&prq->lock);
-	ttwu_do_activate(prq, p, wake_flags);
+	rq = cpu_rq(cpu);
+	raw_spin_lock(&rq->lock);
+	ttwu_do_activate(rq, p, wake_flags);
 
-	check_preempt_curr(prq, p);
-	raw_spin_unlock(&prq->lock);
+	check_preempt_curr(rq, p);
+	raw_spin_unlock(&rq->lock);
 
 stat:
 	ttwu_stat(p, cpu, wake_flags);
@@ -2455,7 +2450,7 @@ void wake_up_new_task(struct task_struct *p)
 
 	p->state = TASK_RUNNING;
 
-	rq = select_task_rq(p, 0);
+	rq = cpu_rq(select_task_rq(p, 0));
 #ifdef CONFIG_SMP
 	/*
 	 * Fork balancing, do it here and not earlier because:
