@@ -148,7 +148,7 @@ static int __init rr_interval_set(char *str)
 __setup("rr_interval=", rr_interval_set);
 
 
-static const u64 sched_prio_to_deadline[NICE_WIDTH] = {
+static const u64 sched_prio2deadline[NICE_WIDTH] = {
 /* -20 */	  6291456,   6920601,   7612661,   8373927,   9211319,
 /* -15 */	 10132450,  11145695,  12260264,  13486290,  14834919,
 /* -10 */	 16318410,  17950251,  19745276,  21719803,  23891783,
@@ -451,24 +451,14 @@ static inline void update_task_priodl(struct task_struct *p)
  * proportion works out to the square of the virtual deadline difference, so
  * this equation will give nice 19 3% CPU compared to nice 0.
  */
-static inline u64 prio_deadline_diff(int user_prio)
-{
-	return sched_prio_to_deadline[user_prio];
-}
-
 static inline u64 task_deadline_diff(const struct task_struct *p)
 {
-	return prio_deadline_diff(TASK_USER_PRIO(p));
+	return sched_prio2deadline[TASK_USER_PRIO(p)];
 }
 
 static inline u64 static_deadline_diff(int static_prio)
 {
-	return prio_deadline_diff(USER_PRIO(static_prio));
-}
-
-static inline u64 longest_deadline_diff(void)
-{
-	return prio_deadline_diff(39);
+	return sched_prio2deadline[USER_PRIO(static_prio)];
 }
 
 static inline struct task_struct *rq_first_queued_task(struct rq *rq)
@@ -491,7 +481,7 @@ static const int task_dl_hash_tbl[] = {
 static inline int
 task_deadline_level(const struct task_struct *p, const struct rq *rq)
 {
-	u64 delta = (rq->clock + prio_deadline_diff(39) - p->deadline) >> 23;
+	u64 delta = (rq->clock + sched_prio2deadline[39] - p->deadline) >> 23;
 
 	delta = min((size_t)delta, ARRAY_SIZE(task_dl_hash_tbl) - 1);
 	return task_dl_hash_tbl[delta];
