@@ -912,7 +912,7 @@ void resched_curr(struct rq *rq)
 		trace_sched_wake_idle_without_ipi(cpu);
 }
 
-void check_preempt_curr(struct rq *rq, struct task_struct *p)
+static inline void check_preempt_curr(struct rq *rq, struct task_struct *p)
 {
 	if (p->priodl < rq->curr->priodl)
 		resched_curr(rq);
