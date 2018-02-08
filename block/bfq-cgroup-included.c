@@ -382,7 +382,8 @@ static void bfq_init_entity(struct bfq_entity *entity,
 		 * Make sure that bfqg and its associated blkg do not
 		 * disappear before entity.
 		 */
-		bfq_log_bfqq(bfqq->bfqd, bfqq, "[%s] getting bfqg %p and blkg\n", __func__, bfqg);
+		bfq_log_bfqq(bfqq->bfqd, bfqq, "getting bfqg %p and blkg\n",
+		bfqg);
 
 		bfqg_and_blkg_get(bfqg);
 #else
@@ -651,7 +652,7 @@ static void bfq_bfqq_move(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 		bfq_put_idle_entity(bfq_entity_service_tree(entity), entity);
 	}
 #ifdef BFQ_MQ
-	bfq_log_bfqq(bfqq->bfqd, bfqq, "[%s] putting blkg and bfqg %p\n", __func__, bfqg);
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "putting blkg and bfqg %p\n", bfqg);
 
 	bfqg_and_blkg_put(bfqq_group(bfqq));
 #else
@@ -661,7 +662,7 @@ static void bfq_bfqq_move(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	entity->parent = bfqg->my_entity;
 	entity->sched_data = &bfqg->sched_data;
 #ifdef BFQ_MQ
-	bfq_log_bfqq(bfqq->bfqd, bfqq, "[%s] getting blkg and bfqg %p\n", __func__, bfqg);
+	bfq_log_bfqq(bfqq->bfqd, bfqq, "getting blkg and bfqg %p\n", bfqg);
 
 	/* pin down bfqg and its associated blkg  */
 	bfqg_and_blkg_get(bfqg);
@@ -721,7 +722,7 @@ static struct bfq_group *__bfq_bic_change_cgroup(struct bfq_data *bfqd,
 		if (entity->sched_data != &bfqg->sched_data) {
 			bic_set_bfqq(bic, NULL, 0);
 			bfq_log_bfqq(bfqd, async_bfqq,
-				     "bic_change_group: %p %d",
+				     "%p %d",
 				     async_bfqq,
 				     async_bfqq->ref);
 			bfq_put_queue(async_bfqq);
