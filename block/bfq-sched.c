@@ -119,7 +119,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 
 			if (bfqq)
 				bfq_log_bfqq(bfqq->bfqd, bfqq,
-				"update_next_in_service: chose without lookup");
+				"chose without lookup");
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 			else {
 				struct bfq_group *bfqg =
@@ -127,7 +127,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 						     struct bfq_group, entity);
 
 				bfq_log_bfqg((struct bfq_data*)bfqg->bfqd, bfqg,
-				"update_next_in_service: chose without lookup");
+				"chose without lookup");
 			}
 #endif
 		}
@@ -148,7 +148,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 	bfqq = bfq_entity_to_bfqq(next_in_service);
 	if (bfqq)
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			     "update_next_in_service: chosen this queue");
+			     "chosen this queue");
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	else {
 		struct bfq_group *bfqg =
@@ -156,7 +156,7 @@ static bool bfq_update_next_in_service(struct bfq_sched_data *sd,
 				     struct bfq_group, entity);
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			     "update_next_in_service: chosen this entity");
+			     "chosen this entity");
 	}
 #endif
 	return parent_sched_may_change;
@@ -331,10 +331,10 @@ static void bfq_calc_finish(struct bfq_entity *entity, unsigned long service)
 
 	if (bfqq) {
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			"calc_finish: serv %lu, w %d",
+			"serv %lu, w %d",
 			service, entity->weight);
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			"calc_finish: start %llu, finish %llu, delta %llu",
+			"start %llu, finish %llu, delta %llu",
 			start, finish, delta);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	} else {
@@ -342,10 +342,10 @@ static void bfq_calc_finish(struct bfq_entity *entity, unsigned long service)
 			container_of(entity, struct bfq_group, entity);
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			"calc_finish group: serv %lu, w %d",
+			"group: serv %lu, w %d",
 			     service, entity->weight);
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			"calc_finish group: start %llu, finish %llu, delta %llu",
+			"group: start %llu, finish %llu, delta %llu",
 			start, finish, delta);
 #endif
 	}
@@ -484,7 +484,7 @@ static void bfq_update_active_node(struct rb_node *node)
 
 	if (bfqq) {
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			     "update_active_node: new min_start %llu",
+			     "new min_start %llu",
 			     ((entity->min_start>>10)*1000)>>12);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	} else {
@@ -492,7 +492,7 @@ static void bfq_update_active_node(struct rb_node *node)
 			container_of(entity, struct bfq_group, entity);
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			     "update_active_node: new min_start %llu",
+			     "new min_start %llu",
 			     ((entity->min_start>>10)*1000)>>12);
 #endif
 	}
@@ -620,7 +620,7 @@ static void bfq_get_entity(struct bfq_entity *entity)
 
 	if (bfqq) {
 		bfqq->ref++;
-		bfq_log_bfqq(bfqq->bfqd, bfqq, "get_entity: %p %d",
+		bfq_log_bfqq(bfqq->bfqd, bfqq, "%p %d",
 			     bfqq, bfqq->ref);
 	}
 }
@@ -748,7 +748,7 @@ static void bfq_forget_entity(struct bfq_service_tree *st,
 	entity->on_st = false;
 	st->wsum -= entity->weight;
 	if (bfqq && !is_in_service) {
-		bfq_log_bfqq(bfqq->bfqd, bfqq, "forget_entity (before): %p %d",
+		bfq_log_bfqq(bfqq->bfqd, bfqq, "(before): %p %d",
 			     bfqq, bfqq->ref);
 		bfq_put_queue(bfqq);
 	}
@@ -1008,7 +1008,7 @@ static void bfq_bfqq_charge_time(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 		tot_serv_to_charge = entity->service;
 
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
-		     "charge_time: %lu/%u ms, %d/%d/%d sectors",
+		     "%lu/%u ms, %d/%d/%d sectors",
 		     time_ms, timeout_ms, entity->service,
 		     tot_serv_to_charge, entity->budget);
 
@@ -1080,7 +1080,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 
 		if (bfqq) {
 			bfq_log_bfqq(bfqq->bfqd, bfqq,
-				     "update_fin_time_enqueue: new queue finish %llu",
+				     "new queue finish %llu",
 				     ((entity->finish>>10)*1000)>>12);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 		} else {
@@ -1088,7 +1088,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 				container_of(entity, struct bfq_group, entity);
 
 			bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-				     "update_fin_time_enqueue: new group finish %llu",
+				     "new group finish %llu",
 				     ((entity->finish>>10)*1000)>>12);
 #endif
 		}
@@ -1098,7 +1098,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 
 	if (bfqq) {
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			"update_fin_time_enqueue: queue %seligible in st %p",
+			"queue %seligible in st %p",
 			     entity->start <= st->vtime ? "" : "non ", st);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	} else {
@@ -1106,7 +1106,7 @@ static void bfq_update_fin_time_enqueue(struct bfq_entity *entity,
 			container_of(entity, struct bfq_group, entity);
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			"update_fin_time_enqueue: group %seligible in st %p",
+			"group %seligible in st %p",
 			     entity->start <= st->vtime ? "" : "non ", st);
 #endif
 	}
@@ -1550,7 +1550,7 @@ static u64 bfq_calc_vtime_jump(struct bfq_service_tree *st)
 
 		if (bfqq)
 			bfq_log_bfqq(bfqq->bfqd, bfqq,
-				     "calc_vtime_jump: new value %llu",
+				     "new value %llu",
 				     ((root_entity->min_start>>10)*1000)>>12);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 		else {
@@ -1559,7 +1559,7 @@ static u64 bfq_calc_vtime_jump(struct bfq_service_tree *st)
 					     entity);
 
 			bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-				     "calc_vtime_jump: new value %llu",
+				     "new value %llu",
 				     ((root_entity->min_start>>10)*1000)>>12);
 		}
 #endif
@@ -1677,7 +1677,7 @@ __bfq_lookup_next_entity(struct bfq_service_tree *st, bool in_service)
 	bfqq = bfq_entity_to_bfqq(entity);
 	if (bfqq)
 		bfq_log_bfqq(bfqq->bfqd, bfqq,
-			     "__lookup_next: start %llu vtime %llu st %p",
+			     "start %llu vtime %llu st %p",
 			     ((entity->start>>10)*1000)>>12,
 			     ((new_vtime>>10)*1000)>>12, st);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
@@ -1686,7 +1686,7 @@ __bfq_lookup_next_entity(struct bfq_service_tree *st, bool in_service)
 			container_of(entity, struct bfq_group, entity);
 
 		bfq_log_bfqg((struct bfq_data *)bfqg->bfqd, bfqg,
-			     "__lookup_next: start %llu vtime %llu (%llu) st %p",
+			     "start %llu vtime %llu (%llu) st %p",
 			     ((entity->start>>10)*1000)>>12,
 			     ((st->vtime>>10)*1000)>>12,
 			     ((new_vtime>>10)*1000)>>12, st);
@@ -1821,14 +1821,14 @@ static struct bfq_queue *bfq_get_next_queue(struct bfq_data *bfqd)
 				container_of(entity, struct bfq_group, entity);
 
 			bfq_log_bfqg(bfqd, bfqg,
-				     "get_next_queue: lookup in this group");
+				     "lookup in this group");
 			if (!sd->next_in_service)
-				pr_crit("get_next_queue: lookup in this group");
+				pr_crit("lookup in this group");
 		} else {
 			bfq_log_bfqg(bfqd, bfqd->root_group,
-				     "get_next_queue: lookup in root group");
+				     "lookup in root group");
 			if (!sd->next_in_service)
-				pr_crit("get_next_queue: lookup in root group");
+				pr_crit("lookup in root group");
 		}
 #endif
 
@@ -1903,7 +1903,7 @@ static struct bfq_queue *bfq_get_next_queue(struct bfq_data *bfqd)
 		bfqq = bfq_entity_to_bfqq(entity);
 		if (bfqq)
 			bfq_log_bfqq(bfqd, bfqq,
-			     "get_next_queue: this queue, finish %llu",
+			     "this queue, finish %llu",
 				(((entity->finish>>10)*1000)>>10)>>2);
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 		else {
@@ -1911,7 +1911,7 @@ static struct bfq_queue *bfq_get_next_queue(struct bfq_data *bfqd)
 				container_of(entity, struct bfq_group, entity);
 
 			bfq_log_bfqg(bfqd, bfqg,
-			     "get_next_queue: this entity, finish %llu",
+			     "this entity, finish %llu",
 				(((entity->finish>>10)*1000)>>10)>>2);
 		}
 #endif
