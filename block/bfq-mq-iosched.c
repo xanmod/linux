@@ -133,6 +133,12 @@ static const int bfq_timeout = (HZ / 8);
  */
 static const unsigned long bfq_merge_time_limit = HZ/10;
 
+#define MAX_LENGTH_REASON_NAME 25
+
+static const char reason_name[][MAX_LENGTH_REASON_NAME] = {"TOO_IDLE",
+"BUDGET_TIMEOUT", "BUDGET_EXHAUSTED", "NO_MORE_REQUESTS",
+"PREEMPTED"};
+
 static struct kmem_cache *bfq_pool;
 
 /* Below this threshold (in ns), we consider thinktime immediate. */
@@ -3553,8 +3559,8 @@ static void bfq_bfqq_expire(struct bfq_data *bfqd,
 	}
 
 	bfq_log_bfqq(bfqd, bfqq,
-		"expire (%d, slow %d, num_disp %d, short_ttime %d, weight %d)",
-		     reason, slow, bfqq->dispatched,
+		"expire (%s, slow %d, num_disp %d, short_ttime %d, weight %d)",
+		     reason_name[reason], slow, bfqq->dispatched,
 		     bfq_bfqq_has_short_ttime(bfqq), entity->weight);
 
 	/*
