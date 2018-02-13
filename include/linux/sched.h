@@ -575,6 +575,7 @@ struct task_struct {
 	/* 8bits prio and 56bits deadline for quick processing */
 	u64				priodl;
 	u64				last_ran;
+	u64				last_rq_nr_switches;
 	/* sched_clock time spent running */
 	u64				sched_time;
 #else /* CONFIG_SCHED_PDS */

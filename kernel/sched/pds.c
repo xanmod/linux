@@ -91,6 +91,11 @@
 #define BALANCE_INTERVAL	(MS_TO_NS(16ULL))
 #define BALANCE_INTERVAL_MASK	(~(BALANCE_INTERVAL - 1ULL))
 
+/**
+ * Cache hot threshold (current version in number of switches)
+ */
+#define SCHED_CACHE_HOT_SWITCHES_TH	(8UL)
+
 enum {
 	BASE_CPU_AFFINITY_CHK_LEVEL = 1,
 #ifdef CONFIG_SCHED_SMT
@@ -1105,7 +1110,7 @@ static inline int rq_dither(struct rq *rq)
 			return cpumask_any(&tmp);\
 }
 
-static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
+static inline int best_mask_cpu(const int cpu, const cpumask_t *cpumask)
 {
 	struct cpumask non_scaled_mask;
 
@@ -1717,6 +1722,42 @@ out:
 
 #ifdef CONFIG_SMP
 /*
+ * cpumask_random - get a random cpu from a cpumask
+ * @rand: random seed cpu to start with
+ * @srcp: the cpumask pointer
+ *
+ * Returns >= nr_cpu_ids if no cpus set.
+ */
+static inline unsigned int cpumask_random(unsigned int rand,
+					  const cpumask_t *srcp)
+{
+	if ((rand = cpumask_next(rand, srcp)) >= nr_cpu_ids)
+		rand = cpumask_first(srcp);
+
+	return rand;
+}
+
+static inline bool
+is_task_cache_hot(const struct task_struct *p, struct rq *rq)
+{
+	unsigned long nr_switches = rq->nr_switches - p->last_rq_nr_switches;
+
+	return (nr_switches < SCHED_CACHE_HOT_SWITCHES_TH ||
+			p->last_ran > rq->clock_task - MS_TO_NS(nr_switches));
+}
+
+static inline unsigned int
+task_best_mask_cpu(const struct task_struct *p, const cpumask_t *mask)
+{
+	struct rq *rq = task_rq(p);
+
+	if (is_task_cache_hot(p, rq))
+		return best_mask_cpu(cpu_of(rq), mask);
+	else
+		return cpumask_random(cpu_of(rq), mask);
+}
+
+/*
  * task_preemptible_rq - return the rq which the given task can preempt on
  * @p: task wants to preempt CPU
  * @only_preempt_low_policy: indicate only preempt rq running low policy than @p
@@ -1737,12 +1778,9 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level])) {
 			cpumask_t smt_tmp;
 
-			if (cpumask_and(&smt_tmp, &tmp, &sched_cpu_sg_idle_mask)) {
-				cpu = best_mask_cpu(task_cpu(p), &smt_tmp);
-				return cpu;
-			}
-			cpu = best_mask_cpu(task_cpu(p), &tmp);
-			return cpu;
+			if (cpumask_and(&smt_tmp, &tmp, &sched_cpu_sg_idle_mask))
+				return task_best_mask_cpu(p, &smt_tmp);
+			return task_best_mask_cpu(p, &tmp);
 		}
 		level = find_next_bit(sched_rq_queued_masks_bitmap,
 				      NR_SCHED_RQ_QUEUED_LEVEL,
@@ -1751,10 +1789,8 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 #endif
 
 	while (level < preempt_level) {
-		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level])) {
-			cpu = best_mask_cpu(task_cpu(p), &tmp);
-			return cpu;
-		}
+		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level]))
+			return task_best_mask_cpu(p, &tmp);
 		level = find_next_bit(sched_rq_queued_masks_bitmap,
 				      NR_SCHED_RQ_QUEUED_LEVEL,
 				      level + 1);
@@ -1775,31 +1811,19 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 	if (unlikely(idleprio_task(p)))
 		return nr_cpu_ids;
 
-	if (!cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level]))
-		return nr_cpu_ids;
+	if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level])) {
+		struct rq *rq = task_rq(p);
 
-	for_each_cpu (cpu, &tmp)
-		if (likely(p->priodl < sched_rq_priodls[cpu]))
-			return cpu;
+		if (is_task_cache_hot(p, rq) || SCHED_RQ_RT == level ) {
+			for_each_cpu (cpu, &tmp)
+				if (p->priodl < sched_rq_priodls[cpu])
+					return cpu;
+		} else
+			return cpumask_random(task_cpu(p), &tmp);
+	}
 #endif
 
 	return nr_cpu_ids;
-}
-
-/*
- * cpumask_random - get a random cpu from a cpumask
- * @rand: random seed cpu to start with
- * @srcp: the cpumask pointer
- *
- * Returns >= nr_cpu_ids if no cpus set.
- */
-static inline unsigned int cpumask_random(unsigned int rand,
-					  const cpumask_t *srcp)
-{
-	if ((rand = cpumask_next(rand, srcp)) >= nr_cpu_ids)
-		rand = cpumask_first(srcp);
-
-	return rand;
 }
 
 /*
@@ -2440,6 +2464,7 @@ void wake_up_new_task(struct task_struct *p)
 
 	p->state = TASK_RUNNING;
 
+	p->last_rq_nr_switches = task_rq(p)->nr_switches;
 	rq = cpu_rq(select_task_rq(p, 0));
 #ifdef CONFIG_SMP
 	/*
@@ -3662,6 +3687,7 @@ static void __sched notrace __schedule(bool preempt)
 		rq->curr = next;
 		++*switch_count;
 		rq->nr_switches++;
+		prev->last_rq_nr_switches = rq->nr_switches;
 
 		trace_sched_switch(preempt, prev, next);
 
