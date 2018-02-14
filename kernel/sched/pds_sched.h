@@ -85,7 +85,6 @@ struct rq {
 
 	u64 clock, last_tick;
 	u64 clock_task;
-	u64 last_switch;
 	int dither;
 
 	unsigned long nr_running;
