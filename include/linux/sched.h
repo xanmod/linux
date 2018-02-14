@@ -657,15 +657,6 @@ struct task_struct {
 	u64				last_ran;
 	/* sched_clock time spent running */
 	u64				sched_time;
-#ifdef CONFIG_SMT_NICE
-	/* Policy/nice level bias across smt siblings */
-	int				smt_bias;
-#endif
-#ifdef CONFIG_HOTPLUG_CPU
-	/* Bound to CPU0 for hotplug */
-	bool				zerobound;
-#endif
-	unsigned long			rt_timeout;
 #else /* CONFIG_SCHED_PDS */
 	const struct sched_class	*sched_class;
 	struct sched_entity		se;
@@ -1217,7 +1208,8 @@ struct task_struct {
 void cpu_scaling(int cpu);
 void cpu_nonscaling(int cpu);
 #define tsk_seruntime(t)		((t)->sched_time)
-#define tsk_rttimeout(t)		((t)->rt_timeout)
+/* replace the uncertian rt_timeout with 0UL */
+#define tsk_rttimeout(t)		(0UL)
 
 #define is_idle_policy(policy)	((policy) == SCHED_IDLE)
 #define idleprio_task(p)	unlikely(is_idle_policy((p)->policy))
