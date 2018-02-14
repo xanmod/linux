@@ -3662,7 +3662,6 @@ static void __sched notrace __schedule(bool preempt)
 		rq->curr = next;
 		++*switch_count;
 		rq->nr_switches++;
-		rq->last_switch = rq->clock;
 
 		trace_sched_switch(preempt, prev, next);
 
@@ -6281,7 +6280,6 @@ void __init sched_init(void)
 		rq = cpu_rq(i);
 		FULL_INIT_SKIPLIST_NODE(&rq->sl_header);
 		raw_spin_lock_init(&rq->lock);
-		rq->last_switch = 0UL;
 		rq->dither = 0;
 		rq->nr_running = rq->nr_uninterruptible = 0;
 		rq->calc_load_active = 0;
