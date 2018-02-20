@@ -7,7 +7,6 @@
 #include <linux/netdevice.h>
 #include <net/ip.h>
 #include <net/ip6_route.h>
-#include <net/netfilter/nf_tables.h>
 #include <net/netfilter/nf_flow_table.h>
 #include <net/netfilter/nf_conntrack.h>
 #include <net/netfilter/nf_conntrack_core.h>
@@ -381,8 +380,7 @@ flow_offload_lookup(struct nf_flowtable *flow_table,
 }
 EXPORT_SYMBOL_GPL(flow_offload_lookup);
 
-static int
-nf_flow_table_iterate(struct nf_flowtable *flow_table,
+int nf_flow_table_iterate(struct nf_flowtable *flow_table,
 		      void (*iter)(struct nf_flowtable *flowtable,
 				   struct flow_offload *flow, void *data),
 		      void *data)
@@ -436,6 +434,7 @@ static void nf_flow_offload_gc_step(struct nf_flowtable *flow_table,
 		nf_flow_offload_stats(flow_table, flow);
 	}
 }
+EXPORT_SYMBOL_GPL(nf_flow_table_iterate);
 
 void nf_flow_table_gc_run(struct nf_flowtable *flow_table)
 {
