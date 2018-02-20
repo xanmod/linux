@@ -1041,6 +1041,15 @@ config NETFILTER_XT_TARGET_NOTRACK
 	depends on NETFILTER_ADVANCED
 	select NETFILTER_XT_TARGET_CT
 
+config NETFILTER_XT_TARGET_FLOWOFFLOAD
+	tristate '"FLOWOFFLOAD" target support'
+	depends on NF_FLOW_TABLE
+	depends on NETFILTER_INGRESS
+	help
+	  This option adds a `FLOWOFFLOAD' target, which uses the nf_flow_offload
+	  module to speed up processing of packets by bypassing the usual
+	  netfilter chains
+
 config NETFILTER_XT_TARGET_RATEEST
 	tristate '"RATEEST" target support'
 	depends on NETFILTER_ADVANCED
