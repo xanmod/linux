@@ -158,7 +158,6 @@ static bool bad_spectre_microcode(struct cpuinfo_x86 *c)
 static void early_init_intel(struct cpuinfo_x86 *c)
 {
 	u64 misc_enable;
-	bool allow_fast_string = true;
 
 	/* Unmask CPUID levels if masked: */
 	if (c->x86 > 6 || (c->x86 == 6 && c->x86_model >= 0xd)) {
@@ -263,40 +262,20 @@ static void early_init_intel(struct cpuinfo_x86 *c)
 	 * Ingo Molnar reported a Pentium D (model 6) and a Xeon
 	 * (model 2) with the same problem.
 	 */
-	if (c->x86 == 15) {
-	        allow_fast_string = false;
-
+	if (c->x86 == 15)
 		if (msr_clear_bit(MSR_IA32_MISC_ENABLE,
 				  MSR_IA32_MISC_ENABLE_FAST_STRING_BIT) > 0)
 			pr_info("kmemcheck: Disabling fast string operations\n");
-	}
 #endif
 
 	/*
-	 * If BIOS didn't enable fast string operation, try to enable
-	 * it ourselves. If that fails, then clear the fast string
-	 * and enhanced fast string CPU capabilities.
+	 * If fast string is not enabled in IA32_MISC_ENABLE for any reason,
+	 * clear the fast string and enhanced fast string CPU capabilities.
 	 */
 	if (c->x86 > 6 || (c->x86 == 6 && c->x86_model >= 0xd)) {
 		rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
-
-		if (allow_fast_string &&
-		    !(misc_enable & MSR_IA32_MISC_ENABLE_FAST_STRING)) {
-			misc_enable |= MSR_IA32_MISC_ENABLE_FAST_STRING;
-			wrmsrl_safe(MSR_IA32_MISC_ENABLE, misc_enable);
-
-			/* Re-read to make sure it stuck. */
-			rdmsrl(MSR_IA32_MISC_ENABLE, misc_enable);
-
-			if (misc_enable & MSR_IA32_MISC_ENABLE_FAST_STRING)
-				pr_info("BIOS disabled fast string operation, re-enabled sucessfully.\n");
-		}
-
 		if (!(misc_enable & MSR_IA32_MISC_ENABLE_FAST_STRING)) {
-			if (allow_fast_string)
-				pr_info("BIOS disabled fast string operation, re-enable failed.\n");
-			else
-				pr_info("Disabled fast string operations\n");
+			pr_info("Disabled fast string operations\n");
 			setup_clear_cpu_cap(X86_FEATURE_REP_GOOD);
 			setup_clear_cpu_cap(X86_FEATURE_ERMS);
 		}
