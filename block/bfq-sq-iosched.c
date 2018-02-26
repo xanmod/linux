@@ -5590,7 +5590,7 @@ static int __init bfq_init(void)
 
 	ret = elv_register(&iosched_bfq);
 	if (ret)
-		goto err_pol_unreg;
+		goto slab_kill;
 
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	strcat(msg, " (with cgroups support)");
@@ -5599,6 +5599,8 @@ static int __init bfq_init(void)
 
 	return 0;
 
+slab_kill:
+	bfq_slab_kill();
 err_pol_unreg:
 #ifdef BFQ_GROUP_IOSCHED_ENABLED
 	blkcg_policy_unregister(&blkcg_policy_bfq);
