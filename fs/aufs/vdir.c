@@ -841,7 +841,8 @@ static int seek_vdir(struct file *file, struct dir_context *ctx)
 
 out:
 	/* smp_mb(); */
-	AuDbg("valid %d\n", !valid);
+	if (!valid)
+		AuDbg("valid %d\n", !valid);
 	return valid;
 }
 

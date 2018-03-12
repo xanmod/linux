@@ -183,7 +183,8 @@ static unsigned int au_fhsm_poll(struct file *file,
 	if (atomic_read(&fhsm->fhsm_readable))
 		mask = POLLIN /* | POLLRDNORM */;
 
-	AuDbg("mask 0x%x\n", mask);
+	if (!mask)
+		AuDbg("mask 0x%x\n", mask);
 	return mask;
 }
 
