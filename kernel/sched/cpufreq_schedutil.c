@@ -483,8 +483,12 @@ static int sugov_kthread_create(struct sugov_policy *sg_policy)
 	struct task_struct *thread;
 	struct sched_attr attr = {
 		.size		= sizeof(struct sched_attr),
+#ifdef CONFIG_SCHED_PDS
+		.sched_policy	= SCHED_FIFO,
+#else
 		.sched_policy	= SCHED_DEADLINE,
 		.sched_flags	= SCHED_FLAG_SUGOV,
+#endif
 		.sched_nice	= 0,
 		.sched_priority	= 0,
 		/*
@@ -512,7 +516,12 @@ static int sugov_kthread_create(struct sugov_policy *sg_policy)
 		return PTR_ERR(thread);
 	}
 
+#ifdef CONFIG_SCHED_PDS
+	ret = sched_setattr(thread, &attr);
+#else
 	ret = sched_setattr_nocheck(thread, &attr);
+#endif
+
 	if (ret) {
 		kthread_stop(thread);
 		pr_warn("%s: failed to set SCHED_DEADLINE\n", __func__);
