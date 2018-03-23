@@ -5644,12 +5644,12 @@ void init_idle(struct task_struct *idle, int cpu)
 
 void resched_cpu(int cpu)
 {
+	struct rq *rq = cpu_rq(cpu);
 	unsigned long flags;
-	struct rq *rq;
 
-	rq = cpu_rq(cpu);
 	raw_spin_lock_irqsave(&rq->lock, flags);
-	resched_curr(cpu_rq(cpu));
+	if (cpu_online(cpu) || cpu == smp_processor_id())
+		resched_curr(cpu_rq(cpu));
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
