@@ -1816,7 +1816,7 @@ ttwu_stat(struct task_struct *p, int cpu, int wake_flags)
 
 #ifdef CONFIG_SMP
 	if (cpu == rq->cpu)
-		schedstat_inc(rq->ttwu_local);
+		__schedstat_inc(rq->ttwu_local);
 	else {
 		/** PDS ToDo:
 		 * How to do ttwu_wake_remote
@@ -1824,7 +1824,7 @@ ttwu_stat(struct task_struct *p, int cpu, int wake_flags)
 	}
 #endif /* CONFIG_SMP */
 
-	schedstat_inc(rq->ttwu_count);
+	__schedstat_inc(rq->ttwu_count);
 }
 
 #ifdef CONFIG_SMP
