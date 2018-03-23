@@ -231,13 +231,7 @@ static bool cpu_smt_capability(int dummy)
 	return (sched_cpu_nr_sibling > 1);
 }
 #endif
-#endif
 
-#ifdef	CONFIG_64BIT
-static u64 sched_rq_priodls[NR_CPUS] ____cacheline_aligned;
-#endif
-
-#ifdef CONFIG_SMP
 /*
  * Keep a unique ID per domain (we use the first CPUs number in the cpumask of
  * the domain), this allows us to quickly tell if two cpus are in the same cache
@@ -1685,76 +1679,6 @@ out:
 
 #ifdef CONFIG_SMP
 /*
- * task_preemptible_rq - return the rq which the given task can preempt on
- * @p: task wants to preempt CPU
- * @only_preempt_low_policy: indicate only preempt rq running low policy than @p
- */
-static inline int
-task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
-		    int only_preempt_low_policy)
-{
-	cpumask_t tmp;
-	int cpu, level, preempt_level;
-
-	preempt_level = task_running_policy_level(p, this_rq());
-	level = find_first_bit(sched_rq_queued_masks_bitmap,
-			       NR_SCHED_RQ_QUEUED_LEVEL);
-
-#ifdef CONFIG_SCHED_SMT
-	if (SCHED_RQ_EMPTY == level) {
-		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level])) {
-			cpumask_t smt_tmp;
-
-			if (cpumask_and(&smt_tmp, &tmp, &sched_cpu_sg_idle_mask)) {
-				cpu = best_mask_cpu(task_cpu(p), &smt_tmp);
-				return cpu;
-			}
-			cpu = best_mask_cpu(task_cpu(p), &tmp);
-			return cpu;
-		}
-		level = find_next_bit(sched_rq_queued_masks_bitmap,
-				      NR_SCHED_RQ_QUEUED_LEVEL,
-				      level + 1);
-	}
-#endif
-
-	while (level < preempt_level) {
-		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level])) {
-			cpu = best_mask_cpu(task_cpu(p), &tmp);
-			return cpu;
-		}
-		level = find_next_bit(sched_rq_queued_masks_bitmap,
-				      NR_SCHED_RQ_QUEUED_LEVEL,
-				      level + 1);
-	}
-
-#ifdef	CONFIG_64BIT
-	if (likely(level != preempt_level))
-		return nr_cpu_ids;
-
-	/*
-	 * only_preempt_low_policy indicate just preempt rq running lower
-	 * policy task than p
-	 */
-	if (unlikely(only_preempt_low_policy))
-		return nr_cpu_ids;
-
-	/* IDLEPRIO tasks never preempt anything but idle */
-	if (unlikely(idleprio_task(p)))
-		return nr_cpu_ids;
-
-	if (!cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level]))
-		return nr_cpu_ids;
-
-	for_each_cpu (cpu, &tmp)
-		if (likely(p->priodl < sched_rq_priodls[cpu]))
-			return cpu;
-#endif
-
-	return nr_cpu_ids;
-}
-
-/*
  * cpumask_random - get a random cpu from a cpumask
  * @rand: random seed cpu to start with
  * @srcp: the cpumask pointer
@@ -1768,6 +1692,66 @@ static inline unsigned int cpumask_random(unsigned int rand,
 		rand = cpumask_first(srcp);
 
 	return rand;
+}
+
+/*
+ * task_preemptible_rq - return the rq which the given task can preempt on
+ * @p: task wants to preempt CPU
+ * @only_preempt_low_policy: indicate only preempt rq running low policy than @p
+ */
+static inline int
+task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
+		    int only_preempt_low_policy)
+{
+	cpumask_t tmp;
+	int level, preempt_level;
+
+	preempt_level = task_running_policy_level(p, this_rq());
+	level = find_first_bit(sched_rq_queued_masks_bitmap,
+			       NR_SCHED_RQ_QUEUED_LEVEL);
+
+#ifdef CONFIG_SCHED_SMT
+	if (SCHED_RQ_EMPTY == level) {
+		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level])) {
+			cpumask_t smt_tmp;
+
+			if (cpumask_and(&smt_tmp, &tmp, &sched_cpu_sg_idle_mask))
+				return best_mask_cpu(task_cpu(p), &smt_tmp);
+			return best_mask_cpu(task_cpu(p), &tmp);
+		}
+		level = find_next_bit(sched_rq_queued_masks_bitmap,
+				      NR_SCHED_RQ_QUEUED_LEVEL,
+				      level + 1);
+	}
+#endif
+
+	while (level < preempt_level) {
+		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level]))
+			return best_mask_cpu(task_cpu(p), &tmp);
+
+		level = find_next_bit(sched_rq_queued_masks_bitmap,
+				      NR_SCHED_RQ_QUEUED_LEVEL,
+				      level + 1);
+	}
+
+	/*
+	 * only_preempt_low_policy indicate just preempt rq running lower
+	 * policy task than p
+	 */
+	if (only_preempt_low_policy)
+		return nr_cpu_ids;
+
+	if (unlikely(level != preempt_level))
+		return nr_cpu_ids;
+
+	/* IDLEPRIO tasks never preempt anything but idle */
+	if (idleprio_task(p))
+		return nr_cpu_ids;
+
+	if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level]))
+		return best_mask_cpu(task_cpu(p), &tmp);
+
+	return nr_cpu_ids;
 }
 
 /*
@@ -1792,7 +1776,7 @@ static inline int select_task_rq(struct task_struct *p, int wake_flags)
 	 * instead waiting for current to deschedule.
 	 */
 	cpu = task_preemptible_rq(p, &chk_mask, wake_flags & WF_SYNC);
-	if (nr_cpu_ids == cpu)
+	if (cpu >= nr_cpu_ids)
 		return cpumask_random(task_cpu(p), &chk_mask);
 
 	return cpu;
@@ -3548,20 +3532,9 @@ static inline void schedule_debug(struct task_struct *prev)
 	schedstat_inc(this_rq()->sched_count);
 }
 
-#ifdef CONFIG_64BIT
-static inline void reset_rq_task(struct rq *rq, struct task_struct *p)
-{
-	sched_rq_priodls[cpu_of(rq)] = p->priodl;
-}
-#else
-static inline void reset_rq_task(struct rq *rq, struct task_struct *p) {}
-#endif
-
 static inline void set_rq_task(struct rq *rq, struct task_struct *p)
 {
 	p->last_ran = rq->clock_task;
-
-	reset_rq_task(rq, p);
 
 #ifdef CONFIG_HIGH_RES_TIMERS
 	if (!(p == rq->idle || p->policy == SCHED_FIFO))
@@ -3974,9 +3947,6 @@ check_task_changed(struct rq *rq, struct task_struct *p)
 		struct task_struct *first;
 
 		requeue_task(p, rq);
-
-		if (task_running(p))
-			reset_rq_task(rq, p);
 
 		/* Resched if first queued task not running and not IDLE */
 		if ((first = rq_first_queued_task(rq)) != rq->curr &&
@@ -5634,13 +5604,6 @@ void init_idle(struct task_struct *idle, int cpu)
 	idle->prio = PRIO_LIMIT;
 	idle->deadline = rq_clock(rq) + task_deadline_diff(idle);
 	update_task_priodl(idle);
-	/**
-	 * use reset_rq_task() to update sched_rq_priodls only, not calling
-	 * set_rq_task() as rq_dither() need to check hrtick_enabled(), which is
-	 * not yet ready during boot-up
-	 */
-	reset_rq_task(rq, idle);
-
 
 	kasan_unpoison_task_stack(idle);
 
