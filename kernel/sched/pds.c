@@ -65,8 +65,6 @@
 #define SCHED_PRIO(p)		((p) + MAX_RT_PRIO)
 #define STOP_PRIO		(MAX_RT_PRIO - 1)
 
-#define noninteractive_task(p)	(batch_task((p)) || idleprio_task((p)))
-
 /*
  * Some helpers for converting to/from various scales. Use shifts to get
  * approximate multiples of ten for less overhead.
@@ -184,8 +182,6 @@ static inline int timeslice(void)
 }
 
 #ifdef CONFIG_SMP
-static cpumask_t sched_cpu_non_scaled_mask ____cacheline_aligned_in_smp;
-
 enum {
 SCHED_RQ_EMPTY		=	0,
 SCHED_RQ_IDLE,
@@ -1069,33 +1065,8 @@ static inline int rq_dither(struct rq *rq)
 
 static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
 {
-	struct cpumask non_scaled_mask;
-
 	if (unlikely(cpumask_weight(cpumask)) == 1)
 		return cpumask_first(cpumask);
-
-	if (cpumask_and(&non_scaled_mask, cpumask, &sched_cpu_non_scaled_mask)) {
-		/*
-		 * non_scaled llc cpus checking
-		 */
-		BEST_LLC_CPU(cpu, &non_scaled_mask);
-		/*
-		 * scaling llc cpus checking
-		 */
-		BEST_LLC_CPU(cpu, cpumask);
-
-		/*
-		 * non_scaled non_llc cpus checking
-		 */
-		BEST_NONLLC_CPU(cpu, &non_scaled_mask);
-		/*
-		 * scaling non_llc cpus checking
-		 */
-		BEST_NONLLC_CPU(cpu, cpumask);
-
-		/* All cpus avariable */
-		return cpumask_first(cpumask);
-	}
 
 	/*
 	 * scaling llc cpus checking
@@ -1134,34 +1105,7 @@ void wake_up_if_idle(int cpu)
 out:
 	rcu_read_unlock();
 }
-
-
-/*
- * Flags to tell us whether this CPU is running a CPU frequency governor that
- * has slowed its speed or not. No locking required as the very rare wrongly
- * read value would be harmless.
- */
-void cpu_scaling(int cpu)
-{
-	cpumask_clear_cpu(cpu, &sched_cpu_non_scaled_mask);
-}
-
-void cpu_nonscaling(int cpu)
-{
-	cpumask_set_cpu(cpu, &sched_cpu_non_scaled_mask);
-}
-
-static inline bool is_cpu_scaling(const int cpu)
-{
-	return !cpumask_test_cpu(cpu, &sched_cpu_non_scaled_mask);
-}
-
-#else /* CONFIG_SMP */
-void cpu_scaling(int __unused) {}
-void cpu_nonscaling(int __unused) {}
 #endif /* CONFIG_SMP */
-EXPORT_SYMBOL_GPL(cpu_scaling);
-EXPORT_SYMBOL_GPL(cpu_nonscaling);
 
 static inline int normal_prio(struct task_struct *p)
 {
@@ -3366,7 +3310,7 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
  * in run queue.
  */
 static inline struct task_struct *
-rq_best_pending_task(struct rq *rq, const int cpu, const bool scaling)
+rq_best_pending_task(struct rq *rq, const int cpu)
 {
 	struct task_struct *p, *best = NULL;
 	struct skiplist_node *node;
@@ -3387,13 +3331,10 @@ rq_best_pending_task(struct rq *rq, const int cpu, const bool scaling)
 			goto next;
 
 		/* check CPU affinity */
-		if (cpumask_test_cpu(cpu, &p->cpus_allowed)) {
-			if (scaling && noninteractive_task(p))
-				goto next;
-			if (p->last_ran < last_ran) {
-				best = p;
-				last_ran = p->last_ran;
-			}
+		if (cpumask_test_cpu(cpu, &p->cpus_allowed) &&
+		    p->last_ran < last_ran) {
+			best = p;
+			last_ran = p->last_ran;
 		}
 next:
 		node = node->next[0];
@@ -3406,7 +3347,7 @@ next:
 }
 
 static inline struct task_struct *
-take_queued_task_cpumask(int cpu, const bool scaling, struct cpumask *chk_mask)
+take_queued_task_cpumask(int cpu, struct cpumask *chk_mask)
 {
 	struct task_struct *p;
 	int tcpu;
@@ -3417,7 +3358,7 @@ take_queued_task_cpumask(int cpu, const bool scaling, struct cpumask *chk_mask)
 		trq = cpu_rq(tcpu);
 		raw_spin_lock_nested(&trq->lock, SINGLE_DEPTH_NESTING);
 		update_rq_clock(trq);
-		if((p = rq_best_pending_task(trq, cpu, scaling))) {
+		if((p = rq_best_pending_task(trq, cpu))) {
 			detach_task(trq, p, cpu);
 			raw_spin_unlock(&trq->lock);
 
@@ -3433,22 +3374,19 @@ static inline struct task_struct *take_other_rq_task(int cpu)
 {
 	struct cpumask tmp;
 	struct cpumask *affinity_mask, *end;
-	bool scaling;
 
 	if (0 == sched_nr_rq_pending)
 		return NULL;
 
-	scaling = is_cpu_scaling(cpu);
 	if (1 == sched_nr_rq_pending)
-		return take_queued_task_cpumask(cpu, scaling,
-						&sched_rq_pending_mask);
+		return take_queued_task_cpumask(cpu, &sched_rq_pending_mask);
 
 	affinity_mask = &sched_cpu_affinity_chk_masks[cpu][0];
 	end = sched_cpu_affinity_chk_end_masks[cpu];
 	for (;affinity_mask < end; affinity_mask++) {
 		struct task_struct *p;
 		if (cpumask_and(&tmp, &sched_rq_pending_mask, affinity_mask) &&
-		    (p = take_queued_task_cpumask(cpu, scaling, &tmp)))
+		    (p = take_queued_task_cpumask(cpu, &tmp)))
 			return p;
 	}
 
@@ -6238,7 +6176,6 @@ void __init sched_init_smp(void)
 	cpumask_clear(&sched_cpu_sb_suppress_mask);
 #endif
 
-	cpumask_copy(&sched_cpu_non_scaled_mask, cpu_online_mask);
 	cpumask_copy(&sched_rq_queued_masks[SCHED_RQ_EMPTY], cpu_online_mask);
 
 	sched_init_topology_cpumask();
@@ -6270,8 +6207,6 @@ void __init sched_init(void)
 	wait_bit_init();
 
 #ifdef CONFIG_SMP
-	cpumask_setall(&sched_cpu_non_scaled_mask);
-
 	for (i = 0; i < NR_SCHED_RQ_QUEUED_LEVEL; i++)
 		cpumask_clear(&sched_rq_queued_masks[i]);
 	cpumask_setall(&sched_rq_queued_masks[SCHED_RQ_EMPTY]);
