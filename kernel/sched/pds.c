@@ -1026,59 +1026,22 @@ static inline int rq_dither(struct rq *rq)
 
 
 #ifdef CONFIG_SMP
-/*
- * The best idle CPU is first-matched by the following cpumask list
- *
- * Non scaled same CPUs as task originally runs on
- * Non scaled SMT of the cup
- * Non scaled cores/threads shares last level cache
- * Scaled same CPU as task originally runs on
- * Scaled SMT of the cup
- * Scaled cores/threads shares last level cache
- * Non scaled cores within the same physical CPU
- * Non scaled cpus/Cores within the local NODE
- * Scaled cores within the same physical CPU
- * Scaled cpus/Cores within the local NODE
- * All cpus avariable
- */
-
-#define BEST_LLC_CPU(cpu, cpumask)	\
-{\
-	cpumask_t tmp, *mask;\
-	if (cpumask_test_cpu((cpu), (cpumask)))\
-		return (cpu);\
-\
-	mask = &sched_cpu_affinity_chk_masks[(cpu)][0];\
-	for (; mask < sched_cpu_affinity_llc_end_masks[(cpu)]; mask++)\
-		if (cpumask_and(&tmp, (cpumask), mask))\
-			return cpumask_any(&tmp);\
-}
-
-#define BEST_NONLLC_CPU(cpu, cpumask)	\
-{\
-	cpumask_t tmp, *mask;\
-	mask = sched_cpu_affinity_llc_end_masks[(cpu)];\
-	for (; mask < sched_cpu_affinity_chk_end_masks[(cpu)]; mask++)\
-		if (cpumask_and(&tmp, (cpumask), mask))\
-			return cpumask_any(&tmp);\
-}
-
 static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
 {
+	cpumask_t tmp, *mask;
+
 	if (unlikely(cpumask_weight(cpumask)) == 1)
 		return cpumask_first(cpumask);
 
-	/*
-	 * scaling llc cpus checking
-	 */
-	BEST_LLC_CPU(cpu, cpumask);
+	if (cpumask_test_cpu(cpu, cpumask))
+		return cpu;
 
-	/*
-	 * scaling non_llc cpus checking
-	 */
-	BEST_NONLLC_CPU(cpu, cpumask);
+	mask = &sched_cpu_affinity_chk_masks[cpu][0];
+	for (; mask < sched_cpu_affinity_chk_end_masks[cpu]; mask++)
+		if (cpumask_and(&tmp, cpumask, mask))
+			return cpumask_any(&tmp);
 
-	/* All cpus avariable */
+	/* Safe fallback, should never come here */
 	return cpumask_first(cpumask);
 }
 
