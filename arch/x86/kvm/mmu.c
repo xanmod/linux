@@ -2758,8 +2758,10 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 	else
 		pte_access &= ~ACC_WRITE_MASK;
 
+	if (!kvm_is_mmio_pfn(pfn))
+		spte |= shadow_me_mask;
+
 	spte |= (u64)pfn << PAGE_SHIFT;
-	spte |= shadow_me_mask;
 
 	if (pte_access & ACC_WRITE_MASK) {
 
@@ -4951,6 +4953,16 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gva_t cr2, u64 error_code,
 	if (mmio_info_in_cache(vcpu, cr2, direct))
 		emulation_type = 0;
 emulate:
+	/*
+	 * On AMD platforms, under certain conditions insn_len may be zero on #NPF.
+	 * This can happen if a guest gets a page-fault on data access but the HW
+	 * table walker is not able to read the instruction page (e.g instruction
+	 * page is not present in memory). In those cases we simply restart the
+	 * guest.
+	 */
+	if (unlikely(insn && !insn_len))
+		return 1;
+
 	er = x86_emulate_instruction(vcpu, cr2, emulation_type, insn, insn_len);
 
 	switch (er) {
