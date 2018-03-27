@@ -228,6 +228,8 @@ static bool cpu_smt_capability(int dummy)
 }
 #endif
 
+static int sched_rq_prio[NR_CPUS] ____cacheline_aligned;
+
 /*
  * Keep a unique ID per domain (we use the first CPUs number in the cpumask of
  * the domain), this allows us to quickly tell if two cpus are in the same cache
@@ -504,14 +506,19 @@ static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 
 static inline void update_sched_rq_queued_masks(struct rq *rq)
 {
+	int prio;
 	int cpu = cpu_of(rq);
 	struct task_struct *p;
 	int level, last_level = rq->queued_level;
 
-	if ((p = rq_first_queued_task(rq)) == NULL)
+	if ((p = rq_first_queued_task(rq)) == NULL) {
 		level = SCHED_RQ_EMPTY;
-	else
+		prio = PRIO_LIMIT;
+	} else {
 		level = task_running_policy_level(p, rq);
+		prio = p->prio;
+	}
+	sched_rq_prio[cpu] = prio;
 
 	if (last_level == level)
 		return;
@@ -1655,8 +1662,16 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 	if (idleprio_task(p))
 		return nr_cpu_ids;
 
-	if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level]))
+	if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level])) {
+		if (unlikely((SCHED_RQ_RT == level))) {
+			unsigned int cpu;
+
+			for_each_cpu (cpu, &tmp)
+				if (p->prio < sched_rq_prio[cpu])
+					return cpu;
+		}
 		return best_mask_cpu(task_cpu(p), &tmp);
+	}
 
 	return nr_cpu_ids;
 }
