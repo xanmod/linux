@@ -6086,24 +6086,26 @@ static void sched_init_topology_cpumask(void)
 			BALANCE_INTERVAL / num_online_cpus() * cpu;
 
 		chk = &sched_cpu_affinity_chk_masks[cpu][0];
-#ifdef CONFIG_SCHED_SMT
-		cpumask_copy(&tmp, topology_sibling_cpumask(cpu));
+
+		cpumask_setall(&tmp);
 		cpumask_clear_cpu(cpu, &tmp);
-		if (cpumask_weight(&tmp)) {
+#ifdef CONFIG_SCHED_SMT
+		if (cpumask_and(&tmp, &tmp, topology_sibling_cpumask(cpu))) {
 			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] smt 0x%08lx",
 			       cpu, tmp.bits[0]);
 			cpumask_copy(chk, &tmp);
 			chk++;
 		}
+		cpumask_complement(&tmp, topology_sibling_cpumask(cpu));
 #endif
 #ifdef CONFIG_SCHED_MC
-		cpumask_complement(&tmp, topology_sibling_cpumask(cpu));
 		if (cpumask_and(&tmp, &tmp, cpu_coregroup_mask(cpu))) {
 			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] coregroup 0x%08lx",
 			       cpu, tmp.bits[0]);
 			cpumask_copy(chk, &tmp);
 			chk++;
 		}
+		cpumask_complement(&tmp, cpu_coregroup_mask(cpu));
 #endif
 		sched_cpu_affinity_llc_end_masks[cpu] = chk;
 
@@ -6113,24 +6115,14 @@ static void sched_init_topology_cpumask(void)
 		per_cpu(sd_llc_id, cpu) =
 			cpumask_first(cpu_coregroup_mask(cpu));
 
-#ifdef CONFIG_SCHED_MC
-		cpumask_complement(&tmp, cpu_coregroup_mask(cpu));
-#else
-#ifdef CONFIG_SCHED_SMT
-		cpumask_complement(&tmp, topology_sibling_cpumask(cpu));
-#else
-		cpumask_setall(&tmp);
-		cpumask_clear_cpu(cpu, &tmp);
-#endif
-#endif
 		if (cpumask_and(&tmp, &tmp, topology_core_cpumask(cpu))) {
 			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] core 0x%08lx",
 			       cpu, tmp.bits[0]);
 			cpumask_copy(chk, &tmp);
 			chk++;
 		}
-
 		cpumask_complement(&tmp, topology_core_cpumask(cpu));
+
 		if (cpumask_and(&tmp, &tmp, cpu_online_mask)) {
 			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] others 0x%08lx",
 			       cpu, tmp.bits[0]);
