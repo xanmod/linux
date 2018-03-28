@@ -423,9 +423,9 @@ static inline u64 static_deadline_diff(int static_prio)
 
 static inline struct task_struct *rq_first_queued_task(struct rq *rq)
 {
-	struct skiplist_node *node = &rq->sl_header;
+	struct skiplist_node *node = rq->sl_header.next[0];
 
-	if ((node = node->next[0]) == &rq->sl_header)
+	if (node == &rq->sl_header)
 		return NULL;
 
 	return skiplist_entry(node, struct task_struct, sl_node);
@@ -461,19 +461,6 @@ task_running_policy_level(const struct task_struct *p, const struct rq *rq)
 	return PRIO_LIMIT - prio;
 }
 
-static inline struct task_struct *rq_first_pending_task(struct rq *rq)
-{
-	struct skiplist_node *node = &rq->sl_header;
-
-	if (rq->curr == rq->idle)
-		return NULL;
-
-	if ((node = rq->curr->sl_node.next[0]) == &rq->sl_header)
-		return NULL;
-
-	return skiplist_entry(node, struct task_struct, sl_node);
-}
-
 static inline void
 __update_sched_rq_queued_masks(struct rq *rq, const int cpu,
 			       const int last_level, const int level)
@@ -490,7 +477,6 @@ __update_sched_rq_queued_masks(struct rq *rq, const int cpu,
 
 static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 {
-	int cpu = cpu_of(rq);
 	struct task_struct *p = rq->curr;
 
 	if (p->prio == NORMAL_PRIO && rq_first_queued_task(rq) == p) {
@@ -500,7 +486,7 @@ static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 		if (last_level == level)
 			return;
 
-		__update_sched_rq_queued_masks(rq, cpu, last_level, level);
+		__update_sched_rq_queued_masks(rq, cpu_of(rq), last_level, level);
 	}
 }
 
@@ -3056,22 +3042,23 @@ static inline bool pds_sg_balance(struct rq *rq)
 }
 #endif /* CONFIG_SCHED_SMT */
 
-/**
- * PDS load balance function, be called in scheduler_tick()
- *
- * return: true if balance happened with rq->lock released, otherwise false.
- * context: interrupt disabled, rq->lock
- */
-static inline bool pds_trigger_load_balance(struct rq *rq)
+static inline struct task_struct *rq_first_pending_task(struct rq *rq)
+{
+	struct skiplist_node *node;
+
+	if (rq->curr == rq->idle)
+		return NULL;
+
+	if ((node = rq->curr->sl_node.next[0]) == &rq->sl_header)
+		return NULL;
+
+	return skiplist_entry(node, struct task_struct, sl_node);
+}
+
+static inline bool pds_load_balance(struct rq *rq)
 {
 	int cpu, level, preempt_level;
 	struct task_struct *p;
-	cpumask_t check = { CPU_BITS_NONE };
-
-#ifdef CONFIG_SCHED_SMT
-	if (pds_sg_balance(rq))
-		return false;
-#endif
 
 	if (rq->clock < rq->next_balance)
 		return false;
@@ -3099,6 +3086,8 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 	preempt_level = task_running_policy_level(p, rq);
 
 	while (level < preempt_level) {
+		cpumask_t check;
+
 		if (cpumask_and(&check, &sched_rq_queued_masks[level],
 				&p->cpus_allowed)) {
 			WARN_ONCE(cpumask_test_cpu(cpu, &check),
@@ -3131,6 +3120,21 @@ static inline bool pds_trigger_load_balance(struct rq *rq)
 	}
 
 	return false;
+}
+
+/**
+ * PDS load balance function, be called in scheduler_tick()
+ *
+ * return: true if balance happened with rq->lock released, otherwise false.
+ * context: interrupt disabled, rq->lock
+ */
+static inline bool pds_trigger_load_balance(struct rq *rq)
+{
+#ifdef CONFIG_SCHED_SMT
+	if (pds_sg_balance(rq))
+		return false;
+#endif
+	return pds_load_balance(rq);
 }
 #endif
 
