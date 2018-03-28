@@ -3290,38 +3290,23 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
 static inline struct task_struct *
 rq_best_pending_task(struct rq *rq, const int cpu)
 {
-	struct task_struct *p, *best = NULL;
-	struct skiplist_node *node;
-	int prio;
-	u64 last_ran = ~0ULL;
+	struct skiplist_node *node = rq->sl_header.next[0];
 
-	node = rq->sl_header.next[0];
 	/* seek to the second node, the first pending one */
 	node = node->next[0];
-	if (unlikely(node == &rq->sl_header))
-		return NULL;
-	p = skiplist_entry(node, struct task_struct, sl_node);
-	prio = p->prio;
 
-	do {
-		/* skip the running task */
-		if (unlikely(task_running(p)))
-			goto next;
+	while (node != &rq->sl_header)
+	{
+		struct task_struct *p;
 
-		/* check CPU affinity */
-		if (cpumask_test_cpu(cpu, &p->cpus_allowed) &&
-		    p->last_ran < last_ran) {
-			best = p;
-			last_ran = p->last_ran;
-		}
-next:
-		node = node->next[0];
-		if (node == &rq->sl_header)
-			break;
 		p = skiplist_entry(node, struct task_struct, sl_node);
-	} while (p->prio == prio);
+		/* skip the running task and check CPU affinity */
+		if (!task_running(p) && cpumask_test_cpu(cpu, &p->cpus_allowed))
+			return p;
+		node = node->next[0];
+	}
 
-	return best;
+	return NULL;
 }
 
 static inline struct task_struct *
