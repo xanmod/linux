@@ -1023,7 +1023,7 @@ static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
 {
 	cpumask_t tmp, *mask;
 
-	if (unlikely(cpumask_weight(cpumask)) == 1)
+	if (cpumask_weight(cpumask) == 1)
 		return cpumask_first(cpumask);
 
 	if (cpumask_test_cpu(cpu, cpumask))
@@ -2916,7 +2916,7 @@ static inline void pds_scheduler_task_tick(struct rq *rq)
 	 * run out of time slice in the interim. Otherwise, if they have
 	 * less than RESCHED_US μs of time slice left they will be rescheduled.
 	 */
-	if (likely(p->time_slice - rq->dither >= RESCHED_US))
+	if (p->time_slice - rq->dither >= RESCHED_US)
 		return;
 
 	/**
@@ -2999,7 +2999,7 @@ static inline bool pds_sg_balance(struct rq *rq)
 	 * in case cpu has no smt capability, which sched_cpu_sg_idle_mask will
 	 * not be changed.
 	 */
-	if (likely(0 == cpumask_weight(&sched_cpu_sg_idle_mask)))
+	if (0 == cpumask_weight(&sched_cpu_sg_idle_mask))
 		return false;
 
 	/*
@@ -3074,7 +3074,7 @@ static inline bool pds_load_balance(struct rq *rq)
 		return false;
 
 	p = rq_first_pending_task(rq);
-	if (unlikely(NULL == p))
+	if (NULL == p)
 		return false;
 
 	/*
@@ -3158,7 +3158,7 @@ void scheduler_tick(void)
 	rq->last_tick = rq->clock;
 
 #ifdef CONFIG_SMP
-	if (likely(!pds_trigger_load_balance(rq)))
+	if (!pds_trigger_load_balance(rq))
 #endif
 	raw_spin_unlock(&rq->lock);
 
@@ -3558,11 +3558,11 @@ static void __sched notrace __schedule(bool preempt)
 
 	set_rq_task(rq, next);
 
-	if (likely(prev != next)) {
+	if (prev != next) {
 #ifdef CONFIG_SCHED_SMT
 		cpumask_clear_cpu(cpu, &sched_cpu_sb_suppress_mask);
 #endif
-		if (unlikely(next->prio == PRIO_LIMIT))
+		if (next->prio == PRIO_LIMIT)
 			schedstat_inc(rq->sched_goidle);
 
 		rq->curr = next;
@@ -5085,14 +5085,14 @@ SYSCALL_DEFINE0(sched_yield)
 {
 	struct rq *rq;
 
-	if (unlikely(!sched_yield_type))
+	if (!sched_yield_type)
 		return 0;
 
 	local_irq_disable();
 	rq = this_rq();
 	raw_spin_lock(&rq->lock);
 
-	if (unlikely(sched_yield_type > 1)) {
+	if (sched_yield_type > 1) {
 		time_slice_expired(current, rq);
 		requeue_task(current, rq);
 	}
