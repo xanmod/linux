@@ -490,7 +490,12 @@ struct bfq_data {
 	u32 last_rq_max_size;
 	/* time elapsed from first dispatch in current observ. interval (us) */
 	u64 delta_from_first;
-	/* current estimate of device peak rate */
+	/*
+	 * Current estimate of the device peak rate, measured in
+	 * [(sectors/usec) / 2^BFQ_RATE_SHIFT]. The left-shift by
+	 * BFQ_RATE_SHIFT is performed to increase precision in
+	 * fixed-point calculations.
+	 */
 	u32 peak_rate;
 
 	/* maximum budget allotted to a bfq_queue before rescheduling */
