@@ -3286,53 +3286,59 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
 }
 
 #ifdef	CONFIG_SMP
-/**
- * best pending task in @rq for given @cpu
- * The most likely cache-cool task with highest prio of pending tasks
- * in run queue.
+
+#define SCHED_RQ_NR_MIGRATION (32UL)
+/*
+ * Migrate pending tasks in @rq to @dest_cpu
+ * Will try to migrate mininal of half of @rq nr_running tasks and
+ * SCHED_RQ_NR_MIGRATION to @dest_cpu
  */
-static inline struct task_struct *
-rq_best_pending_task(struct rq *rq, const int cpu)
+static inline int migrate_pending_tasks(struct rq *rq, int dest_cpu)
 {
+	int nr_migrated = 0;
+	int nr_max_tries = min(rq->nr_running, SCHED_RQ_NR_MIGRATION);
 	struct skiplist_node *node = rq->sl_header.next[0];
 
-	/* seek to the second node, the first pending one */
-	node = node->next[0];
-
-	while (node != &rq->sl_header)
-	{
+	while (nr_max_tries && node != &rq->sl_header) {
 		struct task_struct *p;
 
-		p = skiplist_entry(node, struct task_struct, sl_node);
-		/* skip the running task and check CPU affinity */
-		if (!task_running(p) && cpumask_test_cpu(cpu, &p->cpus_allowed))
-			return p;
+		/* seek to the next node */
 		node = node->next[0];
+		if (node == &rq->sl_header)
+			break;
+
+		p = skiplist_entry(node, struct task_struct, sl_node);
+		node = node->next[0];
+		nr_max_tries--;
+
+		/* skip the running task and check CPU affinity */
+		if (!task_running(p) &&
+		    cpumask_test_cpu(dest_cpu, &p->cpus_allowed)) {
+			detach_task(rq, p, dest_cpu);
+			attach_task(cpu_rq(dest_cpu), p);
+			nr_migrated++;
+		}
 	}
 
-	return NULL;
+	return nr_migrated;
 }
 
 static inline struct task_struct *
 take_queued_task_cpumask(int cpu, struct cpumask *chk_mask)
 {
-	struct task_struct *p;
-	int tcpu;
+	int src_cpu;
 
-	for_each_cpu(tcpu, chk_mask) {
-		struct rq *trq;
+	for_each_cpu(src_cpu, chk_mask) {
+		int nr_migrated;
+		struct rq *src_rq = cpu_rq(src_cpu);
 
-		trq = cpu_rq(tcpu);
-		raw_spin_lock_nested(&trq->lock, SINGLE_DEPTH_NESTING);
-		update_rq_clock(trq);
-		if((p = rq_best_pending_task(trq, cpu))) {
-			detach_task(trq, p, cpu);
-			raw_spin_unlock(&trq->lock);
+		raw_spin_lock_nested(&src_rq->lock, SINGLE_DEPTH_NESTING);
+		update_rq_clock(src_rq);
+		nr_migrated = migrate_pending_tasks(src_rq, cpu);
+		raw_spin_unlock(&src_rq->lock);
 
-			attach_task(cpu_rq(cpu), p);
-			return p;
-		}
-		raw_spin_unlock(&trq->lock);
+		if (nr_migrated)
+			return rq_first_queued_task(cpu_rq(cpu));
 	}
 	return NULL;
 }
