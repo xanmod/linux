@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2017 Junjiro R. Okajima
+ * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
  * This program, aufs is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,6 +47,7 @@ __poll_t aufs_poll(struct file *file, poll_table *wait)
 
 out:
 	si_read_unlock(sb);
-	AuDbg("mask 0x%x\n", mask);
+	if (mask & POLLERR)
+		AuDbg("mask 0x%x\n", mask);
 	return mask;
 }

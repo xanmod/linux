@@ -6,7 +6,7 @@
  *
  * See Documentation/filesystems/aufs/design/06mmap.txt
  *
- * Copyright (c) 2014-2017 Junjro R. Okajima
+ * Copyright (c) 2014-2018 Junjro R. Okajima
  * Copyright (c) 2014 Ian Campbell
  */
 
