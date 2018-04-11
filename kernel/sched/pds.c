@@ -2999,7 +2999,7 @@ static inline bool pds_sg_balance(struct rq *rq)
 	 * in case cpu has no smt capability, which sched_cpu_sg_idle_mask will
 	 * not be changed.
 	 */
-	if (0 == cpumask_weight(&sched_cpu_sg_idle_mask))
+	if (cpumask_empty(&sched_cpu_sg_idle_mask))
 		return false;
 
 	/*
@@ -3025,7 +3025,7 @@ static inline bool pds_sg_balance(struct rq *rq)
 	 */
 	if (cpu == cpumask_first(cpu_smt_mask(cpu)) &&
 	    !cpumask_intersects(cpu_smt_mask(cpu), &sched_cpu_sb_suppress_mask))
-		return true;
+		return false;
 
 	p = rq->curr;
 	if (cpumask_intersects(&p->cpus_allowed, &sched_cpu_sg_idle_mask)) {
@@ -3038,7 +3038,7 @@ static inline bool pds_sg_balance(struct rq *rq)
 	}
 
 	cpumask_set_cpu(cpu, &sched_cpu_sb_suppress_mask);
-	return true;
+	return false;
 }
 #endif /* CONFIG_SCHED_SMT */
 
@@ -3055,6 +3055,12 @@ static inline struct task_struct *rq_first_pending_task(struct rq *rq)
 	return skiplist_entry(node, struct task_struct, sl_node);
 }
 
+/**
+ * PDS load balance function, be called in scheduler_tick()
+ *
+ * return: true if balance happened and rq->lock released, otherwise false.
+ * context: interrupt disabled, rq->lock
+ */
 static inline bool pds_load_balance(struct rq *rq)
 {
 	int cpu, level, preempt_level;
@@ -3121,22 +3127,7 @@ static inline bool pds_load_balance(struct rq *rq)
 
 	return false;
 }
-
-/**
- * PDS load balance function, be called in scheduler_tick()
- *
- * return: true if balance happened with rq->lock released, otherwise false.
- * context: interrupt disabled, rq->lock
- */
-static inline bool pds_trigger_load_balance(struct rq *rq)
-{
-#ifdef CONFIG_SCHED_SMT
-	if (pds_sg_balance(rq))
-		return false;
-#endif
-	return pds_load_balance(rq);
-}
-#endif
+#endif /* CONFIG_SMP */
 
 /*
  * This function gets called by the timer code, with HZ frequency.
@@ -3158,9 +3149,15 @@ void scheduler_tick(void)
 	rq->last_tick = rq->clock;
 
 #ifdef CONFIG_SMP
-	if (!pds_trigger_load_balance(rq))
+	if (!pds_load_balance(rq)) {
+#ifdef CONFIG_SCHED_SMT
+		pds_sg_balance(rq);
 #endif
+		raw_spin_unlock(&rq->lock);
+	}
+#else
 	raw_spin_unlock(&rq->lock);
+#endif
 
 	perf_event_task_tick();
 }
