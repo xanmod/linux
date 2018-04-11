@@ -237,13 +237,6 @@ static int sched_rq_prio[NR_CPUS] ____cacheline_aligned;
  */
 DEFINE_PER_CPU(int, sd_llc_id);
 
-#endif /* CONFIG_SMP */
-
-static DEFINE_MUTEX(sched_hotcpu_mutex);
-
-DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
-#ifdef CONFIG_SMP
-
 int __weak arch_sd_sibling_asym_packing(void)
 {
        return 0*SD_ASYM_PACKING;
@@ -251,6 +244,10 @@ int __weak arch_sd_sibling_asym_packing(void)
 #else
 struct rq *uprq;
 #endif /* CONFIG_SMP */
+
+static DEFINE_MUTEX(sched_hotcpu_mutex);
+
+DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
 #ifndef prepare_arch_switch
 # define prepare_arch_switch(next)	do { } while (0)
@@ -1017,52 +1014,6 @@ static inline int rq_dither(struct rq *rq)
 }
 #endif	/* CONFIG_SCHED_HRTICK */
 
-
-#ifdef CONFIG_SMP
-static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
-{
-	cpumask_t tmp, *mask;
-
-	if (cpumask_weight(cpumask) == 1)
-		return cpumask_first(cpumask);
-
-	if (cpumask_test_cpu(cpu, cpumask))
-		return cpu;
-
-	mask = &sched_cpu_affinity_chk_masks[cpu][0];
-	for (; mask < sched_cpu_affinity_chk_end_masks[cpu]; mask++)
-		if (cpumask_and(&tmp, cpumask, mask))
-			return cpumask_any(&tmp);
-
-	/* Safe fallback, should never come here */
-	return cpumask_first(cpumask);
-}
-
-void wake_up_if_idle(int cpu)
-{
-	struct rq *rq = cpu_rq(cpu);
-	unsigned long flags;
-
-	rcu_read_lock();
-
-	if (!is_idle_task(rcu_dereference(rq->curr)))
-		goto out;
-
-	if (set_nr_if_polling(rq->idle)) {
-		trace_sched_wake_idle_without_ipi(cpu);
-	} else {
-		raw_spin_lock_irqsave(&rq->lock, flags);
-		if (is_idle_task(rq->curr))
-			smp_send_reschedule(cpu);
-		/* Else CPU is not idle, do nothing here */
-		raw_spin_unlock_irqrestore(&rq->lock, flags);
-	}
-
-out:
-	rcu_read_unlock();
-}
-#endif /* CONFIG_SMP */
-
 static inline int normal_prio(struct task_struct *p)
 {
 	if (has_rt_policy(p))
@@ -1575,23 +1526,24 @@ out:
 
 	return dest_cpu;
 }
-#endif
 
-#ifdef CONFIG_SMP
-/*
- * cpumask_random - get a random cpu from a cpumask
- * @rand: random seed cpu to start with
- * @srcp: the cpumask pointer
- *
- * Returns >= nr_cpu_ids if no cpus set.
- */
-static inline unsigned int cpumask_random(unsigned int rand,
-					  const cpumask_t *srcp)
+static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
 {
-	if ((rand = cpumask_next(rand, srcp)) >= nr_cpu_ids)
-		rand = cpumask_first(srcp);
+	cpumask_t tmp, *mask;
 
-	return rand;
+	if (cpumask_weight(cpumask) == 1)
+		return cpumask_first(cpumask);
+
+	if (cpumask_test_cpu(cpu, cpumask))
+		return cpu;
+
+	mask = &sched_cpu_affinity_chk_masks[cpu][0];
+	for (; mask < sched_cpu_affinity_chk_end_masks[cpu]; mask++)
+		if (cpumask_and(&tmp, cpumask, mask))
+			return cpumask_any(&tmp);
+
+	/* Safe fallback, should never come here */
+	return cpumask_first(cpumask);
 }
 
 /*
@@ -1663,6 +1615,22 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 }
 
 /*
+ * cpumask_random - get a random cpu from a cpumask
+ * @rand: random seed cpu to start with
+ * @srcp: the cpumask pointer
+ *
+ * Returns >= nr_cpu_ids if no cpus set.
+ */
+static inline unsigned int cpumask_random(unsigned int rand,
+					  const cpumask_t *srcp)
+{
+	if ((rand = cpumask_next(rand, srcp)) >= nr_cpu_ids)
+		rand = cpumask_first(srcp);
+
+	return rand;
+}
+
+/*
  * wake flags
  */
 #define WF_SYNC		0x01		/* waker goes to sleep after wakeup */
@@ -1718,24 +1686,6 @@ ttwu_stat(struct task_struct *p, int cpu, int wake_flags)
 
 	__schedstat_inc(rq->ttwu_count);
 }
-
-#ifdef CONFIG_SMP
-void scheduler_ipi(void)
-{
-	/*
-	 * Fold TIF_NEED_RESCHED into the preempt_count; anybody setting
-	 * TIF_NEED_RESCHED remotely (for the first time) will also send
-	 * this IPI.
-	 */
-	preempt_fold_need_resched();
-
-	if (!idle_cpu(smp_processor_id()) || need_resched())
-		return;
-
-	irq_enter();
-	irq_exit();
-}
-#endif
 
 static inline void ttwu_activate(struct task_struct *p, struct rq *rq)
 {
@@ -5833,11 +5783,51 @@ static inline bool sched_debug(void)
 #endif /* CONFIG_SCHED_DEBUG */
 
 #ifdef CONFIG_SMP
+void scheduler_ipi(void)
+{
+	/*
+	 * Fold TIF_NEED_RESCHED into the preempt_count; anybody setting
+	 * TIF_NEED_RESCHED remotely (for the first time) will also send
+	 * this IPI.
+	 */
+	preempt_fold_need_resched();
+
+	if (!idle_cpu(smp_processor_id()) || need_resched())
+		return;
+
+	irq_enter();
+	irq_exit();
+}
+
+void wake_up_if_idle(int cpu)
+{
+	struct rq *rq = cpu_rq(cpu);
+	unsigned long flags;
+
+	rcu_read_lock();
+
+	if (!is_idle_task(rcu_dereference(rq->curr)))
+		goto out;
+
+	if (set_nr_if_polling(rq->idle)) {
+		trace_sched_wake_idle_without_ipi(cpu);
+	} else {
+		raw_spin_lock_irqsave(&rq->lock, flags);
+		if (is_idle_task(rq->curr))
+			smp_send_reschedule(cpu);
+		/* Else CPU is not idle, do nothing here */
+		raw_spin_unlock_irqrestore(&rq->lock, flags);
+	}
+
+out:
+	rcu_read_unlock();
+}
+
 bool cpus_share_cache(int this_cpu, int that_cpu)
 {
 	return per_cpu(sd_llc_id, this_cpu) == per_cpu(sd_llc_id, that_cpu);
 }
-#endif
+#endif /* CONFIG_SMP */
 
 /*
  * Topology list, bottom-up.
