@@ -2992,19 +2992,6 @@ static inline bool pds_sg_balance(struct rq *rq)
 }
 #endif /* CONFIG_SCHED_SMT */
 
-static inline struct task_struct *rq_first_pending_task(struct rq *rq)
-{
-	struct skiplist_node *node;
-
-	if (rq->curr == rq->idle)
-		return NULL;
-
-	if ((node = rq->curr->sl_node.next[0]) == &rq->sl_header)
-		return NULL;
-
-	return skiplist_entry(node, struct task_struct, sl_node);
-}
-
 /**
  * PDS load balance function, be called in scheduler_tick()
  *
@@ -3013,7 +3000,8 @@ static inline struct task_struct *rq_first_pending_task(struct rq *rq)
  */
 static inline bool pds_load_balance(struct rq *rq)
 {
-	int cpu, level, preempt_level;
+	int level, preempt_level;
+	struct skiplist_node *node;
 	struct task_struct *p;
 
 	if (rq->clock < rq->next_balance)
@@ -3021,17 +3009,16 @@ static inline bool pds_load_balance(struct rq *rq)
 
 	rq->next_balance = (rq->clock & BALANCE_INTERVAL_MASK) + rq->balance_inc;
 
-	cpu = cpu_of(rq);
-	if (!cpumask_test_cpu(cpu, &sched_rq_pending_mask))
+	if (rq->nr_running < 2UL)
 		return false;
 
-	/* Exit when rq is not settle down */
-	if (unlikely(rq->sl_header.next[0] != &rq->curr->sl_node))
+	if (unlikely(rq->curr == rq->idle))
 		return false;
 
-	p = rq_first_pending_task(rq);
-	if (NULL == p)
+	if ((node = rq->curr->sl_node.next[0]) == &rq->sl_header)
 		return false;
+
+	p = skiplist_entry(node, struct task_struct, sl_node);
 
 	/*
 	 * balance preempt start from SCHED_RQ_IDLE mask,
@@ -3046,7 +3033,7 @@ static inline bool pds_load_balance(struct rq *rq)
 
 		if (cpumask_and(&check, &sched_rq_queued_masks[level],
 				&p->cpus_allowed)) {
-			WARN_ONCE(cpumask_test_cpu(cpu, &check),
+			WARN_ONCE(cpumask_test_cpu(cpu_of(rq), &check),
 				  "pds: %d - %d, %d, %llu %d, %d, %llu",
 				  level,
 				  preempt_level, p->prio, p->deadline,
