@@ -2030,8 +2030,6 @@ static void bfq_request_merged(struct request_queue *q, struct request *req,
  * exploits this hook to address the following issue: if 'next' has a
  * fifo_time lower that rq, then the fifo_time of rq must be set to
  * the value of 'next', to not forget the greater age of 'next'.
- * Moreover 'next' may be in a bfq_queue, in this case it must be
- * removed.
  *
  * NOTE: in this function we assume that rq is in a bfq_queue, basing
  * on that rq is picked from the hash table q->elevator->hash, which,
@@ -2076,11 +2074,6 @@ static void bfq_requests_merged(struct request_queue *q, struct request *rq,
 
 	if (bfqq->next_rq == next)
 		bfqq->next_rq = rq;
-
-	if (!RB_EMPTY_NODE(&next->rb_node)) {
-		bfq_remove_request(q, next);
-		bfqg_stats_update_io_remove(bfqq_group(bfqq), next->cmd_flags);
-	}
 
 	bfqg_stats_update_io_merged(bfqq_group(bfqq), next->cmd_flags);
 }
