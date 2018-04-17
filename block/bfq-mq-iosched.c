@@ -2024,6 +2024,22 @@ static void bfq_request_merged(struct request_queue *q, struct request *req,
 	}
 }
 
+/*
+ * This function is called to notify the scheduler that the requests
+ * rq and 'next' have been merged, with 'next' going away.  BFQ
+ * exploits this hook to address the following issue: if 'next' has a
+ * fifo_time lower that rq, then the fifo_time of rq must be set to
+ * the value of 'next', to not forget the greater age of 'next'.
+ * Moreover 'next' may be in a bfq_queue, in this case it must be
+ * removed.
+ *
+ * NOTE: in this function we assume that rq is in a bfq_queue, basing
+ * on that rq is picked from the hash table q->elevator->hash, which,
+ * in its turn, is filled only with I/O requests present in
+ * bfq_queues, while BFQ is in use for the request queue q. In fact,
+ * the function that fills this hash table (elv_rqhash_add) is called
+ * only by bfq_insert_request.
+ */
 static void bfq_requests_merged(struct request_queue *q, struct request *rq,
 				struct request *next)
 {
@@ -2031,14 +2047,11 @@ static void bfq_requests_merged(struct request_queue *q, struct request *rq,
 		*next_bfqq = bfq_init_rq(next);
 
 	BUG_ON(!RQ_BFQQ(rq));
-	BUG_ON(!RQ_BFQQ(next));
+	BUG_ON(!RQ_BFQQ(next)); /* this does not imply next is in a bfqq */
 	BUG_ON(rq->rq_flags & RQF_DISP_LIST);
 	BUG_ON(next->rq_flags & RQF_DISP_LIST);
 
 	lockdep_assert_held(&bfqq->bfqd->lock);
-
-	if (!RB_EMPTY_NODE(&rq->rb_node))
-		goto end;
 
 	bfq_log_bfqq(bfqq->bfqd, bfqq,
 		     "rq %p next %p bfqq %p next_bfqq %p",
@@ -2064,10 +2077,11 @@ static void bfq_requests_merged(struct request_queue *q, struct request *rq,
 	if (bfqq->next_rq == next)
 		bfqq->next_rq = rq;
 
-	bfq_remove_request(q, next);
-	bfqg_stats_update_io_remove(bfqq_group(bfqq), next->cmd_flags);
+	if (!RB_EMPTY_NODE(&next->rb_node)) {
+		bfq_remove_request(q, next);
+		bfqg_stats_update_io_remove(bfqq_group(bfqq), next->cmd_flags);
+	}
 
-end:
 	bfqg_stats_update_io_merged(bfqq_group(bfqq), next->cmd_flags);
 }
 
