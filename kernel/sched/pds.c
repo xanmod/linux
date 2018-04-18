@@ -593,25 +593,23 @@ static inline void sched_update_tick_dependency(struct rq *rq) { }
  */
 static inline void dequeue_task(struct task_struct *p, struct rq *rq)
 {
-	int cpu = cpu_of(rq);
-
 	lockdep_assert_held(&rq->lock);
 
 	WARN_ONCE(task_rq(p) != rq, "pds: dequeue task reside on cpu%d from cpu%d\n",
-		  task_cpu(p), cpu);
+		  task_cpu(p), cpu_of(rq));
 	if (skiplist_del_init(&rq->sl_header, &p->sl_node))
 		update_sched_rq_queued_masks(rq);
 	rq->nr_running--;
 #ifdef CONFIG_SMP
 	if (1 == rq->nr_running) {
-		cpumask_clear_cpu(cpu, &sched_rq_pending_mask);
+		cpumask_clear_cpu(cpu_of(rq), &sched_rq_pending_mask);
 		sched_nr_rq_pending = cpumask_weight(&sched_rq_pending_mask);
 	}
 #endif
 
 	sched_update_tick_dependency(rq);
 
-	sched_info_dequeued(task_rq(p), p);
+	sched_info_dequeued(rq, p);
 }
 
 /*
@@ -692,8 +690,6 @@ DEFINE_SKIPLIST_INSERT_FUNC(pds_skiplist_insert, pds_skiplist_task_search);
  */
 static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 {
-	int cpu = cpu_of(rq);
-
 	lockdep_assert_held(&rq->lock);
 
 	/* Check IDLE&ISO tasks suitable to run normal priority */
@@ -706,7 +702,7 @@ static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 	}
 
 	WARN_ONCE(task_rq(p) != rq, "pds: enqueue task reside on cpu%d to cpu%d\n",
-		  task_cpu(p), cpu);
+		  task_cpu(p), cpu_of(rq));
 
 	p->sl_node.level = p->sl_level;
 	if (pds_skiplist_insert(&rq->sl_header, &p->sl_node))
@@ -714,7 +710,7 @@ static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 	rq->nr_running++;
 #ifdef CONFIG_SMP
 	if (2 == rq->nr_running) {
-		cpumask_set_cpu(cpu, &sched_rq_pending_mask);
+		cpumask_set_cpu(cpu_of(rq), &sched_rq_pending_mask);
 		sched_nr_rq_pending = cpumask_weight(&sched_rq_pending_mask);
 	}
 #endif
