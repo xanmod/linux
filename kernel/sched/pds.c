@@ -698,13 +698,12 @@ static void enqueue_task(struct task_struct *p, struct rq *rq)
 
 	lockdep_assert_held(&rq->lock);
 
-	if (!rt_task(p)) {
-		/* Check it hasn't gotten rt from PI */
-		if ((idleprio_task(p) && idleprio_suitable(p)) ||
-		   (iso_task(p) && isoprio_suitable(rq)))
-			p->prio = p->normal_prio;
-		else
-			p->prio = NORMAL_PRIO;
+	/* Check IDLE&ISO tasks suitable to run normal priority */
+	if (idleprio_task(p)) {
+		p->prio = idleprio_suitable(p)? p->normal_prio:NORMAL_PRIO;
+		update_task_priodl(p);
+	} else if (iso_task(p)) {
+		p->prio = isoprio_suitable(rq)? p->normal_prio:NORMAL_PRIO;
 		update_task_priodl(p);
 	}
 
