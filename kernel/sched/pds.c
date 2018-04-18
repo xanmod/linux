@@ -1530,8 +1530,8 @@ static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
 	if (cpumask_test_cpu(cpu, cpumask))
 		return cpu;
 
-	mask = &sched_cpu_affinity_chk_masks[cpu][0];
-	for (; mask < sched_cpu_affinity_chk_end_masks[cpu]; mask++)
+	for (mask = &sched_cpu_affinity_chk_masks[cpu][0];
+	     mask < sched_cpu_affinity_chk_end_masks[cpu]; mask++)
 		if (cpumask_and(&tmp, cpumask, mask))
 			return cpumask_any(&tmp);
 
@@ -6040,7 +6040,6 @@ static void sched_init_topology_cpumask_early(void)
 static void sched_init_topology_cpumask(void)
 {
 	int cpu;
-	cpumask_t tmp;
 	cpumask_t *chk;
 
 	for_each_online_cpu(cpu) {
@@ -6049,25 +6048,19 @@ static void sched_init_topology_cpumask(void)
 
 		chk = &sched_cpu_affinity_chk_masks[cpu][0];
 
-		cpumask_setall(&tmp);
-		cpumask_clear_cpu(cpu, &tmp);
+		cpumask_setall(chk);
+		cpumask_clear_cpu(cpu, chk);
 #ifdef CONFIG_SCHED_SMT
-		if (cpumask_and(&tmp, &tmp, topology_sibling_cpumask(cpu))) {
-			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] smt 0x%08lx",
-			       cpu, tmp.bits[0]);
-			cpumask_copy(chk, &tmp);
-			chk++;
-		}
-		cpumask_complement(&tmp, topology_sibling_cpumask(cpu));
+		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu)))
+			printk(KERN_INFO "pds: cpu #%d affinity check mask - smt 0x%08lx",
+			       cpu, (chk++)->bits[0]);
+		cpumask_complement(chk, topology_sibling_cpumask(cpu));
 #endif
 #ifdef CONFIG_SCHED_MC
-		if (cpumask_and(&tmp, &tmp, cpu_coregroup_mask(cpu))) {
-			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] coregroup 0x%08lx",
-			       cpu, tmp.bits[0]);
-			cpumask_copy(chk, &tmp);
-			chk++;
-		}
-		cpumask_complement(&tmp, cpu_coregroup_mask(cpu));
+		if (cpumask_and(chk, chk, cpu_coregroup_mask(cpu)))
+			printk(KERN_INFO "pds: cpu #%d affinity check mask - coregroup 0x%08lx",
+			       cpu, (chk++)->bits[0]);
+		cpumask_complement(chk, cpu_coregroup_mask(cpu));
 #endif
 		sched_cpu_affinity_llc_end_masks[cpu] = chk;
 
@@ -6077,20 +6070,14 @@ static void sched_init_topology_cpumask(void)
 		per_cpu(sd_llc_id, cpu) =
 			cpumask_first(cpu_coregroup_mask(cpu));
 
-		if (cpumask_and(&tmp, &tmp, topology_core_cpumask(cpu))) {
-			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] core 0x%08lx",
-			       cpu, tmp.bits[0]);
-			cpumask_copy(chk, &tmp);
-			chk++;
-		}
-		cpumask_complement(&tmp, topology_core_cpumask(cpu));
+		if (cpumask_and(chk, chk, topology_core_cpumask(cpu)))
+			printk(KERN_INFO "pds: cpu #%d affinity check mask - core 0x%08lx",
+			       cpu, (chk++)->bits[0]);
+		cpumask_complement(chk, topology_core_cpumask(cpu));
 
-		if (cpumask_and(&tmp, &tmp, cpu_online_mask)) {
-			printk(KERN_INFO "pds: sched_cpu_affinity_chk_masks[%d] others 0x%08lx",
-			       cpu, tmp.bits[0]);
-			cpumask_copy(chk, &tmp);
-			chk++;
-		}
+		if (cpumask_and(chk, chk, cpu_online_mask))
+			printk(KERN_INFO "pds: cpu #%d affinity check mask - others 0x%08lx",
+			       cpu, (chk++)->bits[0]);
 
 		sched_cpu_affinity_chk_end_masks[cpu] = chk;
 	}
