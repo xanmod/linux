@@ -593,7 +593,7 @@ static inline void sched_update_tick_dependency(struct rq *rq) { }
  *
  * Context: rq->lock
  */
-static void dequeue_task(struct task_struct *p, struct rq *rq)
+static inline void dequeue_task(struct task_struct *p, struct rq *rq)
 {
 	int cpu = cpu_of(rq);
 
@@ -692,7 +692,7 @@ DEFINE_SKIPLIST_INSERT_FUNC(pds_skiplist_insert, pds_skiplist_task_search);
  *
  * Context: rq->lock
  */
-static void enqueue_task(struct task_struct *p, struct rq *rq)
+static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 {
 	int cpu = cpu_of(rq);
 
