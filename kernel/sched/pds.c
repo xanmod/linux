@@ -489,19 +489,17 @@ static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 
 static inline void update_sched_rq_queued_masks(struct rq *rq)
 {
-	int prio;
 	int cpu = cpu_of(rq);
 	struct task_struct *p;
 	int level, last_level = rq->queued_level;
 
 	if ((p = rq_first_queued_task(rq)) == NULL) {
 		level = SCHED_RQ_EMPTY;
-		prio = PRIO_LIMIT;
+		sched_rq_prio[cpu] = PRIO_LIMIT;
 	} else {
 		level = task_running_policy_level(p, rq);
-		prio = p->prio;
+		sched_rq_prio[cpu] = p->prio;
 	}
-	sched_rq_prio[cpu] = prio;
 
 	if (last_level == level)
 		return;
