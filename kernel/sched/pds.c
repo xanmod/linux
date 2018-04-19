@@ -1046,8 +1046,6 @@ static void activate_task(struct task_struct *p, struct rq *rq)
 {
 	update_rq_clock(rq);
 
-	p->prio = effective_prio(p);
-	update_task_priodl(p);
 	if (task_contributes_to_load(p))
 		rq->nr_uninterruptible--;
 	enqueue_task(p, rq);
