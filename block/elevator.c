@@ -246,7 +246,7 @@ int elevator_init(struct request_queue *q, char *name)
 		 */
 		if (q->mq_ops) {
 			if (q->nr_hw_queues == 1)
-				e = elevator_get(q, "bfq", false);
+				e = elevator_get(q, "bfq-mq", false);
 			if (!e)
 				return 0;
 		} else
