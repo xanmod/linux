@@ -1046,17 +1046,6 @@ static void activate_task(struct task_struct *p, struct rq *rq)
 {
 	update_rq_clock(rq);
 
-	/*
-	 * Sleep time is in units of nanosecs, so shift by 20 to get a
-	 * milliseconds-range estimation of the amount of time that the task
-	 * spent sleeping:
-	 */
-	if (unlikely(prof_on == SLEEP_PROFILING)) {
-		if (p->state == TASK_UNINTERRUPTIBLE)
-			profile_hits(SLEEP_PROFILING, (void *)get_wchan(p),
-				     (rq->clock_task - p->last_ran) >> 20);
-	}
-
 	p->prio = effective_prio(p);
 	update_task_priodl(p);
 	if (task_contributes_to_load(p))
