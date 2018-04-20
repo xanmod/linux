@@ -211,9 +211,6 @@ sched_cpu_affinity_chk_masks[NR_CPUS][NR_CPU_AFFINITY_CHK_LEVEL]
 ____cacheline_aligned_in_smp;
 
 static cpumask_t *
-sched_cpu_affinity_llc_end_masks[NR_CPUS] ____cacheline_aligned_in_smp;
-
-static cpumask_t *
 sched_cpu_affinity_chk_end_masks[NR_CPUS] ____cacheline_aligned_in_smp;
 
 #ifdef CONFIG_SCHED_SMT
@@ -6016,7 +6013,6 @@ static void sched_init_topology_cpumask_early(void)
 			cpumask_clear_cpu(cpu, tmp);
 		}
 		sched_cpu_affinity_chk_end_masks[cpu] =
-		sched_cpu_affinity_llc_end_masks[cpu] =
 			&sched_cpu_affinity_chk_masks[cpu][1];
 	}
 }
@@ -6046,7 +6042,6 @@ static void sched_init_topology_cpumask(void)
 			       cpu, (chk++)->bits[0]);
 		cpumask_complement(chk, cpu_coregroup_mask(cpu));
 #endif
-		sched_cpu_affinity_llc_end_masks[cpu] = chk;
 
 		/**
 		 * Set up sd_llc_id per CPU
