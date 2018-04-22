@@ -56,6 +56,15 @@ static int ovl_check_redirect(struct dentry *dentry, struct ovl_lookup_data *d,
 			if (s == next)
 				goto invalid;
 		}
+		/*
+		 * One of the ancestor path elements in an absolute path
+		 * lookup in ovl_lookup_layer() could have been opaque and
+		 * that will stop further lookup in lower layers (d->stop=true)
+		 * But we have found an absolute redirect in decendant path
+		 * element and that should force continue lookup in lower
+		 * layers (reset d->stop).
+		 */
+		d->stop = false;
 	} else {
 		if (strchr(buf, '/') != NULL)
 			goto invalid;
@@ -815,7 +824,7 @@ struct dentry *ovl_lookup(struct inode *dir, struct dentry *dentry,
 		.is_dir = false,
 		.opaque = false,
 		.stop = false,
-		.last = !poe->numlower,
+		.last = ofs->config.redirect_follow ? false : !poe->numlower,
 		.redirect = NULL,
 	};
 
@@ -873,7 +882,11 @@ struct dentry *ovl_lookup(struct inode *dir, struct dentry *dentry,
 	for (i = 0; !d.stop && i < poe->numlower; i++) {
 		struct ovl_path lower = poe->lowerstack[i];
 
-		d.last = i == poe->numlower - 1;
+		if (!ofs->config.redirect_follow)
+			d.last = i == poe->numlower - 1;
+		else
+			d.last = lower.layer->idx == roe->numlower;
+
 		err = ovl_lookup_layer(lower.dentry, &d, &this);
 		if (err)
 			goto out_put;
