@@ -2874,8 +2874,7 @@ static int active_load_balance_cpu_stop(void *data)
 	 */
 	if (task_queued(p) &&
 	    task_rq(p) == rq &&
-	    cpumask_and(&tmp, &p->cpus_allowed, &sched_cpu_sg_idle_mask) &&
-	    cpumask_and(&tmp, &tmp, cpu_active_mask))
+	    cpumask_and(&tmp, &p->cpus_allowed, &sched_cpu_sg_idle_mask))
 		rq = __migrate_task(rq, p, cpumask_any(&tmp));
 
 	origin_rq->active_balance = 0;
@@ -2897,8 +2896,7 @@ static __latent_entropy void pds_run_rebalance(struct softirq_action *h)
 
 	raw_spin_lock_irqsave(&this_rq->lock, flags);
 	curr = this_rq->curr;
-	if (cpumask_and(&tmp, &curr->cpus_allowed, &sched_cpu_sg_idle_mask) &&
-	    cpumask_and(&tmp, &tmp, cpu_active_mask)) {
+	if (cpumask_and(&tmp, &curr->cpus_allowed, &sched_cpu_sg_idle_mask)) {
 		int active_balance = 0;
 
 		if (likely(!this_rq->active_balance)) {
