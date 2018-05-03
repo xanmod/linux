@@ -214,15 +214,10 @@ static cpumask_t *
 sched_cpu_affinity_chk_end_masks[NR_CPUS] ____cacheline_aligned_in_smp;
 
 #ifdef CONFIG_SCHED_SMT
+DEFINE_PER_CPU(unsigned int, cpu_has_smt_sibling);
+
 static cpumask_t sched_cpu_sg_idle_mask ____cacheline_aligned_in_smp;
 static cpumask_t sched_cpu_sb_suppress_mask ____cacheline_aligned_in_smp;
-
-static unsigned int sched_cpu_nr_sibling ____cacheline_aligned_in_smp;
-
-static bool cpu_smt_capability(int dummy)
-{
-	return (sched_cpu_nr_sibling > 1);
-}
 #endif
 
 static int sched_rq_prio[NR_CPUS] ____cacheline_aligned;
@@ -504,7 +499,7 @@ static inline void update_sched_rq_queued_masks(struct rq *rq)
 	__update_sched_rq_queued_masks(rq, cpu, last_level, level);
 
 #ifdef CONFIG_SCHED_SMT
-	if (likely(cpu_smt_capability(cpu))) {
+	if (per_cpu(cpu_has_smt_sibling, cpu)) {
 		if (SCHED_RQ_EMPTY == last_level) {
 			cpumask_andnot(&sched_cpu_sg_idle_mask,
 				       &sched_cpu_sg_idle_mask,
@@ -6032,9 +6027,11 @@ static void sched_init_topology_cpumask(void)
 		cpumask_setall(chk);
 		cpumask_clear_cpu(cpu, chk);
 #ifdef CONFIG_SCHED_SMT
-		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu)))
+		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu))) {
 			printk(KERN_INFO "pds: cpu #%d affinity check mask - smt 0x%08lx",
 			       cpu, (chk++)->bits[0]);
+			per_cpu(cpu_has_smt_sibling, cpu) = 1;
+		}
 		cpumask_complement(chk, topology_sibling_cpumask(cpu));
 #endif
 #ifdef CONFIG_SCHED_MC
@@ -6071,7 +6068,6 @@ void __init sched_init_smp(void)
 		BUG();
 
 #ifdef CONFIG_SCHED_SMT
-	sched_cpu_nr_sibling = cpumask_weight(cpu_smt_mask(0));
 	cpumask_clear(&sched_cpu_sb_suppress_mask);
 #endif
 
@@ -6131,6 +6127,7 @@ void __init sched_init(void)
 		rq->queued_level = SCHED_RQ_EMPTY;
 
 #ifdef CONFIG_SCHED_SMT
+		per_cpu(cpu_has_smt_sibling, i)  = 0;
 		rq->active_balance = 0;
 #endif
 #endif
