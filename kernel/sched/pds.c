@@ -1033,8 +1033,6 @@ static int effective_prio(struct task_struct *p)
  */
 static void activate_task(struct task_struct *p, struct rq *rq)
 {
-	update_rq_clock(rq);
-
 	if (task_contributes_to_load(p))
 		rq->nr_uninterruptible--;
 	enqueue_task(p, rq);
@@ -1925,9 +1923,11 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 
 	rq = cpu_rq(cpu);
 	raw_spin_lock(&rq->lock);
-	ttwu_do_activate(rq, p, wake_flags);
 
+	update_rq_clock(rq);
+	ttwu_do_activate(rq, p, wake_flags);
 	check_preempt_curr(rq, p);
+
 	raw_spin_unlock(&rq->lock);
 
 stat:
@@ -2239,6 +2239,7 @@ void wake_up_new_task(struct task_struct *p)
 
 	raw_spin_lock(&rq->lock);
 
+	update_rq_clock(rq);
 	activate_task(p, rq);
 	trace_sched_wakeup_new(p);
 	check_preempt_curr(rq, p);
