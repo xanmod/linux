@@ -86,7 +86,7 @@
 /*
  * BALANCE_INTERVAL should be power of 2 for quick calculation
  */
-#define BALANCE_INTERVAL	(MS_TO_NS(16ULL))
+#define BALANCE_INTERVAL	(MS_TO_NS(32ULL))
 #define BALANCE_INTERVAL_MASK	(~(BALANCE_INTERVAL - 1ULL))
 
 enum {
