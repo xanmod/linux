@@ -102,7 +102,7 @@ enum {
 
 static inline void print_scheduler_version(void)
 {
-	printk(KERN_INFO "pds: PDS-mq CPU Scheduler 0.98o by Alfred Chen.\n");
+	printk(KERN_INFO "pds: PDS-mq CPU Scheduler 0.98p by Alfred Chen.\n");
 }
 
 /* task_struct::on_rq states: */
