@@ -3037,8 +3037,8 @@ static inline bool pds_trigger_balance(struct rq *rq)
 	if (1 == rq->nr_running) {
 #ifdef CONFIG_SCHED_SMT
 		pds_sg_balance(rq);
-		return false;
 #endif /* CONFIG_SCHED_SMT */
+		return false;
 	} else {
 		return pds_load_balance(rq);
 	}
