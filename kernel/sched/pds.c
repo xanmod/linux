@@ -6400,3 +6400,5 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 void proc_sched_set_task(struct task_struct *p)
 {}
 #endif
+
+#undef CREATE_TRACE_POINTS
