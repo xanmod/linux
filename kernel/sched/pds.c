@@ -1371,7 +1371,7 @@ EXPORT_SYMBOL_GPL(kick_process);
  *
  *  - cpu_active must be a subset of cpu_online
  *
- *  - on cpu-up we allow per-CPU kthreads on the online && !active CPU,
+ *  - on CPU-up we allow per-CPU kthreads on the online && !active CPU,
  *    see __set_cpus_allowed_ptr(). At this point the newly online
  *    CPU isn't yet part of the sched domains, and balancing will not
  *    see it.
@@ -2687,7 +2687,7 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 
 #if defined(CONFIG_64BIT) && defined(CONFIG_SMP)
 	/*
-	 * 64-bit doesn't need locks to atomically read a 64bit value.
+	 * 64-bit doesn't need locks to atomically read a 64-bit value.
 	 * So we have a optimization chance when the task's delta_exec is 0.
 	 * Reading ->on_cpu is racy, but this is ok.
 	 *
