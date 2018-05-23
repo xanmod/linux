@@ -2,34 +2,47 @@
 #define PDS_SCHED_H
 
 #include <linux/sched.h>
-#include <linux/sched/sysctl.h>
-#include <linux/sched/topology.h>
+
 #include <linux/sched/clock.h>
-#include <linux/sched/wake_q.h>
-#include <linux/sched/signal.h>
-#include <linux/sched/mm.h>
 #include <linux/sched/cpufreq.h>
-#include <linux/sched/stat.h>
-#include <linux/sched/nohz.h>
-#include <linux/sched/debug.h>
-#include <linux/sched/hotplug.h>
-#include <linux/sched/task.h>
-#include <linux/sched/task_stack.h>
 #include <linux/sched/cputime.h>
+#include <linux/sched/debug.h>
 #include <linux/sched/init.h>
+#include <linux/sched/isolation.h>
+#include <linux/sched/loadavg.h>
+#include <linux/sched/mm.h>
+#include <linux/sched/nohz.h>
+#include <linux/sched/signal.h>
+#include <linux/sched/stat.h>
+#include <linux/sched/sysctl.h>
+#include <linux/sched/task.h>
+#include <linux/sched/topology.h>
+#include <linux/sched/wake_q.h>
 
-#include <linux/u64_stats_sync.h>
-#include <linux/kernel_stat.h>
-#include <linux/binfmts.h>
-#include <linux/mutex.h>
-#include <linux/spinlock.h>
-#include <linux/stop_machine.h>
-#include <linux/irq_work.h>
-#include <linux/tick.h>
-#include <linux/slab.h>
+#include <uapi/linux/sched/types.h>
+
 #include <linux/cgroup.h>
-
+#include <linux/cpufreq.h>
+#include <linux/cpuidle.h>
+#include <linux/ctype.h>
+#include <linux/binfmts.h>
+#include <linux/irq_work.h>
+#include <linux/kernel_stat.h>
+#include <linux/kthread.h>
+#include <linux/livepatch.h>
+#include <linux/membarrier.h>
+#include <linux/mutex.h>
+#include <linux/proc_fs.h>
 #include <linux/skip_list.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include <linux/stackprotector.h>
+#include <linux/stop_machine.h>
+#include <linux/suspend.h>
+#include <linux/swait.h>
+#include <linux/syscalls.h>
+#include <linux/tick.h>
+#include <linux/tsacct_kern.h>
 
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>

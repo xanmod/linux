@@ -10,36 +10,28 @@
  *  2017-09-06	Priority and Deadline based Skip list multiple queue kernel
  *		scheduler by Alfred Chen.
  */
+#include "pds_sched.h"
 
-#include <uapi/linux/sched/types.h>
-#include <linux/sched/loadavg.h>
-#include <linux/wait_bit.h>
+#include <linux/sched/rt.h>
+
+#include <linux/context_tracking.h>
+#include <linux/compat.h>
+#include <linux/blkdev.h>
 #include <linux/cpuset.h>
 #include <linux/delayacct.h>
+#include <linux/freezer.h>
 #include <linux/init_task.h>
-#include <linux/context_tracking.h>
-#include <linux/rcupdate_wait.h>
-#include <linux/compat.h>
-
-#include <linux/blkdev.h>
 #include <linux/kprobes.h>
 #include <linux/mmu_context.h>
-#include <linux/module.h>
 #include <linux/nmi.h>
-#include <linux/prefetch.h>
-#include <linux/profile.h>
+#include <linux/rcupdate_wait.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
-#include <linux/sched/isolation.h>
+#include <linux/wait_bit.h>
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
-#ifdef CONFIG_PARAVIRT
-#include <asm/paravirt.h>
-#endif
 
-#include "pds_sched.h"
-#include <linux/freezer.h>
 #include "../workqueue_internal.h"
 #include "../smpboot.h"
 

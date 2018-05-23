@@ -368,6 +368,7 @@ void cpu_startup_entry(enum cpuhp_state state)
 		do_idle();
 }
 
+#ifndef CONFIG_SCHED_PDS
 /*
  * idle-task scheduling class.
  */
@@ -380,7 +381,6 @@ select_task_rq_idle(struct task_struct *p, int cpu, int sd_flag, int flags)
 }
 #endif
 
-#ifndef CONFIG_PDS
 /*
  * Idle tasks are unconditionally rescheduled:
  */
