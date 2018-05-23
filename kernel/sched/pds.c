@@ -511,32 +511,6 @@ static inline void update_sched_rq_queued_masks_normal(struct rq *rq) {}
 #endif
 
 #ifdef CONFIG_NO_HZ_FULL
-/**
- * scheduler_tick_max_deferment
- *
- * Keep at least one tick per second when a single
- * active task is running because the scheduler doesn't
- * yet completely support full dynticks environment.
- *
- * This makes sure that uptime, CFS vruntime, load
- * balancing, etc... continue to move forward, even
- * with a very low granularity.
- *
- * Return: Maximum deferment in nanoseconds.
- */
-u64 scheduler_tick_max_deferment(void)
-{
-	struct rq *rq = this_rq();
-	u64 next, now = sched_clock_cpu(cpu_of(rq));
-
-	next = rq->last_tick + JIFFIES_TO_NS(HZ);
-
-	if (next <= now)
-		return 0ULL;
-
-	return next - now;
-}
-
 /*
  * Tick may be needed by tasks in the runqueue depending on their policy and
  * requirements. If tick is needed, lets send the target an IPI to kick it out
