@@ -314,6 +314,12 @@ static inline void cpufreq_update_util(struct rq *rq, unsigned int flags) {}
 static inline void cpufreq_update_this_cpu(struct rq *rq, unsigned int flags) {}
 #endif /* CONFIG_CPU_FREQ */
 
+#ifdef CONFIG_NO_HZ_FULL
+extern int __init sched_tick_offload_init(void);
+#else
+static inline int sched_tick_offload_init(void) { return 0; }
+#endif
+
 #ifdef CONFIG_SMP
 #ifndef arch_scale_cpu_capacity
 static __always_inline
