@@ -5960,8 +5960,6 @@ int sched_cpu_activate(unsigned int cpu)
 	set_rq_online(rq);
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 
-	/* TODO: ?set sched_rq_queued_masks[SCHED_RQ_EMPTY] when CPU is online */
-
 	return 0;
 }
 
@@ -6018,14 +6016,6 @@ int sched_cpu_dying(unsigned int cpu)
 	raw_spin_lock_irqsave(&rq->lock, flags);
 	set_rq_offline(rq);
 	migrate_tasks(rq);
-
-	/*
-	 * PDS: TODO debug load to test still need set rq to idle?
-	 * clear sched_rq_queued_masks[SCHED_RQ_EMPTY]when CPU is offline,
-	 * let it looks *busy*
-	 */
-	set_rq_task(rq, rq->idle);
-	update_rq_clock(rq);
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 
 	hrtick_clear(rq);
