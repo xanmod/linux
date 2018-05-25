@@ -2820,8 +2820,7 @@ static int active_load_balance_cpu_stop(void *data)
 	/*
 	 * _something_ may have changed the task, double check again
 	 */
-	if (task_queued(p) &&
-	    task_rq(p) == rq &&
+	if (task_queued(p) && task_rq(p) == rq &&
 	    cpumask_and(&tmp, &p->cpus_allowed, &sched_cpu_sg_idle_mask))
 		rq = __migrate_task(rq, p, cpumask_any(&tmp));
 
@@ -2923,10 +2922,10 @@ static inline bool pds_load_balance(struct rq *rq)
 
 	rq->next_balance = (rq->clock & BALANCE_INTERVAL_MASK) + rq->balance_inc;
 
-	if (unlikely(rq->curr == rq->idle))
-		return false;
-
-	if ((node = rq->curr->sl_node.next[0]) == &rq->sl_header)
+	/*
+	 * this function is called when rq is locked and nr_running >= 2
+	 */
+	if (unlikely((node = rq->sl_header.next[0]->next[0]) == &rq->sl_header))
 		return false;
 
 	p = skiplist_entry(node, struct task_struct, sl_node);
