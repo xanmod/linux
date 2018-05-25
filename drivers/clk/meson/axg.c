@@ -129,6 +129,11 @@ static struct meson_clk_pll axg_fixed_pll = {
 		.shift   = 16,
 		.width   = 2,
 	},
+	.frac = {
+		.reg_off = HHI_MPLL_CNTL2,
+		.shift   = 0,
+		.width   = 12,
+	},
 	.lock = &meson_clk_lock,
 	.hw.init = &(struct clk_init_data){
 		.name = "fixed_pll",
@@ -151,7 +156,7 @@ static struct meson_clk_pll axg_sys_pll = {
 	},
 	.od = {
 		.reg_off = HHI_SYS_PLL_CNTL,
-		.shift   = 10,
+		.shift   = 16,
 		.width   = 2,
 	},
 	.rate_table = sys_pll_rate_table,

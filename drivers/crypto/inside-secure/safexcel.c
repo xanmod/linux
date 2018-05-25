@@ -490,6 +490,15 @@ handle_req:
 		if (backlog)
 			backlog->complete(backlog, -EINPROGRESS);
 
+		/* In case the send() helper did not issue any command to push
+		 * to the engine because the input data was cached, continue to
+		 * dequeue other requests as this is valid and not an error.
+		 */
+		if (!commands && !results) {
+			kfree(request);
+			continue;
+		}
+
 		spin_lock_bh(&priv->ring[ring].egress_lock);
 		list_add_tail(&request->list, &priv->ring[ring].list);
 		spin_unlock_bh(&priv->ring[ring].egress_lock);
@@ -514,8 +523,7 @@ finalize:
 
 	if (!priv->ring[ring].busy) {
 		nreq -= safexcel_try_push_requests(priv, ring, nreq);
-		if (nreq)
-			priv->ring[ring].busy = true;
+		priv->ring[ring].busy = true;
 	}
 
 	priv->ring[ring].requests_left += nreq;
