@@ -1520,14 +1520,14 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 	 * policy task than p
 	 */
 	if (only_preempt_low_policy)
-		return nr_cpu_ids;
+		return best_mask_cpu(task_cpu(p), chk_mask);
 
 	if (unlikely(level != preempt_level))
-		return nr_cpu_ids;
+		return best_mask_cpu(task_cpu(p), chk_mask);
 
 	/* IDLEPRIO tasks never preempt anything but idle */
 	if (idleprio_task(p))
-		return nr_cpu_ids;
+		return best_mask_cpu(task_cpu(p), chk_mask);
 
 	if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[preempt_level])) {
 		if (unlikely((SCHED_RQ_RT == level))) {
@@ -1540,23 +1540,7 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 		return best_mask_cpu(task_cpu(p), &tmp);
 	}
 
-	return nr_cpu_ids;
-}
-
-/*
- * cpumask_random - get a random cpu from a cpumask
- * @rand: random seed cpu to start with
- * @srcp: the cpumask pointer
- *
- * Returns >= nr_cpu_ids if no cpus set.
- */
-static inline unsigned int cpumask_random(unsigned int rand,
-					  const cpumask_t *srcp)
-{
-	if ((rand = cpumask_next(rand, srcp)) >= nr_cpu_ids)
-		rand = cpumask_first(srcp);
-
-	return rand;
+	return best_mask_cpu(task_cpu(p), chk_mask);
 }
 
 /*
@@ -1569,7 +1553,6 @@ static inline unsigned int cpumask_random(unsigned int rand,
 static inline int select_task_rq(struct task_struct *p, int wake_flags)
 {
 	cpumask_t chk_mask;
-	int cpu;
 
 	if (unlikely(!cpumask_and(&chk_mask, &p->cpus_allowed, cpu_online_mask)))
 		return select_fallback_rq(task_cpu(p), p);
@@ -1580,11 +1563,7 @@ static inline int select_task_rq(struct task_struct *p, int wake_flags)
 	 * don't trigger a preemption if there are no idle cpus,
 	 * instead waiting for current to deschedule.
 	 */
-	cpu = task_preemptible_rq(p, &chk_mask, wake_flags & WF_SYNC);
-	if (cpu >= nr_cpu_ids)
-		return cpumask_random(task_cpu(p), &chk_mask);
-
-	return cpu;
+	return task_preemptible_rq(p, &chk_mask, wake_flags & WF_SYNC);
 }
 #else /* CONFIG_SMP */
 static inline int select_task_rq(struct task_struct *p, int wake_flags)
