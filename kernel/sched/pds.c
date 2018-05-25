@@ -2886,7 +2886,7 @@ static inline bool pds_sg_balance(struct rq *rq)
 	 * First cpu in smt group does not do smt balance, unless
 	 * other cpu is smt balance suppressed.
 	 */
-	if (cpu == cpumask_first(cpu_smt_mask(cpu)) &&
+	if (cpu == per_cpu(sd_llc_id, cpu) &&
 	    !cpumask_intersects(cpu_smt_mask(cpu), &sched_cpu_sb_suppress_mask))
 		return false;
 
