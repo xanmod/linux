@@ -1663,7 +1663,7 @@ EXPORT_SYMBOL(generic_update_time);
  * This does the actual work of updating an inodes time or version.  Must have
  * had called mnt_want_write() before calling this.
  */
-static int update_time(struct inode *inode, struct timespec *time, int flags)
+int update_time(struct inode *inode, struct timespec *time, int flags)
 {
 	int (*update_time)(struct inode *, struct timespec *, int);
 
@@ -1672,6 +1672,7 @@ static int update_time(struct inode *inode, struct timespec *time, int flags)
 
 	return update_time(inode, time, flags);
 }
+EXPORT_SYMBOL_GPL(update_time);
 
 /**
  *	touch_atime	-	update the access time
