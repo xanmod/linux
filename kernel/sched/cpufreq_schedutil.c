@@ -177,7 +177,6 @@ static void sugov_get_util(struct sugov_cpu *sg_cpu)
 	sg_cpu->max = arch_scale_cpu_capacity(NULL, sg_cpu->cpu);
 #else
 	struct rq *rq = cpu_rq(sg_cpu->cpu);
-	struct rq *rq = cpu_rq(cpu);
 
 	sg_cpu->max = arch_scale_cpu_capacity(NULL, sg_cpu->cpu);
 	sg_cpu->util_cfs = cpu_util_cfs(rq);
