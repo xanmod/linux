@@ -1493,13 +1493,10 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 
 #ifdef CONFIG_SCHED_SMT
 	if (SCHED_RQ_EMPTY == level) {
-		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level])) {
-			cpumask_t smt_tmp;
-
-			if (cpumask_and(&smt_tmp, &tmp, &sched_cpu_sg_idle_mask))
-				return best_mask_cpu(task_cpu(p), &smt_tmp);
+		if (cpumask_and(&tmp, chk_mask, &sched_cpu_sg_idle_mask) ||
+		    cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level]))
 			return best_mask_cpu(task_cpu(p), &tmp);
-		}
+
 		level = find_next_bit(sched_rq_queued_masks_bitmap,
 				      NR_SCHED_RQ_QUEUED_LEVEL,
 				      level + 1);
@@ -1507,7 +1504,7 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 #endif
 
 	while (level < preempt_level) {
-		if(cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level]))
+		if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[level]))
 			return best_mask_cpu(task_cpu(p), &tmp);
 
 		level = find_next_bit(sched_rq_queued_masks_bitmap,
