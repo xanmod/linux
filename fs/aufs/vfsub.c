@@ -138,6 +138,7 @@ int vfsub_atomic_open(struct inode *dir, struct dentry *dentry,
 
 	if (!err) {
 		/* todo: call VFS:may_open() here */
+		err = open_check_o_direct(file);
 		/* todo: ima_file_check() too? */
 		if (!err && (args->open_flag & __FMODE_EXEC))
 			err = deny_write_access(file);
