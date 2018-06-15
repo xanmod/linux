@@ -24,13 +24,13 @@
 #include <linux/kprobes.h>
 #include <linux/mmu_context.h>
 #include <linux/nmi.h>
+#include <linux/profile.h>
 #include <linux/rcupdate_wait.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/wait_bit.h>
 
 #include <asm/switch_to.h>
-#include <asm/tlb.h>
 
 #include "../workqueue_internal.h"
 #include "../smpboot.h"

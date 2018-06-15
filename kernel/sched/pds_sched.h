@@ -21,31 +21,25 @@
 
 #include <uapi/linux/sched/types.h>
 
-#include <linux/cgroup.h>
 #include <linux/cpufreq.h>
 #include <linux/cpuidle.h>
 #include <linux/ctype.h>
-#include <linux/binfmts.h>
-#include <linux/irq_work.h>
-#include <linux/kernel_stat.h>
 #include <linux/kthread.h>
 #include <linux/livepatch.h>
 #include <linux/membarrier.h>
-#include <linux/mutex.h>
 #include <linux/proc_fs.h>
-#include <linux/skip_list.h>
 #include <linux/slab.h>
-#include <linux/spinlock.h>
 #include <linux/stackprotector.h>
 #include <linux/stop_machine.h>
 #include <linux/suspend.h>
 #include <linux/swait.h>
 #include <linux/syscalls.h>
-#include <linux/tick.h>
 #include <linux/tsacct_kern.h>
 
+#include <asm/tlb.h>
+
 #ifdef CONFIG_PARAVIRT
-#include <asm/paravirt.h>
+# include <asm/paravirt.h>
 #endif
 
 #include "cpupri.h"
