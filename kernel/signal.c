@@ -1391,6 +1391,7 @@ struct sighand_struct *__lock_task_sighand(struct task_struct *tsk,
 
 	return sighand;
 }
+EXPORT_SYMBOL_GPL(__lock_task_sighand);
 
 /*
  * send signal info to all the members of a group
