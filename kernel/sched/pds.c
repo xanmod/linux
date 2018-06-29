@@ -2924,9 +2924,7 @@ static inline bool pds_load_balance(struct rq *rq)
 	/*
 	 * this function is called when rq is locked and nr_running >= 2
 	 */
-	if (unlikely((node = rq->sl_header.next[0]->next[0]) == &rq->sl_header))
-		return false;
-
+	node = rq->sl_header.next[0]->next[0];
 	p = skiplist_entry(node, struct task_struct, sl_node);
 
 	/*
