@@ -205,7 +205,6 @@ DEFINE_PER_CPU(cpumask_t *, sched_cpu_affinity_chk_end_masks);
 DEFINE_PER_CPU(unsigned int, cpu_has_smt_sibling);
 
 static cpumask_t sched_cpu_sg_idle_mask ____cacheline_aligned_in_smp;
-static cpumask_t sched_cpu_sb_suppress_mask ____cacheline_aligned_in_smp;
 #endif
 
 static int sched_rq_prio[NR_CPUS] ____cacheline_aligned;
@@ -2882,32 +2881,25 @@ static inline bool pds_sg_balance(struct rq *rq)
 		return false;
 
 	/*
-	 * Exit if any idle cpu in this smt group
+	 * First cpu in smt group does not do smt balance
 	 */
 	cpu = cpu_of(rq);
+	if (cpu == per_cpu(sd_llc_id, cpu))
+		return false;
+
+	/*
+	 * Exit if any idle cpu in this smt group
+	 */
 	if (cpumask_intersects(cpu_smt_mask(cpu),
 			       &sched_rq_queued_masks[SCHED_RQ_EMPTY]))
 		return false;
 
-	/*
-	 * First cpu in smt group does not do smt balance, unless
-	 * other cpu is smt balance suppressed.
-	 */
-	if (cpu == per_cpu(sd_llc_id, cpu) &&
-	    !cpumask_intersects(cpu_smt_mask(cpu), &sched_cpu_sb_suppress_mask))
-		return false;
-
 	p = rq->curr;
 	if (cpumask_intersects(&p->cpus_allowed, &sched_cpu_sg_idle_mask)) {
-		cpumask_andnot(&sched_cpu_sb_suppress_mask,
-			       &sched_cpu_sb_suppress_mask,
-			       cpu_smt_mask(cpu));
 		raise_softirq(SCHED_SOFTIRQ);
-
 		return true;
 	}
 
-	cpumask_set_cpu(cpu, &sched_cpu_sb_suppress_mask);
 	return false;
 }
 #endif /* CONFIG_SCHED_SMT */
@@ -3524,9 +3516,6 @@ static void __sched notrace __schedule(bool preempt)
 	set_rq_task(rq, next);
 
 	if (prev != next) {
-#ifdef CONFIG_SCHED_SMT
-		cpumask_clear_cpu(cpu, &sched_cpu_sb_suppress_mask);
-#endif
 		if (next->prio == PRIO_LIMIT)
 			schedstat_inc(rq->sched_goidle);
 
@@ -6100,10 +6089,6 @@ void __init sched_init_smp(void)
 	/* Move init over to a non-isolated CPU */
 	if (set_cpus_allowed_ptr(current, housekeeping_cpumask(HK_FLAG_DOMAIN)) < 0)
 		BUG();
-
-#ifdef CONFIG_SCHED_SMT
-	cpumask_clear(&sched_cpu_sb_suppress_mask);
-#endif
 
 	cpumask_copy(&sched_rq_queued_masks[SCHED_RQ_EMPTY], cpu_online_mask);
 
