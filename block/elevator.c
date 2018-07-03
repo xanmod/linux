@@ -239,14 +239,14 @@ int elevator_init(struct request_queue *q, char *name)
 
 	if (!e) {
 		/*
-		 * For blk-mq devices, we default to using bfq-mq,
-		 * if available, for single queue devices. If bfq-mq
+		 * For blk-mq devices, we default to using kyber,
+		 * if available, for single queue devices. If kyber
 		 * isn't available OR we have multiple queues, default
 		 * to "none".
 		 */
 		if (q->mq_ops) {
 			if (q->nr_hw_queues == 1)
-				e = elevator_get(q, "bfq-mq", false);
+				e = elevator_get(q, "kyber", false);
 			if (!e)
 				return 0;
 		} else
