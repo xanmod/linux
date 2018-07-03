@@ -440,7 +440,7 @@ static int nand_block_bad(struct mtd_info *mtd, loff_t ofs)
 
 	for (; page < page_end; page++) {
 		res = chip->ecc.read_oob(mtd, chip, page);
-		if (res)
+		if (res < 0)
 			return res;
 
 		bad = chip->oob_poi[chip->badblockpos];
@@ -2174,7 +2174,6 @@ static int nand_set_features_op(struct nand_chip *chip, u8 feature,
 	struct mtd_info *mtd = nand_to_mtd(chip);
 	const u8 *params = data;
 	int i, ret;
-	u8 status;
 
 	if (chip->exec_op) {
 		const struct nand_sdr_timings *sdr =
@@ -2188,26 +2187,18 @@ static int nand_set_features_op(struct nand_chip *chip, u8 feature,
 		};
 		struct nand_operation op = NAND_OPERATION(instrs);
 
-		ret = nand_exec_op(chip, &op);
-		if (ret)
-			return ret;
-
-		ret = nand_status_op(chip, &status);
-		if (ret)
-			return ret;
-	} else {
-		chip->cmdfunc(mtd, NAND_CMD_SET_FEATURES, feature, -1);
-		for (i = 0; i < ONFI_SUBFEATURE_PARAM_LEN; ++i)
-			chip->write_byte(mtd, params[i]);
-
-		ret = chip->waitfunc(mtd, chip);
-		if (ret < 0)
-			return ret;
-
-		status = ret;
+		return nand_exec_op(chip, &op);
 	}
 
-	if (status & NAND_STATUS_FAIL)
+	chip->cmdfunc(mtd, NAND_CMD_SET_FEATURES, feature, -1);
+	for (i = 0; i < ONFI_SUBFEATURE_PARAM_LEN; ++i)
+		chip->write_byte(mtd, params[i]);
+
+	ret = chip->waitfunc(mtd, chip);
+	if (ret < 0)
+		return ret;
+
+	if (ret & NAND_STATUS_FAIL)
 		return -EIO;
 
 	return 0;
