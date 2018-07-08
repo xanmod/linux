@@ -3240,7 +3240,7 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
 static inline int migrate_pending_tasks(struct rq *rq, int dest_cpu)
 {
 	int nr_migrated = 0;
-	int nr_max_tries = min(rq->nr_running, SCHED_RQ_NR_MIGRATION);
+	int nr_max_tries = min(rq->nr_running / 2, SCHED_RQ_NR_MIGRATION);
 	struct skiplist_node *node = rq->sl_header.next[0];
 
 	while (nr_max_tries && node != &rq->sl_header) {
