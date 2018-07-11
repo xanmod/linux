@@ -68,8 +68,6 @@ struct rq {
 #ifdef CONFIG_SMP
 	int cpu;		/* cpu of this runqueue */
 	bool online;
-	u64 next_balance;
-	u64 balance_inc;
 
 #ifdef CONFIG_SCHED_SMT
 	int active_balance;

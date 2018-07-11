@@ -76,10 +76,10 @@
 #define MIN_VISIBLE_DEADLINE	(1 << 8)
 
 /*
- * BALANCE_INTERVAL should be power of 2 for quick calculation
+ * RQ balance mask and shift
  */
-#define BALANCE_INTERVAL	(MS_TO_NS(32ULL))
-#define BALANCE_INTERVAL_MASK	(~(BALANCE_INTERVAL - 1ULL))
+static u64 sched_balance_mask ____cacheline_aligned_in_smp = (8ULL - 1);
+static u64 sched_balance_shift ____cacheline_aligned_in_smp = 0UL;
 
 enum {
 	BASE_CPU_AFFINITY_CHK_LEVEL = 1,
@@ -2907,14 +2907,14 @@ static inline bool pds_sg_balance(struct rq *rq)
  */
 static inline bool pds_load_balance(struct rq *rq)
 {
-	int level, preempt_level;
+	int level, pending_level, cpu = cpu_of(rq);
 	struct skiplist_node *node;
 	struct task_struct *p;
+	cpumask_t check;
 
-	if (rq->clock < rq->next_balance)
+	if (cpu !=
+	    ((NS_TO_MS(rq->clock) & sched_balance_mask) >> sched_balance_shift))
 		return false;
-
-	rq->next_balance = (rq->clock & BALANCE_INTERVAL_MASK) + rq->balance_inc;
 
 	/*
 	 * this function is called when rq is locked and nr_running >= 2
@@ -2928,40 +2928,37 @@ static inline bool pds_load_balance(struct rq *rq)
 	 */
 	level = find_next_bit(sched_rq_queued_masks_bitmap,
 			      NR_SCHED_RQ_QUEUED_LEVEL, SCHED_RQ_IDLE);
-	preempt_level = task_running_policy_level(p, rq);
+	pending_level = task_running_policy_level(p, rq);
 
-	while (level < preempt_level) {
-		cpumask_t check;
+	if (level >= pending_level)
+		return false;
 
-		if (cpumask_and(&check, &sched_rq_queued_masks[level],
-				&p->cpus_allowed)) {
-			WARN_ONCE(cpumask_test_cpu(cpu_of(rq), &check),
-				  "pds: %d - %d, %d, %llu %d, %d, %llu",
-				  level,
-				  preempt_level, p->prio, p->deadline,
-				  task_running_policy_level(rq->curr, rq),
-				  rq->curr->prio, rq->curr->deadline);
+	if (cpumask_and(&check, &sched_rq_queued_masks[level],
+			&p->cpus_allowed)) {
+		WARN_ONCE(cpumask_test_cpu(cpu_of(rq), &check),
+			  "pds: %d - %d, %d, %llu %d, %d, %llu",
+			  level,
+			  pending_level, p->prio, p->deadline,
+			  task_running_policy_level(rq->curr, rq),
+			  rq->curr->prio, rq->curr->deadline);
 
-			raw_spin_unlock(&rq->lock);
-			raw_spin_lock(&p->pi_lock);
-			raw_spin_lock(&rq->lock);
+		raw_spin_unlock(&rq->lock);
+		raw_spin_lock(&p->pi_lock);
+		raw_spin_lock(&rq->lock);
 
-			/*
-			 * _something_ may have changed the task,
-			 * double check again
-			 */
-			if (likely(!p->on_cpu && task_on_rq_queued(p) &&
-				   rq == task_rq(p)))
-				rq = __migrate_task(rq, p, cpumask_any(&check));
-
-			raw_spin_unlock(&rq->lock);
-			raw_spin_unlock(&p->pi_lock);
-
-			return true;
+		/*
+		 * _something_ may have changed the task, double check again
+		 */
+		if (likely(!p->on_cpu && task_on_rq_queued(p) &&
+			   rq == task_rq(p))) {
+			rq = __migrate_task(rq, p, best_mask_cpu(cpu, &check));
+			resched_curr(rq);
 		}
 
-		level = find_next_bit(sched_rq_queued_masks_bitmap,
-				      NR_SCHED_RQ_QUEUED_LEVEL, ++level);
+		raw_spin_unlock(&rq->lock);
+		raw_spin_unlock(&p->pi_lock);
+
+		return true;
 	}
 
 	return false;
@@ -6032,9 +6029,6 @@ static void sched_init_topology_cpumask(void)
 	cpumask_t *chk;
 
 	for_each_online_cpu(cpu) {
-		cpu_rq(cpu)->balance_inc = BALANCE_INTERVAL +
-			BALANCE_INTERVAL / num_online_cpus() * cpu;
-
 		chk = &(per_cpu(sched_cpu_affinity_chk_masks, cpu)[0]);
 
 		cpumask_setall(chk);
@@ -6074,6 +6068,20 @@ static void sched_init_topology_cpumask(void)
 }
 #endif
 
+static inline void sched_init_rq_balance(void)
+{
+	unsigned long shift;
+	unsigned long x;
+
+	x = num_possible_cpus();
+	x = max((unsigned long)SCHED_DEFAULT_RR, x) - 1;
+	shift = find_last_bit(&x, sizeof(x) * 8);
+	x = num_possible_cpus() - 1;
+
+	sched_balance_mask = (1UL << (shift + 1)) - 1;
+	sched_balance_shift = shift - find_last_bit(&x, sizeof(x) * 8);
+}
+
 void __init sched_init_smp(void)
 {
 	/* Move init over to a non-isolated CPU */
@@ -6083,6 +6091,8 @@ void __init sched_init_smp(void)
 	cpumask_copy(&sched_rq_queued_masks[SCHED_RQ_EMPTY], cpu_online_mask);
 
 	sched_init_topology_cpumask();
+
+	sched_init_rq_balance();
 
 	sched_smp_initialized = true;
 }
@@ -6131,7 +6141,6 @@ void __init sched_init(void)
 #ifdef CONFIG_SMP
 		rq->online = false;
 		rq->cpu = i;
-		rq->next_balance = 0UL;
 
 		rq->queued_level = SCHED_RQ_EMPTY;
 
