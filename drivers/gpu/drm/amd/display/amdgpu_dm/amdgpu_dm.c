@@ -46,6 +46,7 @@
 #include <linux/moduleparam.h>
 #include <linux/version.h>
 #include <linux/types.h>
+#include <linux/pm_runtime.h>
 
 #include <drm/drmP.h>
 #include <drm/drm_atomic.h>
@@ -927,6 +928,7 @@ amdgpu_dm_update_connector_after_detect(struct amdgpu_dm_connector *aconnector)
 		drm_mode_connector_update_edid_property(connector, NULL);
 		aconnector->num_modes = 0;
 		aconnector->dc_sink = NULL;
+		aconnector->edid = NULL;
 	}
 
 	mutex_unlock(&dev->mode_config.mutex);
@@ -3965,9 +3967,10 @@ static void amdgpu_dm_do_flip(struct drm_crtc *crtc,
 	if (acrtc->base.state->event)
 		prepare_flip_isr(acrtc);
 
+	spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
+
 	surface_updates->surface = dc_stream_get_status(acrtc_state->stream)->plane_states[0];
 	surface_updates->flip_addr = &addr;
-
 
 	dc_commit_updates_for_stream(adev->dm.dc,
 					     surface_updates,
@@ -3981,9 +3984,6 @@ static void amdgpu_dm_do_flip(struct drm_crtc *crtc,
 			 __func__,
 			 addr.address.grph.addr.high_part,
 			 addr.address.grph.addr.low_part);
-
-
-	spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
 }
 
 static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
@@ -4149,6 +4149,7 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 	struct drm_connector *connector;
 	struct drm_connector_state *old_con_state, *new_con_state;
 	struct dm_crtc_state *dm_old_crtc_state, *dm_new_crtc_state;
+	int crtc_disable_count = 0;
 
 	drm_atomic_helper_update_legacy_modeset_state(dev, state);
 
@@ -4210,6 +4211,8 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 
 			if (dm_old_crtc_state->stream)
 				remove_stream(adev, acrtc, dm_old_crtc_state->stream);
+
+			pm_runtime_get_noresume(dev->dev);
 
 			acrtc->enabled = true;
 			acrtc->hw_mode = new_crtc_state->mode;
@@ -4348,6 +4351,9 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 		struct amdgpu_crtc *acrtc = to_amdgpu_crtc(crtc);
 		bool modeset_needed;
 
+		if (old_crtc_state->active && !new_crtc_state->active)
+			crtc_disable_count++;
+
 		dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
 		dm_old_crtc_state = to_dm_crtc_state(old_crtc_state);
 		modeset_needed = modeset_required(
@@ -4396,6 +4402,14 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 		drm_atomic_helper_wait_for_flip_done(dev, state);
 
 	drm_atomic_helper_cleanup_planes(dev, state);
+
+	/* Finally, drop a runtime PM reference for each newly disabled CRTC,
+	 * so we can put the GPU into runtime suspend if we're not driving any
+	 * displays anymore
+	 */
+	for (i = 0; i < crtc_disable_count; i++)
+		pm_runtime_put_autosuspend(dev->dev);
+	pm_runtime_mark_last_busy(dev->dev);
 }
 
 
