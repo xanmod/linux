@@ -452,9 +452,9 @@ __update_sched_rq_queued_masks(struct rq *rq, const int cpu,
 
 static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 {
-	struct task_struct *p = rq->curr;
+	struct task_struct *p = rq_first_queued_task(rq);
 
-	if (p->prio == NORMAL_PRIO && rq_first_queued_task(rq) == p) {
+	if (p != NULL && p->prio == NORMAL_PRIO) {
 		int level = task_running_policy_level(p, rq);
 		int last_level = rq->queued_level;
 
