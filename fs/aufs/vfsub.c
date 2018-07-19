@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -585,7 +586,7 @@ int vfsub_iterate_dir(struct file *file, struct dir_context *ctx)
 {
 	int err;
 
-	AuDbg("%pD, ctx{%pf, %llu}\n", file, ctx->actor, ctx->pos);
+	AuDbg("%pD, ctx{%ps, %llu}\n", file, ctx->actor, ctx->pos);
 
 	lockdep_off();
 	err = iterate_dir(file, ctx);

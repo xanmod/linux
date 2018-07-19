@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -470,11 +471,8 @@ static void aufs_put_super(struct super_block *sb)
 	struct au_sbinfo *sbinfo;
 
 	sbinfo = au_sbi(sb);
-	if (!sbinfo)
-		return;
-
-	dbgaufs_si_fin(sbinfo);
-	kobject_put(&sbinfo->si_kobj);
+	if (sbinfo)
+		kobject_put(&sbinfo->si_kobj);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -743,7 +741,7 @@ static void au_remount_refresh(struct super_block *sb, unsigned int do_idop)
 			AuDebugOn(sbi->si_iop_array == aufs_iop);
 			sbi->si_iop_array = aufs_iop;
 		}
-		pr_info("reset to %pf and %pf\n",
+		pr_info("reset to %ps and %ps\n",
 			sb->s_d_op, sbi->si_iop_array);
 	}
 
@@ -963,7 +961,7 @@ static int aufs_fill_super(struct super_block *sb, void *raw_data,
 	au_opts_free(&opts);
 	if (!err && au_ftest_si(sbinfo, NO_DREVAL)) {
 		sb->s_d_op = &aufs_dop_noreval;
-		pr_info("%pf\n", sb->s_d_op);
+		pr_info("%ps\n", sb->s_d_op);
 		au_refresh_dop(root, /*force_reval*/0);
 		sbinfo->si_iop_array = aufs_iop_nogetattr;
 		au_refresh_iop(inode, /*force_getattr*/0);
@@ -977,7 +975,6 @@ out_root:
 	dput(root);
 	sb->s_root = NULL;
 out_info:
-	dbgaufs_si_fin(sbinfo);
 	kobject_put(&sbinfo->si_kobj);
 	sb->s_fs_info = NULL;
 out_opts:
@@ -996,7 +993,6 @@ static struct dentry *aufs_mount(struct file_system_type *fs_type, int flags,
 				 void *raw_data)
 {
 	struct dentry *root;
-	struct super_block *sb;
 
 	/* all timestamps always follow the ones on the branch */
 	/* mnt->mnt_flags |= MNT_NOATIME | MNT_NODIRATIME; */
@@ -1004,11 +1000,7 @@ static struct dentry *aufs_mount(struct file_system_type *fs_type, int flags,
 	if (IS_ERR(root))
 		goto out;
 
-	sb = root->d_sb;
-	si_write_lock(sb, !AuLock_FLUSH);
-	sysaufs_brs_add(sb, 0);
-	si_write_unlock(sb);
-	au_sbilist_add(sb);
+	au_sbilist_add(root->d_sb);
 
 out:
 	return root;

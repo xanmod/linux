@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -59,18 +60,11 @@ int sysaufs_si_init(struct au_sbinfo *sbinfo)
 		(&sbinfo->si_kobj, &au_sbi_ktype, /*&sysaufs_kset->kobj*/NULL,
 		 SysaufsSiNamePrefix "%lx", sysaufs_si_id(sbinfo));
 
-	dbgaufs_si_null(sbinfo);
-	if (!err) {
-		err = dbgaufs_si_init(sbinfo);
-		if (unlikely(err))
-			kobject_put(&sbinfo->si_kobj);
-	}
 	return err;
 }
 
 void sysaufs_fin(void)
 {
-	dbgaufs_fin();
 	sysfs_remove_group(&sysaufs_kset->kobj, sysaufs_attr_group);
 	kset_unregister(sysaufs_kset);
 }
@@ -91,14 +85,9 @@ int __init sysaufs_init(void)
 	if (IS_ERR(sysaufs_kset))
 		goto out;
 	err = sysfs_create_group(&sysaufs_kset->kobj, sysaufs_attr_group);
-	if (unlikely(err)) {
-		kset_unregister(sysaufs_kset);
-		goto out;
-	}
-
-	err = dbgaufs_init();
 	if (unlikely(err))
-		sysaufs_fin();
+		kset_unregister(sysaufs_kset);
+
 out:
 	return err;
 }

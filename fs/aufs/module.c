@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -202,9 +203,12 @@ static int __init aufs_init(void)
 	err = sysaufs_init();
 	if (unlikely(err))
 		goto out;
-	err = au_procfs_init();
+	err = dbgaufs_init();
 	if (unlikely(err))
 		goto out_sysaufs;
+	err = au_procfs_init();
+	if (unlikely(err))
+		goto out_dbgaufs;
 	err = au_wkq_init();
 	if (unlikely(err))
 		goto out_procfs;
@@ -242,6 +246,8 @@ out_wkq:
 	au_wkq_fin();
 out_procfs:
 	au_procfs_fin();
+out_dbgaufs:
+	dbgaufs_fin();
 out_sysaufs:
 	sysaufs_fin();
 	au_dy_fin();
@@ -258,6 +264,7 @@ static void __exit aufs_exit(void)
 	au_loopback_fin();
 	au_wkq_fin();
 	au_procfs_fin();
+	dbgaufs_fin();
 	sysaufs_fin();
 	au_dy_fin();
 }

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -326,8 +327,6 @@ void sysaufs_brs_del(struct super_block *sb, aufs_bindex_t bindex)
 	int i;
 	aufs_bindex_t bbot;
 
-	dbgaufs_brs_del(sb, bindex);
-
 	if (!sysaufs_brs)
 		return;
 
@@ -350,8 +349,6 @@ void sysaufs_brs_add(struct super_block *sb, aufs_bindex_t bindex)
 	struct kobject *kobj;
 	struct au_branch *br;
 	struct au_brsysfs *br_sysfs;
-
-	dbgaufs_brs_add(sb, bindex);
 
 	if (!sysaufs_brs)
 		return;

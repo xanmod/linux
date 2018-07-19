@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -54,7 +55,7 @@ static int h_permission(struct inode *h_inode, int mask,
 		&& write_mask && !(mask & MAY_READ))
 	    || !h_inode->i_op->permission) {
 		/* AuLabel(generic_permission); */
-		/* AuDbg("get_acl %pf\n", h_inode->i_op->get_acl); */
+		/* AuDbg("get_acl %ps\n", h_inode->i_op->get_acl); */
 		err = generic_permission(h_inode, mask);
 		if (err == -EOPNOTSUPP && au_test_nfs_noacl(h_inode))
 			err = h_inode->i_op->permission(h_inode, mask);
@@ -1311,7 +1312,7 @@ static const char *aufs_get_link(struct dentry *dentry, struct inode *inode,
 		goto out_unlock;
 
 	err = 0;
-	AuDbg("%pf\n", h_inode->i_op->get_link);
+	AuDbg("%ps\n", h_inode->i_op->get_link);
 	AuDbgDentry(h_dentry);
 	ret = vfs_get_link(h_dentry, done);
 	dput(h_dentry);
