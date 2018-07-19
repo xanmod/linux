@@ -1,12 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- * SPDX-License-Identifier: GPL-2.0
  * Mainly for aufs which mmap(2) different file and wants to print different
  * path in /proc/PID/maps.
  * Call these functions via macros defined in linux/mm.h.
  *
  * See Documentation/filesystems/aufs/design/06mmap.txt
  *
- * Copyright (c) 2014-2017 Junjro R. Okajima
+ * Copyright (c) 2014-2018 Junjro R. Okajima
  * Copyright (c) 2014 Ian Campbell
  */
 

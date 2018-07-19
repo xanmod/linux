@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -204,7 +205,7 @@ struct au_sbinfo {
 /*
  * set true when refresh_dirs() failed at remount time.
  * then try refreshing dirs at access time again.
- * if it is false, refreshing dirs at access time is unnecesary
+ * if it is false, refreshing dirs at access time is unnecessary
  */
 #define AuSi_FAILED_REFRESH_DIR	1
 #define AuSi_FHSM		(1 << 1)	/* fhsm is active now */
@@ -345,7 +346,7 @@ int au_test_nfsd(void);
 void au_export_init(struct super_block *sb);
 void au_xigen_inc(struct inode *inode);
 int au_xigen_new(struct inode *inode);
-int au_xigen_set(struct super_block *sb, struct file *base);
+int au_xigen_set(struct super_block *sb, struct path *path);
 void au_xigen_clr(struct super_block *sb);
 
 static inline int au_busy_or_stale(void)
@@ -359,7 +360,7 @@ AuStubInt0(au_test_nfsd, void)
 AuStubVoid(au_export_init, struct super_block *sb)
 AuStubVoid(au_xigen_inc, struct inode *inode)
 AuStubInt0(au_xigen_new, struct inode *inode)
-AuStubInt0(au_xigen_set, struct super_block *sb, struct file *base)
+AuStubInt0(au_xigen_set, struct super_block *sb, struct path *path)
 AuStubVoid(au_xigen_clr, struct super_block *sb)
 AuStub(int, au_busy_or_stale, return -EBUSY, void)
 #endif /* CONFIG_AUFS_EXPORT */

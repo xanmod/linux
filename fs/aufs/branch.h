@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -33,7 +34,7 @@
 /* ---------------------------------------------------------------------- */
 
 /* a xino file */
-struct au_xino_file {
+struct au_xino {
 	struct file		*xi_file;
 	struct {
 		spinlock_t		spin;
@@ -44,11 +45,11 @@ struct au_xino_file {
 		wait_queue_head_t	wqh;
 	} xi_nondir;
 
-	/* todo: make xino files an array to support huge inode number */
+	atomic_t		xi_truncating;
 
-#ifdef CONFIG_DEBUG_FS
-	struct dentry		 *xi_dbgaufs;
-#endif
+	struct kref		xi_kref;
+
+	/* todo: make xino files an array to support huge inode number */
 };
 
 /* File-based Hierarchical Storage Management */
@@ -99,7 +100,7 @@ enum {
 
 /* protected by superblock rwsem */
 struct au_branch {
-	struct au_xino_file	br_xino;
+	struct au_xino		*br_xino;
 
 	aufs_bindex_t		br_id;
 
@@ -112,9 +113,6 @@ struct au_branch {
 	struct au_wbr		*br_wbr;
 	struct au_br_fhsm	*br_fhsm;
 
-	/* xino truncation */
-	atomic_t		br_xino_running;
-
 #ifdef CONFIG_AUFS_HFSNOTIFY
 	struct au_br_hfsnotify	*br_hfsn;
 #endif
@@ -122,6 +120,10 @@ struct au_branch {
 #ifdef CONFIG_SYSFS
 	/* entries under sysfs per mount-point */
 	struct au_brsysfs	br_sysfs[AuBrSysfs_Last];
+#endif
+
+#ifdef CONFIG_DEBUG_FS
+	struct dentry		 *br_dbgaufs; /* xino */
 #endif
 
 	struct au_dr_br		br_dirren;
@@ -197,6 +199,36 @@ static inline int au_br_test_oflag(int oflag, struct au_branch *br)
 	return err;
 }
 
+static inline void au_xino_get(struct au_branch *br)
+{
+	struct au_xino *xi;
+
+	xi = br->br_xino;
+	if (xi)
+		kref_get(&xi->xi_kref);
+}
+
+static inline int au_xino_count(struct au_branch *br)
+{
+	int v;
+	struct au_xino *xi;
+
+	v = 0;
+	xi = br->br_xino;
+	if (xi)
+		v = kref_read(&xi->xi_kref);
+
+	return v;
+}
+
+static inline struct file *au_xino_file(struct au_branch *br)
+{
+	struct au_xino *xi;
+
+	xi = br->br_xino;
+	return xi ? xi->xi_file : NULL;
+}
+
 /* ---------------------------------------------------------------------- */
 
 /* branch.c */
@@ -220,33 +252,42 @@ int au_br_stfs(struct au_branch *br, struct aufs_stfs *stfs);
 /* xino.c */
 static const loff_t au_loff_max = LLONG_MAX;
 
-int au_xib_trunc(struct super_block *sb);
+struct file *au_xino_create(struct super_block *sb, char *fpath, int silent);
+struct file *au_xino_create2(struct super_block *sb, struct path *base,
+			     struct file *copy_src);
+
+int au_xino_read(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
+		 ino_t *ino);
+int au_xino_write(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
+		  ino_t ino);
 ssize_t xino_fread(vfs_readf_t func, struct file *file, void *buf, size_t size,
 		   loff_t *pos);
 ssize_t xino_fwrite(vfs_writef_t func, struct file *file, void *buf,
 		    size_t size, loff_t *pos);
-struct file *au_xino_create2(struct file *base_file, struct file *copy_src);
-struct file *au_xino_create(struct super_block *sb, char *fname, int silent);
-ino_t au_xino_new_ino(struct super_block *sb);
-void au_xino_delete_inode(struct inode *inode, const int unlinked);
-int au_xino_write(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
-		  ino_t ino);
-int au_xino_read(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
-		 ino_t *ino);
-int au_xino_br(struct super_block *sb, struct au_branch *br, ino_t hino,
-	       struct file *base_file, int do_test);
+
+int au_xib_trunc(struct super_block *sb);
 int au_xino_trunc(struct super_block *sb, aufs_bindex_t bindex);
 
+struct au_xino *au_xino_alloc(void);
+int au_xino_put(struct au_branch *br);
+void au_xino_file_set(struct au_branch *br, struct file *file);
+
 struct au_opt_xino;
-int au_xino_set(struct super_block *sb, struct au_opt_xino *xino, int remount);
 void au_xino_clr(struct super_block *sb);
+int au_xino_set(struct super_block *sb, struct au_opt_xino *xiopt, int remount);
 struct file *au_xino_def(struct super_block *sb);
-int au_xino_path(struct seq_file *seq, struct file *file);
+int au_xino_init_br(struct super_block *sb, struct au_branch *br, ino_t hino,
+		    struct path *base);
+
+ino_t au_xino_new_ino(struct super_block *sb);
+void au_xino_delete_inode(struct inode *inode, const int unlinked);
 
 void au_xinondir_leave(struct super_block *sb, aufs_bindex_t bindex,
 		       ino_t h_ino, int idx);
 int au_xinondir_enter(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
 		      int *idx);
+
+int au_xino_path(struct seq_file *seq, struct file *file);
 
 /* ---------------------------------------------------------------------- */
 

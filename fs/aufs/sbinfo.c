@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -40,6 +41,7 @@ void au_si_free(struct kobject *kobj)
 	AuDebugOn(percpu_counter_sum(&sbinfo->si_nfiles));
 	percpu_counter_destroy(&sbinfo->si_nfiles);
 
+	dbgaufs_si_fin(sbinfo);
 	au_rw_write_lock(&sbinfo->si_rwsem);
 	au_br_free(sbinfo);
 	au_rw_write_unlock(&sbinfo->si_rwsem);
@@ -67,6 +69,12 @@ int au_si_alloc(struct super_block *sb)
 		goto out_sbinfo;
 
 	err = sysaufs_si_init(sbinfo);
+	if (!err) {
+		dbgaufs_si_null(sbinfo);
+		err = dbgaufs_si_init(sbinfo);
+		if (unlikely(err))
+			kobject_put(&sbinfo->si_kobj);
+	}
 	if (unlikely(err))
 		goto out_br;
 

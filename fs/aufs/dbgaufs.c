@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -45,7 +46,8 @@ static int dbgaufs_xi_release(struct inode *inode __maybe_unused,
 	return 0;
 }
 
-static int dbgaufs_xi_open(struct file *xf, struct file *file, int do_fcnt)
+static int dbgaufs_xi_open(struct file *xf, struct file *file, int do_fcnt,
+			   int cnt)
 {
 	int err;
 	struct kstat st;
@@ -66,8 +68,8 @@ static int dbgaufs_xi_open(struct file *xf, struct file *file, int do_fcnt)
 	if (!err) {
 		if (do_fcnt)
 			p->n = snprintf
-				(p->a, sizeof(p->a), "%ld, %llux%u %lld\n",
-				 (long)file_count(xf), st.blocks, st.blksize,
+				(p->a, sizeof(p->a), "%d, %llux%u %lld\n",
+				 cnt, st.blocks, st.blksize,
 				 (long long)st.size);
 		else
 			p->n = snprintf(p->a, sizeof(p->a), "%llux%u %lld\n",
@@ -198,7 +200,7 @@ static int dbgaufs_xib_open(struct inode *inode, struct file *file)
 	sbinfo = inode->i_private;
 	sb = sbinfo->si_sb;
 	si_noflush_read_lock(sb);
-	err = dbgaufs_xi_open(sbinfo->si_xib, file, /*do_fcnt*/0);
+	err = dbgaufs_xi_open(sbinfo->si_xib, file, /*do_fcnt*/0, /*cnt*/0);
 	si_read_unlock(sb);
 	return err;
 }
@@ -222,6 +224,7 @@ static int dbgaufs_xino_open(struct inode *inode, struct file *file)
 	struct super_block *sb;
 	struct file *xf;
 	struct qstr *name;
+	struct au_branch *br;
 
 	err = -ENOENT;
 	xf = NULL;
@@ -238,8 +241,10 @@ static int dbgaufs_xino_open(struct inode *inode, struct file *file)
 	sb = sbinfo->si_sb;
 	si_noflush_read_lock(sb);
 	if (l <= au_sbbot(sb)) {
-		xf = au_sbr(sb, (aufs_bindex_t)l)->br_xino.xi_file;
-		err = dbgaufs_xi_open(xf, file, /*do_fcnt*/1);
+		br = au_sbr(sb, (aufs_bindex_t)l);
+		xf = au_xino_file(br);
+		err = dbgaufs_xi_open(xf, file, /*do_fcnt*/1,
+				      au_xino_count(br));
 	} else
 		err = -ENOENT;
 	si_read_unlock(sb);
@@ -255,11 +260,25 @@ static const struct file_operations dbgaufs_xino_fop = {
 	.read		= dbgaufs_xi_read
 };
 
+void dbgaufs_xino_del(struct au_branch *br)
+{
+	struct dentry *dbgaufs;
+
+	dbgaufs = br->br_dbgaufs;
+	if (!dbgaufs)
+		return;
+
+	br->br_dbgaufs = NULL;
+	/* debugfs acquires the parent i_mutex */
+	lockdep_off();
+	debugfs_remove(dbgaufs);
+	lockdep_on();
+}
+
 void dbgaufs_brs_del(struct super_block *sb, aufs_bindex_t bindex)
 {
 	aufs_bindex_t bbot;
 	struct au_branch *br;
-	struct au_xino_file *xi;
 
 	if (!au_sbi(sb)->si_dbgaufs)
 		return;
@@ -267,23 +286,51 @@ void dbgaufs_brs_del(struct super_block *sb, aufs_bindex_t bindex)
 	bbot = au_sbbot(sb);
 	for (; bindex <= bbot; bindex++) {
 		br = au_sbr(sb, bindex);
-		xi = &br->br_xino;
-		/* debugfs acquires the parent i_mutex */
-		lockdep_off();
-		debugfs_remove(xi->xi_dbgaufs);
-		lockdep_on();
-		xi->xi_dbgaufs = NULL;
+		dbgaufs_xino_del(br);
 	}
 }
 
-void dbgaufs_brs_add(struct super_block *sb, aufs_bindex_t bindex)
+static void dbgaufs_br_add(struct super_block *sb, aufs_bindex_t bindex,
+			   struct dentry *parent, struct au_sbinfo *sbinfo)
+{
+	struct au_branch *br;
+	struct dentry *d;
+	char name[sizeof(DbgaufsXi_PREFIX) + 5]; /* "xi" bindex NULL */
+
+	snprintf(name, sizeof(name), DbgaufsXi_PREFIX "%d", bindex);
+	br = au_sbr(sb, bindex);
+	if (br->br_dbgaufs) {
+		struct qstr qstr = QSTR_INIT(name, strlen(name));
+
+		if (!au_qstreq(&br->br_dbgaufs->d_name, &qstr)) {
+			/* debugfs acquires the parent i_mutex */
+			lockdep_off();
+			d = debugfs_rename(parent, br->br_dbgaufs, parent,
+					   name);
+			lockdep_on();
+			if (unlikely(!d))
+				pr_warn("failed renaming %pd/%s, ignored.\n",
+					parent, name);
+		}
+	} else {
+		lockdep_off();
+		br->br_dbgaufs = debugfs_create_file(name, dbgaufs_mode, parent,
+						     sbinfo, &dbgaufs_xino_fop);
+		lockdep_on();
+		if (unlikely(!br->br_dbgaufs))
+			pr_warn("failed creaiting %pd/%s, ignored.\n",
+				parent, name);
+	}
+}
+
+void dbgaufs_brs_add(struct super_block *sb, aufs_bindex_t bindex, int topdown)
 {
 	struct au_sbinfo *sbinfo;
 	struct dentry *parent;
-	struct au_branch *br;
-	struct au_xino_file *xi;
 	aufs_bindex_t bbot;
-	char name[sizeof(DbgaufsXi_PREFIX) + 5]; /* "xi" bindex NULL */
+
+	if (!au_opt_test(au_mntflags(sb), XINO))
+		return;
 
 	sbinfo = au_sbi(sb);
 	parent = sbinfo->si_dbgaufs;
@@ -291,20 +338,12 @@ void dbgaufs_brs_add(struct super_block *sb, aufs_bindex_t bindex)
 		return;
 
 	bbot = au_sbbot(sb);
-	for (; bindex <= bbot; bindex++) {
-		snprintf(name, sizeof(name), DbgaufsXi_PREFIX "%d", bindex);
-		br = au_sbr(sb, bindex);
-		xi = &br->br_xino;
-		AuDebugOn(xi->xi_dbgaufs);
-		/* debugfs acquires the parent i_mutex */
-		lockdep_off();
-		xi->xi_dbgaufs = debugfs_create_file(name, dbgaufs_mode, parent,
-						     sbinfo, &dbgaufs_xino_fop);
-		lockdep_on();
-		/* ignore an error */
-		if (unlikely(!xi->xi_dbgaufs))
-			AuWarn1("failed %s under debugfs\n", name);
-	}
+	if (topdown)
+		for (; bindex <= bbot; bindex++)
+			dbgaufs_br_add(sb, bindex, parent, sbinfo);
+	else
+		for (; bbot >= bindex; bbot--)
+			dbgaufs_br_add(sb, bbot, parent, sbinfo);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -319,7 +358,7 @@ static int dbgaufs_xigen_open(struct inode *inode, struct file *file)
 	sbinfo = inode->i_private;
 	sb = sbinfo->si_sb;
 	si_noflush_read_lock(sb);
-	err = dbgaufs_xi_open(sbinfo->si_xigen, file, /*do_fcnt*/0);
+	err = dbgaufs_xi_open(sbinfo->si_xigen, file, /*do_fcnt*/0, /*cnt*/0);
 	si_read_unlock(sb);
 	return err;
 }
@@ -369,7 +408,6 @@ void dbgaufs_si_fin(struct au_sbinfo *sbinfo)
 
 	debugfs_remove_recursive(sbinfo->si_dbgaufs);
 	sbinfo->si_dbgaufs = NULL;
-	kobject_put(&sbinfo->si_kobj);
 }
 
 int dbgaufs_si_init(struct au_sbinfo *sbinfo)
@@ -394,18 +432,19 @@ int dbgaufs_si_init(struct au_sbinfo *sbinfo)
 	sbinfo->si_dbgaufs = debugfs_create_dir(name, dbgaufs);
 	if (unlikely(!sbinfo->si_dbgaufs))
 		goto out;
-	kobject_get(&sbinfo->si_kobj);
 
-	sbinfo->si_dbgaufs_xib = debugfs_create_file
-		("xib", dbgaufs_mode, sbinfo->si_dbgaufs, sbinfo,
-		 &dbgaufs_xib_fop);
-	if (unlikely(!sbinfo->si_dbgaufs_xib))
-		goto out_dir;
-
+	/* regardless plink/noplink option */
 	sbinfo->si_dbgaufs_plink = debugfs_create_file
 		("plink", dbgaufs_mode, sbinfo->si_dbgaufs, sbinfo,
 		 &dbgaufs_plink_fop);
 	if (unlikely(!sbinfo->si_dbgaufs_plink))
+		goto out_dir;
+
+	/* regardless xino/noxino option */
+	sbinfo->si_dbgaufs_xib = debugfs_create_file
+		("xib", dbgaufs_mode, sbinfo->si_dbgaufs, sbinfo,
+		 &dbgaufs_xib_fop);
+	if (unlikely(!sbinfo->si_dbgaufs_xib))
 		goto out_dir;
 
 	err = dbgaufs_xigen_init(sbinfo);
@@ -415,6 +454,8 @@ int dbgaufs_si_init(struct au_sbinfo *sbinfo)
 out_dir:
 	dbgaufs_si_fin(sbinfo);
 out:
+	if (unlikely(err))
+		pr_err("debugfs/aufs failed\n");
 	return err;
 }
 

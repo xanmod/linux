@@ -28,15 +28,20 @@ Description:
 		When the aufs mount option 'noxino' is specified, it
 		will be empty. About XINO files, see the aufs manual.
 
-What:		/debug/aufs/si_<id>/xino0, xino1 ... xinoN
+What:		/debug/aufs/si_<id>/xi0, xi1 ... xiN and xiN-N
 Date:		March 2009
 Contact:	J. R. Okajima <hooanon05g@gmail.com>
 Description:
 		It shows the consumed blocks by xino (External Inode Number
 		Translation Table), its link count, block size and file
 		size.
-		When the aufs mount option 'noxino' is specified, it
-		will be empty. About XINO files, see the aufs manual.
+		Due to the file size limit, there may exist multiple
+		xino files per branch.  In this case, "-N" is added to
+		the filename and it corresponds to the index of the
+		internal xino array.  "-0" is omitted.
+		When the aufs mount option 'noxino' is specified, Those
+		entries won't exist.  About XINO files, see the aufs
+		manual.
 
 What:		/debug/aufs/si_<id>/xigen
 Date:		March 2009

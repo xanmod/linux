@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -25,7 +26,6 @@
 unsigned int aufs_poll(struct file *file, poll_table *wait)
 {
 	unsigned int mask;
-	int err;
 	struct file *h_file;
 	struct super_block *sb;
 
@@ -35,9 +35,10 @@ unsigned int aufs_poll(struct file *file, poll_table *wait)
 	si_read_lock(sb, AuLock_FLUSH | AuLock_NOPLMW);
 
 	h_file = au_read_pre(file, /*keep_fi*/0, /*lsc*/0);
-	err = PTR_ERR(h_file);
-	if (IS_ERR(h_file))
+	if (IS_ERR(h_file)) {
+		AuDbg("h_file %ld\n", PTR_ERR(h_file));
 		goto out;
+	}
 
 	/* it is not an error if h_file has no operation */
 	mask = DEFAULT_POLLMASK;
