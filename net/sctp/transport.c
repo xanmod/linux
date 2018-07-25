@@ -242,9 +242,9 @@ void sctp_transport_pmtu(struct sctp_transport *transport, struct sock *sk)
 						&transport->fl, sk);
 	}
 
-	if (transport->dst) {
-		transport->pathmtu = SCTP_TRUNC4(dst_mtu(transport->dst));
-	} else
+	if (transport->dst)
+		transport->pathmtu = sctp_dst_mtu(transport->dst);
+	else
 		transport->pathmtu = SCTP_DEFAULT_MAXSEGMENT;
 }
 
@@ -273,7 +273,7 @@ bool sctp_transport_update_pmtu(struct sctp_transport *t, u32 pmtu)
 
 	if (dst) {
 		/* Re-fetch, as under layers may have a higher minimum size */
-		pmtu = SCTP_TRUNC4(dst_mtu(dst));
+		pmtu = sctp_dst_mtu(dst);
 		change = t->pathmtu != pmtu;
 	}
 	t->pathmtu = pmtu;
