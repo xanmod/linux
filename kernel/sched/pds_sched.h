@@ -55,7 +55,7 @@ struct rq {
 	struct task_struct *curr, *idle, *stop;
 	struct mm_struct *prev_mm;
 
-	struct skiplist_node sl_header;
+	struct skiplist_node *sl_header;
 
 	/* switch count */
 	u64 nr_switches;

@@ -408,12 +408,8 @@ static inline u64 static_deadline_diff(int static_prio)
 
 static inline struct task_struct *rq_first_queued_task(struct rq *rq)
 {
-	struct skiplist_node *node = rq->sl_header.next[0];
-
-	if (node == &rq->sl_header)
-		return NULL;
-
-	return skiplist_entry(node, struct task_struct, sl_node);
+	return skiplist_entry(rq->sl_header->next[0],
+			      struct task_struct, sl_node);
 }
 
 static const int task_dl_hash_tbl[] = {
@@ -479,7 +475,7 @@ static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 {
 	struct task_struct *p = rq_first_queued_task(rq);
 
-	if (p == NULL || p->prio != NORMAL_PRIO)
+	if (p->prio != NORMAL_PRIO)
 		return;
 
 	__update_cpumasks_bitmap(cpu_of(rq), &rq->queued_level,
@@ -491,16 +487,11 @@ static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 static inline void update_sched_rq_queued_masks(struct rq *rq)
 {
 	int cpu = cpu_of(rq);
-	struct task_struct *p;
 	unsigned long level, last_level = rq->queued_level;
+	struct task_struct *p = rq_first_queued_task(rq);
 
-	if ((p = rq_first_queued_task(rq)) == NULL) {
-		level = SCHED_RQ_EMPTY;
-		sched_rq_prio[cpu] = PRIO_LIMIT;
-	} else {
-		level = task_running_policy_level(p, rq);
-		sched_rq_prio[cpu] = p->prio;
-	}
+	level = task_running_policy_level(p, rq);
+	sched_rq_prio[cpu] = p->prio;
 
 	if (!__update_cpumasks_bitmap(cpu, &rq->queued_level, level,
 				      &sched_rq_queued_masks[0],
@@ -572,7 +563,7 @@ static inline void dequeue_task(struct task_struct *p, struct rq *rq)
 
 	WARN_ONCE(task_rq(p) != rq, "pds: dequeue task reside on cpu%d from cpu%d\n",
 		  task_cpu(p), cpu_of(rq));
-	if (skiplist_del_init(&rq->sl_header, &p->sl_node))
+	if (skiplist_del_init(rq->sl_header, &p->sl_node))
 		update_sched_rq_queued_masks(rq);
 	rq->nr_running--;
 #ifdef CONFIG_SMP
@@ -674,7 +665,7 @@ static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 		  task_cpu(p), cpu_of(rq));
 
 	p->sl_node.level = p->sl_level;
-	if (pds_skiplist_insert(&rq->sl_header, &p->sl_node))
+	if (pds_skiplist_insert(rq->sl_header, &p->sl_node))
 		update_sched_rq_queued_masks(rq);
 	rq->nr_running++;
 #ifdef CONFIG_SMP
@@ -703,10 +694,10 @@ static inline void requeue_task(struct task_struct *p, struct rq *rq)
 	WARN_ONCE(task_rq(p) != rq, "pds: cpu[%d] requeue task reside on cpu%d\n",
 		  cpu_of(rq), task_cpu(p));
 
-	b_first = skiplist_del_init(&rq->sl_header, &p->sl_node);
+	b_first = skiplist_del_init(rq->sl_header, &p->sl_node);
 
 	p->sl_node.level = p->sl_level;
-	if (pds_skiplist_insert(&rq->sl_header, &p->sl_node) || b_first)
+	if (pds_skiplist_insert(rq->sl_header, &p->sl_node) || b_first)
 		update_sched_rq_queued_masks(rq);
 }
 
@@ -2919,7 +2910,7 @@ static inline bool pds_load_balance(struct rq *rq)
 	/*
 	 * this function is called when rq is locked and nr_running >= 2
 	 */
-	node = rq->sl_header.next[0]->next[0];
+	node = rq->sl_header->next[0]->next[0];
 	p = skiplist_entry(node, struct task_struct, sl_node);
 
 	/*
@@ -3243,14 +3234,14 @@ migrate_pending_tasks(struct rq *rq, struct rq *dest_rq, int dest_cpu)
 {
 	int nr_migrated = 0;
 	int nr_max_tries = min(rq->nr_running / 2, SCHED_RQ_NR_MIGRATION);
-	struct skiplist_node *node = rq->sl_header.next[0];
+	struct skiplist_node *node = rq->sl_header->next[0];
 
-	while (nr_max_tries && node != &rq->sl_header) {
+	while (nr_max_tries && node != rq->sl_header) {
 		struct task_struct *p;
 
 		/* seek to the next node */
 		node = node->next[0];
-		if (node == &rq->sl_header)
+		if (node == rq->sl_header)
 			break;
 
 		p = skiplist_entry(node, struct task_struct, sl_node);
@@ -3269,7 +3260,7 @@ migrate_pending_tasks(struct rq *rq, struct rq *dest_rq, int dest_cpu)
 	return nr_migrated;
 }
 
-static inline struct task_struct *
+static inline int
 take_queued_task_cpumask(struct rq *rq, int cpu, struct cpumask *chk_mask)
 {
 	int src_cpu;
@@ -3288,46 +3279,42 @@ take_queued_task_cpumask(struct rq *rq, int cpu, struct cpumask *chk_mask)
 		spin_release(&src_rq->lock.dep_map, 1, _RET_IP_);
 		do_raw_spin_unlock(&src_rq->lock);
 
-		if (nr_migrated) {
-			resched_curr(rq);
-			return rq_first_queued_task(rq);
-		}
+		if (nr_migrated)
+			return nr_migrated;
 	}
-	return NULL;
+	return 0;
 }
 
-static inline struct task_struct *take_other_rq_task(struct rq *rq, int cpu)
+static inline int take_other_rq_task(struct rq *rq, int cpu)
 {
-	struct cpumask tmp;
 	struct cpumask *affinity_mask, *end;
 
 	affinity_mask = per_cpu(sched_cpu_llc_start_mask, cpu);
 	end = per_cpu(sched_cpu_affinity_chk_end_masks, cpu);
 	do {
-		struct task_struct *p;
+		struct cpumask tmp;
 		if (cpumask_andnot(&tmp, affinity_mask,
 				   &sched_rq_nr_running_masks[0]) &&
-		    (p = take_queued_task_cpumask(rq, cpu, &tmp)))
-			return p;
+		    take_queued_task_cpumask(rq, cpu, &tmp))
+			return 1;
 	} while (++affinity_mask < end);
 
-	return NULL;
+	return 0;
 }
 #endif
 
 static inline struct task_struct *choose_next_task(struct rq *rq, int cpu)
 {
-	struct task_struct *next;
-
-	if ((next = rq_first_queued_task(rq)))
-		return next;
+	struct task_struct *next = rq_first_queued_task(rq);
 
 #ifdef	CONFIG_SMP
 	if (likely(rq->online))
-		if ((next = take_other_rq_task(rq, cpu)))
-			return next;
+		if (next == rq->idle && take_other_rq_task(rq, cpu)) {
+			resched_curr(rq);
+			return rq_first_queued_task(rq);
+		}
 #endif
-	return rq->idle;
+	return next;
 }
 
 static inline unsigned long get_preempt_disable_ip(struct task_struct *p)
@@ -5428,6 +5415,8 @@ void init_idle(struct task_struct *idle, int cpu)
 	raw_spin_lock(&rq->lock);
 	update_rq_clock(rq);
 
+	FULL_INIT_SKIPLIST_NODE(&idle->sl_node);
+
 	idle->last_ran = rq->clock_task;
 	idle->state = TASK_RUNNING;
 	idle->flags |= PF_IDLE;
@@ -5455,6 +5444,7 @@ void init_idle(struct task_struct *idle, int cpu)
 
 	rq->curr = rq->idle = idle;
 	idle->on_cpu = 1;
+	rq->sl_header = &idle->sl_node;
 
 	raw_spin_unlock(&rq->lock);
 	raw_spin_unlock_irqrestore(&idle->pi_lock, flags);
@@ -5665,8 +5655,8 @@ static void migrate_tasks(struct rq *dead_rq)
 	 */
 	rq->stop = NULL;
 
-	node = &rq->sl_header;
-	while ((node = node->next[0]) != &rq->sl_header) {
+	node = rq->sl_header;
+	while ((node = node->next[0]) != rq->sl_header) {
 		int dest_cpu;
 
 		p = skiplist_entry(node, struct task_struct, sl_node);
@@ -5711,7 +5701,7 @@ static void migrate_tasks(struct rq *dead_rq)
 		rq = dead_rq;
 		raw_spin_lock(&rq->lock);
 		/* Check queued task all over from the header again */
-		node = &rq->sl_header;
+		node = rq->sl_header;
 	}
 
 	rq->stop = stop;
@@ -6132,8 +6122,9 @@ void __init sched_init(void)
 #endif
 	for_each_possible_cpu(i) {
 		rq = cpu_rq(i);
-		FULL_INIT_SKIPLIST_NODE(&rq->sl_header);
+
 		raw_spin_lock_init(&rq->lock);
+		rq->sl_header = NULL;
 		rq->dither = 0;
 		rq->nr_running = rq->nr_uninterruptible = 0;
 		rq->calc_load_active = 0;
