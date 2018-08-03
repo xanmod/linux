@@ -1836,6 +1836,7 @@ static void hns3_replace_buffer(struct hns3_enet_ring *ring, int i,
 	hns3_unmap_buffer(ring, &ring->desc_cb[i]);
 	ring->desc_cb[i] = *res_cb;
 	ring->desc[i].addr = cpu_to_le64(ring->desc_cb[i].dma);
+	ring->desc[i].rx.bd_base_info = 0;
 }
 
 static void hns3_reuse_buffer(struct hns3_enet_ring *ring, int i)
@@ -1843,6 +1844,7 @@ static void hns3_reuse_buffer(struct hns3_enet_ring *ring, int i)
 	ring->desc_cb[i].reuse_flag = 0;
 	ring->desc[i].addr = cpu_to_le64(ring->desc_cb[i].dma
 		+ ring->desc_cb[i].page_offset);
+	ring->desc[i].rx.bd_base_info = 0;
 }
 
 static void hns3_nic_reclaim_one_desc(struct hns3_enet_ring *ring, int *bytes,
@@ -3600,6 +3602,8 @@ static int __init hns3_init_module(void)
 
 	client.ops = &client_ops;
 
+	INIT_LIST_HEAD(&client.node);
+
 	ret = hnae3_register_client(&client);
 	if (ret)
 		return ret;
@@ -3627,3 +3631,4 @@ MODULE_DESCRIPTION("HNS3: Hisilicon Ethernet Driver");
 MODULE_AUTHOR("Huawei Tech. Co., Ltd.");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("pci:hns-nic");
+MODULE_VERSION(HNS3_MOD_VERSION);
