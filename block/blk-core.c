@@ -820,7 +820,6 @@ int blk_queue_enter(struct request_queue *q, blk_mq_req_flags_t flags)
 	const bool preempt = flags & BLK_MQ_REQ_PREEMPT;
 
 	while (true) {
-		int ret;
 
 		rcu_read_lock_sched();
 		if (percpu_ref_tryget_live(&q->q_usage_counter)) {
@@ -852,13 +851,11 @@ int blk_queue_enter(struct request_queue *q, blk_mq_req_flags_t flags)
 		 */
 		smp_rmb();
 
-		ret = wait_event_interruptible(q->mq_freeze_wq,
-				!atomic_read(&q->mq_freeze_depth) ||
-				blk_queue_dying(q));
+		wait_event(q->mq_freeze_wq,
+			   !atomic_read(&q->mq_freeze_depth) ||
+			   blk_queue_dying(q));
 		if (blk_queue_dying(q))
 			return -ENODEV;
-		if (ret)
-			return ret;
 	}
 }
 
