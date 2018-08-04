@@ -5661,8 +5661,8 @@ static void migrate_tasks(struct rq *dead_rq)
 
 		p = skiplist_entry(node, struct task_struct, sl_node);
 
-		/* Leave kernel tasks only on this CPU along: */
-		if (p->flags & PF_KTHREAD && p->nr_cpus_allowed == 1)
+		/* skip the running task */
+		if (task_running(p))
 			continue;
 
 		/*
@@ -5689,10 +5689,8 @@ static void migrate_tasks(struct rq *dead_rq)
 		}
 
 		count++;
-		if (!cpumask_intersects(&p->cpus_allowed, cpu_online_mask))
-			cpumask_set_cpu(0, &p->cpus_allowed);
-		p->nr_cpus_allowed = cpumask_weight(&p->cpus_allowed);
-		dest_cpu = cpumask_any_and(&p->cpus_allowed, cpu_online_mask);
+		/* Find suitable destination for @next, with force if needed. */
+		dest_cpu = select_fallback_rq(dead_rq->cpu, p);
 
 		rq = __migrate_task(rq, p, dest_cpu);
 		raw_spin_unlock(&rq->lock);
