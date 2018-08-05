@@ -3251,38 +3251,39 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
  * SCHED_RQ_NR_MIGRATION to @dest_cpu
  */
 static inline int
-migrate_pending_tasks(struct rq *rq, struct rq *dest_rq, int dest_cpu)
+migrate_pending_tasks(struct rq *rq, struct rq *dest_rq, int filter_prio)
 {
+	struct task_struct *p;
+	int dest_cpu = cpu_of(dest_rq);
 	int nr_migrated = 0;
-	int nr_max_tries = min(rq->nr_running / 2, SCHED_RQ_NR_MIGRATION);
+	int nr_tries = min((rq->nr_running + 1) / 2, SCHED_RQ_NR_MIGRATION);
 	struct skiplist_node *node = rq->sl_header->next[0];
 
-	while (nr_max_tries && node != rq->sl_header) {
-		struct task_struct *p;
-
-		/* seek to the next node */
-		node = node->next[0];
-		if (node == rq->sl_header)
-			break;
-
+	while (nr_tries && node != rq->sl_header) {
 		p = skiplist_entry(node, struct task_struct, sl_node);
 		node = node->next[0];
-		nr_max_tries--;
 
-		/* skip the running task and check CPU affinity */
-		if (!task_running(p) &&
-		    cpumask_test_cpu(dest_cpu, &p->cpus_allowed)) {
+		if (task_running(p))
+			continue;
+		if (p->prio >= filter_prio)
+			break;
+		if (cpumask_test_cpu(dest_cpu, &p->cpus_allowed)) {
 			detach_task(rq, p, dest_cpu);
 			attach_task(dest_rq, p);
 			nr_migrated++;
 		}
+		nr_tries--;
+		/* make a jump */
+		if (node == rq->sl_header)
+			break;
+		node = node->next[0];
 	}
 
 	return nr_migrated;
 }
 
 static inline int
-take_queued_task_cpumask(struct rq *rq, int cpu, struct cpumask *chk_mask)
+take_queued_task_cpumask(struct rq *rq, cpumask_t *chk_mask, int filter_prio)
 {
 	int src_cpu;
 
@@ -3295,7 +3296,7 @@ take_queued_task_cpumask(struct rq *rq, int cpu, struct cpumask *chk_mask)
 		spin_acquire(&src_rq->lock.dep_map, SINGLE_DEPTH_NESTING, 1, _RET_IP_);
 
 		update_rq_clock(src_rq);
-		nr_migrated = migrate_pending_tasks(src_rq, rq, cpu);
+		nr_migrated = migrate_pending_tasks(src_rq, rq, filter_prio);
 
 		spin_release(&src_rq->lock.dep_map, 1, _RET_IP_);
 		do_raw_spin_unlock(&src_rq->lock);
@@ -3306,7 +3307,7 @@ take_queued_task_cpumask(struct rq *rq, int cpu, struct cpumask *chk_mask)
 	return 0;
 }
 
-static inline int take_other_rq_task(struct rq *rq, int cpu)
+static inline int take_other_rq_task(struct rq *rq, int cpu, int filter_prio)
 {
 	struct cpumask *affinity_mask, *end;
 
@@ -3316,7 +3317,7 @@ static inline int take_other_rq_task(struct rq *rq, int cpu)
 		struct cpumask tmp;
 		if (cpumask_andnot(&tmp, affinity_mask,
 				   &sched_rq_nr_running_masks[0]) &&
-		    take_queued_task_cpumask(rq, cpu, &tmp))
+		    take_queued_task_cpumask(rq, &tmp, filter_prio))
 			return 1;
 	} while (++affinity_mask < end);
 
@@ -3330,7 +3331,8 @@ static inline struct task_struct *choose_next_task(struct rq *rq, int cpu)
 
 #ifdef	CONFIG_SMP
 	if (likely(rq->online))
-		if (next == rq->idle && take_other_rq_task(rq, cpu)) {
+		if (next == rq->idle &&
+		    take_other_rq_task(rq, cpu, PRIO_LIMIT)) {
 			resched_curr(rq);
 			return rq_first_queued_task(rq);
 		}
