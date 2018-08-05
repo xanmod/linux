@@ -1505,20 +1505,32 @@ static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
  * @only_preempt_low_policy: indicate only preempt rq running low policy than @p
  */
 static inline int
-task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask)
+task_preemptible_rq_idle(struct task_struct *p, cpumask_t *chk_mask)
 {
 	cpumask_t tmp;
-	int level, preempt_level;
+
+	if (
+#ifdef CONFIG_SCHED_SMT
+	    cpumask_and(&tmp, chk_mask, &sched_cpu_sg_idle_mask) ||
+#endif
+	    cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[SCHED_RQ_EMPTY]))
+		return best_mask_cpu(task_cpu(p), &tmp);
+
+	return best_mask_cpu(task_cpu(p), chk_mask);
+}
+
+static inline int
+task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
+		    int preempt_level)
+{
+	cpumask_t tmp;
+	int level;
 
 #ifdef CONFIG_SCHED_SMT
 	if (cpumask_and(&tmp, chk_mask, &sched_cpu_sg_idle_mask))
 		return best_mask_cpu(task_cpu(p), &tmp);
 #endif
 
-	if (batch_task(p))
-		preempt_level = SCHED_RQ_NORMAL_0;
-	else
-		preempt_level = task_running_policy_level(p, this_rq());
 	level = find_first_bit(sched_rq_queued_masks_bitmap,
 			       NR_SCHED_RQ_QUEUED_LEVEL);
 
@@ -1531,10 +1543,10 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask)
 				      level + 1);
 	}
 
-	if (unlikely(level == preempt_level &&
-		     SCHED_RQ_RT == level &&
+	if (unlikely(SCHED_RQ_RT == level &&
+		     level == preempt_level &&
 		     cpumask_and(&tmp, chk_mask,
-				 &sched_rq_queued_masks[preempt_level]))) {
+				 &sched_rq_queued_masks[SCHED_RQ_RT]))) {
 		unsigned int cpu;
 
 		for_each_cpu (cpu, &tmp)
@@ -1555,11 +1567,26 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask)
 static inline int select_task_rq(struct task_struct *p)
 {
 	cpumask_t chk_mask;
+	int preempt_level;
 
 	if (unlikely(!cpumask_and(&chk_mask, &p->cpus_allowed, cpu_online_mask)))
 		return select_fallback_rq(task_cpu(p), p);
 
-	return task_preemptible_rq(p, &chk_mask);
+	/* Check IDLE tasks suitable to run normal priority */
+	if (idleprio_task(p)) {
+		if (idleprio_suitable(p)) {
+			p->prio = p->normal_prio;
+			update_task_priodl(p);
+			return task_preemptible_rq_idle(p, &chk_mask);
+		}
+		p->prio = NORMAL_PRIO;
+		update_task_priodl(p);
+	}
+
+	preempt_level = batch_task(p) ?
+		SCHED_RQ_NORMAL_0:task_running_policy_level(p, this_rq());
+
+	return task_preemptible_rq(p, &chk_mask, preempt_level);
 }
 #else /* CONFIG_SMP */
 static inline int select_task_rq(struct task_struct *p)
@@ -1837,12 +1864,6 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 	if (p->in_iowait) {
 		delayacct_blkio_end(p);
 		atomic_dec(&task_rq(p)->nr_iowait);
-	}
-
-	/* Check IDLE tasks suitable to run normal priority */
-	if (idleprio_task(p)) {
-		p->prio = idleprio_suitable(p)? p->normal_prio:NORMAL_PRIO;
-		update_task_priodl(p);
 	}
 
 	cpu = select_task_rq(p);
