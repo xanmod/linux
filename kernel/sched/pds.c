@@ -211,7 +211,7 @@ DEFINE_PER_CPU(cpumask_t *, sched_cpu_llc_start_mask);
 DEFINE_PER_CPU(cpumask_t *, sched_cpu_affinity_chk_end_masks);
 
 #ifdef CONFIG_SCHED_SMT
-DEFINE_PER_CPU(unsigned int, cpu_has_smt_sibling);
+DEFINE_PER_CPU(int, sched_sibling_cpu);
 
 static cpumask_t sched_cpu_sg_idle_mask ____cacheline_aligned_in_smp;
 #endif
@@ -499,7 +499,7 @@ static inline void update_sched_rq_queued_masks(struct rq *rq)
 		return;
 
 #ifdef CONFIG_SCHED_SMT
-	if (per_cpu(cpu_has_smt_sibling, cpu)) {
+	if (~0 != per_cpu(sched_sibling_cpu, cpu)) {
 		if (SCHED_RQ_EMPTY == last_level) {
 			cpumask_andnot(&sched_cpu_sg_idle_mask,
 				       &sched_cpu_sg_idle_mask,
@@ -6044,9 +6044,9 @@ static void sched_init_topology_cpumask(void)
 		cpumask_setall(chk);
 		cpumask_clear_cpu(cpu, chk);
 		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu))) {
+			per_cpu(sched_sibling_cpu, cpu) = cpumask_any(chk);
 			printk(KERN_INFO "pds: cpu #%d affinity check mask - smt 0x%08lx",
 			       cpu, (chk++)->bits[0]);
-			per_cpu(cpu_has_smt_sibling, cpu) = 1;
 		}
 #endif
 		cpumask_setall(chk);
@@ -6158,7 +6158,7 @@ void __init sched_init(void)
 		rq->nr_running_level = 0UL;
 
 #ifdef CONFIG_SCHED_SMT
-		per_cpu(cpu_has_smt_sibling, i)  = 0;
+		per_cpu(sched_sibling_cpu, i) = ~0;
 		rq->active_balance = 0;
 #endif
 #endif
