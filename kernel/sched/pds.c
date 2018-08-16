@@ -3307,16 +3307,24 @@ take_queued_task_cpumask(struct rq *rq, cpumask_t *chk_mask, int filter_prio)
 	return 0;
 }
 
-static inline int take_other_rq_task(struct rq *rq, int cpu, int filter_prio)
+static inline int take_other_rq_task(struct rq *rq, int filter_prio)
 {
 	struct cpumask *affinity_mask, *end;
+	int cpu = cpu_of(rq);
+	struct cpumask chk;
+
+	cpumask_complement(&chk, &sched_rq_nr_running_masks[0]);
+	if (IDLE_PRIO == filter_prio)
+		cpumask_andnot(&chk, &chk, &sched_rq_queued_masks[SCHED_RQ_IDLE]);
+	else if (PRIO_LIMIT != filter_prio)
+		cpumask_and(&chk, &chk, &sched_rq_queued_masks[SCHED_RQ_RT]);
 
 	affinity_mask = per_cpu(sched_cpu_llc_start_mask, cpu);
 	end = per_cpu(sched_cpu_affinity_chk_end_masks, cpu);
 	do {
 		struct cpumask tmp;
-		if (cpumask_andnot(&tmp, affinity_mask,
-				   &sched_rq_nr_running_masks[0]) &&
+
+		if (cpumask_and(&tmp, &chk, affinity_mask) &&
 		    take_queued_task_cpumask(rq, &tmp, filter_prio))
 			return 1;
 	} while (++affinity_mask < end);
@@ -3325,14 +3333,15 @@ static inline int take_other_rq_task(struct rq *rq, int cpu, int filter_prio)
 }
 #endif
 
-static inline struct task_struct *choose_next_task(struct rq *rq, int cpu)
+static inline struct task_struct *
+choose_next_task(struct rq *rq, struct task_struct *prev)
 {
 	struct task_struct *next = rq_first_queued_task(rq);
 
 #ifdef	CONFIG_SMP
 	if (likely(rq->online))
-		if (next == rq->idle &&
-		    take_other_rq_task(rq, cpu, PRIO_LIMIT)) {
+		if ((next->prio > prev->prio || PRIO_LIMIT == next->prio) &&
+		    take_other_rq_task(rq, next->prio)) {
 			resched_curr(rq);
 			return rq_first_queued_task(rq);
 		}
@@ -3518,7 +3527,7 @@ static void __sched notrace __schedule(bool preempt)
 
 	check_deadline(prev, rq);
 
-	next = choose_next_task(rq, cpu);
+	next = choose_next_task(rq, prev);
 
 	set_rq_task(rq, next);
 
