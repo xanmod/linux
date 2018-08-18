@@ -176,15 +176,6 @@ static inline int timeslice(void)
 }
 
 #ifdef CONFIG_SMP
-
-#define MAX_SCHED_RQ_NR_RUNNING_BITS (32UL)
-
-static cpumask_t sched_rq_nr_running_masks[MAX_SCHED_RQ_NR_RUNNING_BITS]
-____cacheline_aligned_in_smp;
-
-static DECLARE_BITMAP(sched_rq_nr_running_mb, MAX_SCHED_RQ_NR_RUNNING_BITS)
-____cacheline_aligned_in_smp;
-
 enum {
 SCHED_RQ_EMPTY		=	0,
 SCHED_RQ_IDLE,
@@ -204,6 +195,12 @@ static cpumask_t sched_rq_queued_masks[NR_SCHED_RQ_QUEUED_LEVEL]
 ____cacheline_aligned_in_smp;
 
 static DECLARE_BITMAP(sched_rq_queued_masks_bitmap, NR_SCHED_RQ_QUEUED_LEVEL)
+____cacheline_aligned_in_smp;
+
+static cpumask_t sched_rq_pending_masks[NR_SCHED_RQ_QUEUED_LEVEL]
+____cacheline_aligned_in_smp;
+
+static DECLARE_BITMAP(sched_rq_pending_masks_bitmap, NR_SCHED_RQ_QUEUED_LEVEL)
 ____cacheline_aligned_in_smp;
 
 DEFINE_PER_CPU(cpumask_t [NR_CPU_AFFINITY_CHK_LEVEL], sched_cpu_affinity_chk_masks);
@@ -412,6 +409,17 @@ static inline struct task_struct *rq_first_queued_task(struct rq *rq)
 			      struct task_struct, sl_node);
 }
 
+static inline struct task_struct *rq_second_queued_task(struct rq *rq)
+{
+	return skiplist_entry(rq->sl_header->next[0]->next[0],
+			      struct task_struct, sl_node);
+}
+
+static inline int is_second_in_rq(struct task_struct *p, struct rq *rq)
+{
+	return (p->sl_node.prev[0]->prev[0] == rq->sl_header);
+}
+
 static const int task_dl_hash_tbl[] = {
 /*	0           4           8           12           */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
@@ -445,17 +453,6 @@ __update_cpumasks_bitmap(int cpu, unsigned long *plevel, unsigned long level,
 	*plevel = level;
 
 	return true;
-}
-
-static inline void update_sched_rq_nr_running_masks(struct rq *rq)
-{
-	unsigned long level;
-
-	level = find_last_bit(&rq->nr_running, MAX_SCHED_RQ_NR_RUNNING_BITS);
-	level %= MAX_SCHED_RQ_NR_RUNNING_BITS;
-	__update_cpumasks_bitmap(cpu_of(rq), &rq->nr_running_level, level,
-				 &sched_rq_nr_running_masks[0],
-				 &sched_rq_nr_running_mb[0]);
 }
 
 static inline int
@@ -517,9 +514,23 @@ static inline void update_sched_rq_queued_masks(struct rq *rq)
 	}
 #endif
 }
+
+static inline void update_sched_rq_pending_masks(struct rq *rq)
+{
+	unsigned long level;
+	struct task_struct *p = rq_second_queued_task(rq);
+
+	level = task_running_policy_level(p, rq);
+
+	__update_cpumasks_bitmap(cpu_of(rq), &rq->pending_level, level,
+				 &sched_rq_pending_masks[0],
+				 &sched_rq_pending_masks_bitmap[0]);
+}
+
 #else /* CONFIG_SMP */
 static inline void update_sched_rq_queued_masks(struct rq *rq) {}
 static inline void update_sched_rq_queued_masks_normal(struct rq *rq) {}
+static inline void update_sched_rq_pending_masks(struct rq *rq) {}
 #endif
 
 #ifdef CONFIG_NO_HZ_FULL
@@ -563,12 +574,12 @@ static inline void dequeue_task(struct task_struct *p, struct rq *rq)
 
 	WARN_ONCE(task_rq(p) != rq, "pds: dequeue task reside on cpu%d from cpu%d\n",
 		  task_cpu(p), cpu_of(rq));
-	if (skiplist_del_init(rq->sl_header, &p->sl_node))
+	if (skiplist_del_init(rq->sl_header, &p->sl_node)) {
 		update_sched_rq_queued_masks(rq);
+		update_sched_rq_pending_masks(rq);
+	} else if (is_second_in_rq(p, rq))
+		update_sched_rq_pending_masks(rq);
 	rq->nr_running--;
-#ifdef CONFIG_SMP
-	update_sched_rq_nr_running_masks(rq);
-#endif
 
 	sched_update_tick_dependency(rq);
 
@@ -665,12 +676,12 @@ static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 		  task_cpu(p), cpu_of(rq));
 
 	p->sl_node.level = p->sl_level;
-	if (pds_skiplist_insert(rq->sl_header, &p->sl_node))
+	if (pds_skiplist_insert(rq->sl_header, &p->sl_node)) {
 		update_sched_rq_queued_masks(rq);
+		update_sched_rq_pending_masks(rq);
+	} else if (is_second_in_rq(p, rq))
+		update_sched_rq_pending_masks(rq);
 	rq->nr_running++;
-#ifdef CONFIG_SMP
-	update_sched_rq_nr_running_masks(rq);
-#endif
 
 	sched_update_tick_dependency(rq);
 
@@ -687,7 +698,7 @@ static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 
 static inline void requeue_task(struct task_struct *p, struct rq *rq)
 {
-	bool b_first;
+	bool b_first, b_second;
 
 	lockdep_assert_held(&rq->lock);
 
@@ -695,10 +706,14 @@ static inline void requeue_task(struct task_struct *p, struct rq *rq)
 		  cpu_of(rq), task_cpu(p));
 
 	b_first = skiplist_del_init(rq->sl_header, &p->sl_node);
+	b_second = is_second_in_rq(p, rq);
 
 	p->sl_node.level = p->sl_level;
-	if (pds_skiplist_insert(rq->sl_header, &p->sl_node) || b_first)
+	if (pds_skiplist_insert(rq->sl_header, &p->sl_node) || b_first) {
 		update_sched_rq_queued_masks(rq);
+		update_sched_rq_pending_masks(rq);
+	} else if (is_second_in_rq(p, rq) || b_second)
+		update_sched_rq_pending_masks(rq);
 }
 
 /*
@@ -3313,11 +3328,14 @@ static inline int take_other_rq_task(struct rq *rq, int filter_prio)
 	int cpu = cpu_of(rq);
 	struct cpumask chk;
 
-	cpumask_complement(&chk, &sched_rq_nr_running_masks[0]);
-	if (IDLE_PRIO == filter_prio)
-		cpumask_andnot(&chk, &chk, &sched_rq_queued_masks[SCHED_RQ_IDLE]);
-	else if (PRIO_LIMIT != filter_prio)
-		cpumask_and(&chk, &chk, &sched_rq_queued_masks[SCHED_RQ_RT]);
+	if (PRIO_LIMIT == filter_prio) {
+		cpumask_complement(&chk, &sched_rq_pending_masks[SCHED_RQ_EMPTY]);
+	} else if (IDLE_PRIO == filter_prio) {
+		cpumask_complement(&chk, &sched_rq_pending_masks[SCHED_RQ_EMPTY]);
+		cpumask_andnot(&chk, &chk, &sched_rq_pending_masks[SCHED_RQ_IDLE]);
+	} else
+		cpumask_copy(&chk, &sched_rq_pending_masks[SCHED_RQ_RT]);
+
 
 	affinity_mask = per_cpu(sched_cpu_llc_start_mask, cpu);
 	end = per_cpu(sched_cpu_affinity_chk_end_masks, cpu);
@@ -6145,8 +6163,8 @@ void __init sched_init(void)
 	cpumask_setall(&sched_rq_queued_masks[SCHED_RQ_EMPTY]);
 	set_bit(SCHED_RQ_EMPTY, sched_rq_queued_masks_bitmap);
 
-	cpumask_setall(&sched_rq_nr_running_masks[0]);
-	set_bit(0, sched_rq_nr_running_mb);
+	cpumask_setall(&sched_rq_pending_masks[SCHED_RQ_EMPTY]);
+	set_bit(SCHED_RQ_EMPTY, sched_rq_pending_masks_bitmap);
 #else
 	uprq = &per_cpu(runqueues, 0);
 #endif
@@ -6164,8 +6182,7 @@ void __init sched_init(void)
 		rq->cpu = i;
 
 		rq->queued_level = SCHED_RQ_EMPTY;
-		rq->nr_running_level = 0UL;
-
+		rq->pending_level = SCHED_RQ_EMPTY;
 #ifdef CONFIG_SCHED_SMT
 		per_cpu(sched_sibling_cpu, i) = ~0;
 		rq->active_balance = 0;

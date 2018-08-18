@@ -69,6 +69,9 @@ struct rq {
 	int cpu;		/* cpu of this runqueue */
 	bool online;
 
+	unsigned long queued_level;
+	unsigned long pending_level;
+
 #ifdef CONFIG_SCHED_SMT
 	int active_balance;
 	struct cpu_stop_work active_balance_work;
@@ -94,9 +97,6 @@ struct rq {
 
 	unsigned long nr_running;
 	unsigned long nr_uninterruptible;
-
-	unsigned long nr_running_level;
-	unsigned long queued_level;
 
 #ifdef CONFIG_SCHED_HRTICK
 #ifdef CONFIG_SMP
