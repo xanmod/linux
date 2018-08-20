@@ -77,12 +77,6 @@
 
 #define MIN_VISIBLE_DEADLINE	(1 << 8)
 
-/*
- * RQ balance mask and shift
- */
-static u64 sched_balance_mask ____cacheline_aligned_in_smp = (8ULL - 1);
-static u64 sched_balance_shift ____cacheline_aligned_in_smp = 0UL;
-
 enum {
 	BASE_CPU_AFFINITY_CHK_LEVEL = 1,
 #ifdef CONFIG_SCHED_SMT
@@ -176,6 +170,12 @@ static inline int timeslice(void)
 }
 
 #ifdef CONFIG_SMP
+/*
+ * RQ balance mask and shift
+ */
+static u64 sched_balance_mask ____cacheline_aligned_in_smp = (8ULL - 1);
+static u64 sched_balance_shift ____cacheline_aligned_in_smp = 0UL;
+
 enum {
 SCHED_RQ_EMPTY		=	0,
 SCHED_RQ_IDLE,
@@ -484,7 +484,10 @@ static inline void update_sched_rq_queued_masks_normal(struct rq *rq)
 static inline void update_sched_rq_queued_masks(struct rq *rq)
 {
 	int cpu = cpu_of(rq);
-	unsigned long level, last_level = rq->queued_level;
+	unsigned long level;
+#ifdef CONFIG_SCHED_SMT
+	unsigned long last_level = rq->queued_level;
+#endif
 	struct task_struct *p = rq_first_queued_task(rq);
 
 	level = task_running_policy_level(p, rq);
@@ -590,7 +593,7 @@ static inline void dequeue_task(struct task_struct *p, struct rq *rq)
  * To determine if it's safe for a task of SCHED_IDLE to actually run as
  * an idle task, we ensure none of the following conditions are met.
  */
-static bool idleprio_suitable(struct task_struct *p)
+static inline bool idleprio_suitable(struct task_struct *p)
 {
 	return (!freezing(p) && !signal_pending(p) &&
 		!(task_contributes_to_load(p)) && !(p->flags & (PF_EXITING)));
