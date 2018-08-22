@@ -80,8 +80,7 @@ struct task_struct init_task
 	.pushable_tasks	= PLIST_NODE_INIT(init_task.pushable_tasks, MAX_PRIO),
 #endif
 #ifdef CONFIG_CGROUP_SCHED
-	/* PDS not supported yet
-	.sched_task_group = &root_task_group,*/
+	.sched_task_group = &root_task_group,
 #endif
 	.ptraced	= LIST_HEAD_INIT(init_task.ptraced),
 	.ptrace_entry	= LIST_HEAD_INIT(init_task.ptrace_entry),
