@@ -2956,7 +2956,8 @@ static __latent_entropy void pds_run_rebalance(struct softirq_action *h)
 
 	raw_spin_lock_irqsave(&this_rq->lock, flags);
 	curr = this_rq->curr;
-	if (cpumask_and(&tmp, &curr->cpus_allowed, &sched_cpu_sg_idle_mask)) {
+	if (!is_idle_task(curr) &&
+	    cpumask_and(&tmp, &curr->cpus_allowed, &sched_cpu_sg_idle_mask)) {
 		int active_balance = 0;
 
 		if (likely(!this_rq->active_balance)) {
