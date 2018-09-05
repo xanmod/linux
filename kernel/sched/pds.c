@@ -255,16 +255,6 @@ DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 # define finish_arch_post_lock_switch()	do { } while (0)
 #endif
 
-/**
- * A task that is not running or queued will not have a node set.
- * A task that is queued but not running will have a node set.
- * A task that is currently running will have ->on_cpu set but no node set.
- */
-static inline bool task_queued(struct task_struct *p)
-{
-	return !skiplist_empty(&p->sl_node);
-}
-
 /*
  * Context: p->pi_lock
  */
@@ -1773,9 +1763,6 @@ static int ttwu_remote(struct task_struct *p, int wake_flags)
 	int ret = 0;
 
 	rq = __task_access_lock(p, &lock);
-	/*
-	if (task_running(p) || task_queued(p)) {
-	*/
 	if (task_on_rq_queued(p)) {
 		ttwu_do_wakeup(rq, p, wake_flags);
 		ret = 1;
@@ -2043,7 +2030,7 @@ static void try_to_wake_up_local(struct task_struct *p)
 
 	trace_sched_waking(p);
 
-	if (!task_queued(p)) {
+	if (!task_on_rq_queued(p)) {
 		if (p->in_iowait) {
 			delayacct_blkio_end(p);
 			atomic_dec(&task_rq(p)->nr_iowait);
@@ -2946,7 +2933,7 @@ static int active_load_balance_cpu_stop(void *data)
 	/*
 	 * _something_ may have changed the task, double check again
 	 */
-	if (task_queued(p) && task_rq(p) == rq &&
+	if (task_on_rq_queued(p) && task_rq(p) == rq &&
 	    cpumask_and(&tmp, &p->cpus_allowed, &sched_cpu_sg_idle_mask))
 		rq = __migrate_task(rq, p, cpumask_any(&tmp));
 
@@ -3350,7 +3337,7 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
 
 	if (p->time_slice < RESCHED_US || batch_task(p)) {
 		time_slice_expired(p, rq);
-		if (task_queued(p))
+		if (task_on_rq_queued(p))
 			requeue_task(p, rq);
 	}
 }
@@ -3938,7 +3925,7 @@ check_task_changed(struct rq *rq, struct task_struct *p)
 	/*
 	 * Trigger changes when task priority/deadline modified.
 	 */
-	if (task_queued(p)) {
+	if (task_on_rq_queued(p)) {
 		struct task_struct *first;
 
 		requeue_task(p, rq);
@@ -4243,7 +4230,6 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 {
 	const struct cpumask *cpu_valid_mask = cpu_active_mask;
 	int dest_cpu;
-	bool queued = false;
 	unsigned long flags;
 	struct rq *rq;
 	raw_spinlock_t *lock;
@@ -4276,8 +4262,6 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 		goto out;
 	}
 
-	queued = task_queued(p);
-
 	do_set_cpus_allowed(p, new_mask);
 
 	if (p->flags & PF_KTHREAD) {
@@ -4305,7 +4289,7 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 		tlb_migrate_finish(p->mm);
 		return 0;
 	}
-	if (task_queued(p)) {
+	if (task_on_rq_queued(p)) {
 		/*
 		 * OK, since we're going to drop the lock immediately
 		 * afterwards anyway.
@@ -5847,7 +5831,7 @@ static void migrate_tasks(struct rq *dead_rq)
 		 * changed the task, WARN if weird stuff happened, because in
 		 * that case the above rq->lock drop is a fail too.
 		 */
-		if (WARN_ON(task_rq(p) != rq || !task_queued(p))) {
+		if (WARN_ON(task_rq(p) != rq || !task_on_rq_queued(p))) {
 			raw_spin_unlock(&p->pi_lock);
 			continue;
 		}
