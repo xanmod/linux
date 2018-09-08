@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2010-2018 Junjiro R. Okajima
  *
@@ -155,7 +155,7 @@ int __init au_procfs_init(void)
 	if (unlikely(!au_procfs_dir))
 		goto out;
 
-	entry = proc_create(AUFS_PLINK_MAINT_NAME, S_IFREG | S_IWUSR,
+	entry = proc_create(AUFS_PLINK_MAINT_NAME, S_IFREG | 0200,
 			    au_procfs_dir, &au_procfs_plm_fop);
 	if (unlikely(!entry))
 		goto out_dir;

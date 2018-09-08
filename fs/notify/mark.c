@@ -108,7 +108,6 @@ void fsnotify_get_mark(struct fsnotify_mark *mark)
 	WARN_ON_ONCE(!atomic_read(&mark->refcnt));
 	atomic_inc(&mark->refcnt);
 }
-EXPORT_SYMBOL_GPL(fsnotify_put_mark);
 
 static void __fsnotify_recalc_mask(struct fsnotify_mark_connector *conn)
 {
@@ -292,6 +291,7 @@ static void fsnotify_put_mark_wake(struct fsnotify_mark *mark)
 			wake_up(&group->notification_waitq);
 	}
 }
+EXPORT_SYMBOL_GPL(fsnotify_put_mark);
 
 bool fsnotify_prepare_user_wait(struct fsnotify_iter_info *iter_info)
 {
@@ -606,7 +606,6 @@ err:
 	fsnotify_put_mark(mark);
 	return ret;
 }
-EXPORT_SYMBOL_GPL(fsnotify_add_mark);
 
 int fsnotify_add_mark(struct fsnotify_mark *mark, struct inode *inode,
 		      struct vfsmount *mnt, int allow_dups)
@@ -619,6 +618,7 @@ int fsnotify_add_mark(struct fsnotify_mark *mark, struct inode *inode,
 	mutex_unlock(&group->mark_mutex);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(fsnotify_add_mark);
 
 /*
  * Given a list of marks, find the mark associated with given group. If found

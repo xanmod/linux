@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -314,7 +314,7 @@ void sysaufs_br_init(struct au_branch *br)
 		attr = &br_sysfs->attr;
 		sysfs_attr_init(attr);
 		attr->name = br_sysfs->name;
-		attr->mode = S_IRUGO;
+		attr->mode = 0444;
 		br_sysfs++;
 	}
 }

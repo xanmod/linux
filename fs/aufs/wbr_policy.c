@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -127,8 +127,7 @@ static int au_cpdown_dir(struct dentry *dentry, aufs_bindex_t bdst,
 		goto out;
 	h_path.dentry = au_h_dptr(dentry, bdst);
 	h_path.mnt = au_sbr_mnt(dentry->d_sb, bdst);
-	err = vfsub_sio_mkdir(au_h_iptr(dir, bdst), &h_path,
-			      S_IRWXU | S_IRUGO | S_IXUGO);
+	err = vfsub_sio_mkdir(au_h_iptr(dir, bdst), &h_path, 0755);
 	if (unlikely(err))
 		goto out_put;
 	au_fset_cpdown(*flags, MADE_DIR);

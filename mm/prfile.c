@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Mainly for aufs which mmap(2) different file and wants to print different
  * path in /proc/PID/maps.

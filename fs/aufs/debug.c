@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -54,7 +54,7 @@ static struct kernel_param_ops param_ops_atomic_t = {
 
 atomic_t aufs_debug = ATOMIC_INIT(0);
 MODULE_PARM_DESC(debug, "debug print");
-module_param_named(debug, aufs_debug, atomic_t, S_IRUGO | S_IWUSR | S_IWGRP);
+module_param_named(debug, aufs_debug, atomic_t, 0664);
 
 DEFINE_MUTEX(au_dbg_mtx);	/* just to serialize the dbg msgs */
 char *au_plevel = KERN_DEBUG;
@@ -306,7 +306,8 @@ static int do_pri_br(aufs_bindex_t bindex, struct au_branch *br)
 	     bindex, br->br_perm, br->br_id, au_br_count(br),
 	     br->br_wbr, au_sbtype(sb), MAJOR(sb->s_dev), MINOR(sb->s_dev),
 	     sb->s_flags, sb->s_count,
-	     atomic_read(&sb->s_active), !!au_xino_file(br));
+	     atomic_read(&sb->s_active),
+	     !!au_xino_file(br->br_xino, /*idx*/-1));
 	return 0;
 
 out:

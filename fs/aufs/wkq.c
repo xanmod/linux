@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -274,7 +274,8 @@ static void au_wkq_run(struct au_wkinfo *wkinfo)
 	if (au_ftest_wkq(wkinfo->flags, NEST)) {
 		if (au_wkq_test()) {
 			AuWarn1("wkq from wkq, unless silly-rename on NFS,"
-				" due to a dead dir by UDBA?\n");
+				" due to a dead dir by UDBA,"
+				" or async xino write?\n");
 			AuDebugOn(au_ftest_wkq(wkinfo->flags, WAIT));
 		}
 	} else

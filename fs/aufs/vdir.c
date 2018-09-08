@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2005-2018 Junjiro R. Okajima
  *
@@ -484,6 +484,7 @@ static int fillvdir(struct dir_context *ctx, const char *__name, int nlen,
 		if (au_nhash_test_known_wh(&arg->whlist, name, nlen))
 			goto out; /* already whiteouted */
 
+		ino = 0; /* just to suppress a warning */
 		if (shwh)
 			arg->err = au_wh_ino(sb, arg->bindex, h_ino, d_type,
 					     &ino);

@@ -53,11 +53,6 @@ typedef void (*au_wkq_func_t)(void *args);
 #define au_fclr_wkq(flags, name) \
 	do { (flags) &= ~AuWkq_##name; } while (0)
 
-#ifndef CONFIG_AUFS_HNOTIFY
-#undef AuWkq_NEST
-#define AuWkq_NEST	0
-#endif
-
 /* wkq.c */
 int au_wkq_do_wait(unsigned int flags, au_wkq_func_t func, void *args);
 int au_wkq_nowait(au_wkq_func_t func, void *args, struct super_block *sb,

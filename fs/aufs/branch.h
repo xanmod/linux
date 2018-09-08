@@ -35,7 +35,9 @@
 
 /* a xino file */
 struct au_xino {
-	struct file		*xi_file;
+	struct file		**xi_file;
+	unsigned int		xi_nfile;
+
 	struct {
 		spinlock_t		spin;
 		ino_t			*array;
@@ -45,11 +47,14 @@ struct au_xino {
 		wait_queue_head_t	wqh;
 	} xi_nondir;
 
+	struct mutex		xi_mtx;	/* protects xi_file array */
+	/* reserved for future use */
+	/* wait_queue_head_t	xi_wq; */
+	/* atomic_t		xi_pending; */
+
 	atomic_t		xi_truncating;
 
 	struct kref		xi_kref;
-
-	/* todo: make xino files an array to support huge inode number */
 };
 
 /* File-based Hierarchical Storage Management */
@@ -221,14 +226,6 @@ static inline int au_xino_count(struct au_branch *br)
 	return v;
 }
 
-static inline struct file *au_xino_file(struct au_branch *br)
-{
-	struct au_xino *xi;
-
-	xi = br->br_xino;
-	return xi ? xi->xi_file : NULL;
-}
-
 /* ---------------------------------------------------------------------- */
 
 /* branch.c */
@@ -255,6 +252,13 @@ static const loff_t au_loff_max = LLONG_MAX;
 struct file *au_xino_create(struct super_block *sb, char *fpath, int silent);
 struct file *au_xino_create2(struct super_block *sb, struct path *base,
 			     struct file *copy_src);
+struct au_xi_new {
+	struct au_xino *xi;	/* switch between xino and xigen */
+	int idx;
+	struct path *base;
+	struct file *copy_src;
+};
+struct file *au_xi_new(struct super_block *sb, struct au_xi_new *xinew);
 
 int au_xino_read(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
 		 ino_t *ino);
@@ -266,11 +270,11 @@ ssize_t xino_fwrite(vfs_writef_t func, struct file *file, void *buf,
 		    size_t size, loff_t *pos);
 
 int au_xib_trunc(struct super_block *sb);
-int au_xino_trunc(struct super_block *sb, aufs_bindex_t bindex);
+int au_xino_trunc(struct super_block *sb, aufs_bindex_t bindex, int idx_begin);
 
-struct au_xino *au_xino_alloc(void);
+struct au_xino *au_xino_alloc(unsigned int nfile);
 int au_xino_put(struct au_branch *br);
-void au_xino_file_set(struct au_branch *br, struct file *file);
+struct file *au_xino_file1(struct au_xino *xi);
 
 struct au_opt_xino;
 void au_xino_clr(struct super_block *sb);
@@ -288,6 +292,27 @@ int au_xinondir_enter(struct super_block *sb, aufs_bindex_t bindex, ino_t h_ino,
 		      int *idx);
 
 int au_xino_path(struct seq_file *seq, struct file *file);
+
+/* ---------------------------------------------------------------------- */
+
+/* @idx is signed to accept -1 meaning the first file */
+static inline struct file *au_xino_file(struct au_xino *xi, int idx)
+{
+	struct file *file;
+
+	file = NULL;
+	if (!xi)
+		goto out;
+
+	if (idx >= 0) {
+		if (idx < xi->xi_nfile)
+			file = xi->xi_file[idx];
+	} else
+		file = au_xino_file1(xi);
+
+out:
+	return file;
+}
 
 /* ---------------------------------------------------------------------- */
 
