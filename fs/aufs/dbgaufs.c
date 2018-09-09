@@ -83,7 +83,6 @@ static int dbgaufs_xi_open(struct file *xf, struct file *file, int do_fcnt,
 
 out:
 	return err;
-
 }
 
 static ssize_t dbgaufs_xi_read(struct file *file, char __user *buf,
@@ -218,38 +217,61 @@ static const struct file_operations dbgaufs_xib_fop = {
 
 static int dbgaufs_xino_open(struct inode *inode, struct file *file)
 {
-	int err;
+	int err, idx;
 	long l;
+	aufs_bindex_t bindex;
+	char *p, a[sizeof(DbgaufsXi_PREFIX) + 8];
 	struct au_sbinfo *sbinfo;
 	struct super_block *sb;
+	struct au_xino *xi;
 	struct file *xf;
 	struct qstr *name;
 	struct au_branch *br;
 
 	err = -ENOENT;
-	xf = NULL;
 	name = &file->f_path.dentry->d_name;
 	if (unlikely(name->len < sizeof(DbgaufsXi_PREFIX)
 		     || memcmp(name->name, DbgaufsXi_PREFIX,
 			       sizeof(DbgaufsXi_PREFIX) - 1)))
 		goto out;
-	err = kstrtol(name->name + sizeof(DbgaufsXi_PREFIX) - 1, 10, &l);
+
+	AuDebugOn(name->len >= sizeof(a));
+	memcpy(a, name->name, name->len);
+	a[name->len] = '\0';
+	p = strchr(a, '-');
+	if (p)
+		*p = '\0';
+	err = kstrtol(a + sizeof(DbgaufsXi_PREFIX) - 1, 10, &l);
 	if (unlikely(err))
 		goto out;
+	bindex = l;
+	idx = 0;
+	if (p) {
+		err = kstrtol(p + 1, 10, &l);
+		if (unlikely(err))
+			goto out;
+		idx = l;
+	}
 
+	err = -ENOENT;
 	sbinfo = inode->i_private;
 	sb = sbinfo->si_sb;
 	si_noflush_read_lock(sb);
-	if (l <= au_sbbot(sb)) {
-		br = au_sbr(sb, (aufs_bindex_t)l);
-		xf = au_xino_file(br);
+	if (unlikely(bindex < 0 || bindex > au_sbbot(sb)))
+		goto out_si;
+	br = au_sbr(sb, bindex);
+	xi = br->br_xino;
+	if (unlikely(idx >= xi->xi_nfile))
+		goto out_si;
+	xf = au_xino_file(xi, idx);
+	if (xf)
 		err = dbgaufs_xi_open(xf, file, /*do_fcnt*/1,
 				      au_xino_count(br));
-	} else
-		err = -ENOENT;
-	si_read_unlock(sb);
 
+out_si:
+	si_read_unlock(sb);
 out:
+	AuTraceErr(err);
 	return err;
 }
 
@@ -290,14 +312,20 @@ void dbgaufs_brs_del(struct super_block *sb, aufs_bindex_t bindex)
 	}
 }
 
-static void dbgaufs_br_add(struct super_block *sb, aufs_bindex_t bindex,
-			   struct dentry *parent, struct au_sbinfo *sbinfo)
+static void dbgaufs_br_do_add(struct super_block *sb, aufs_bindex_t bindex,
+			      unsigned int idx, struct dentry *parent,
+			      struct au_sbinfo *sbinfo)
 {
 	struct au_branch *br;
 	struct dentry *d;
-	char name[sizeof(DbgaufsXi_PREFIX) + 5]; /* "xi" bindex NULL */
+	/* "xi" bindex(5) "-" idx(2) NULL */
+	char name[sizeof(DbgaufsXi_PREFIX) + 8];
 
-	snprintf(name, sizeof(name), DbgaufsXi_PREFIX "%d", bindex);
+	if (!idx)
+		snprintf(name, sizeof(name), DbgaufsXi_PREFIX "%d", bindex);
+	else
+		snprintf(name, sizeof(name), DbgaufsXi_PREFIX "%d-%u",
+			 bindex, idx);
 	br = au_sbr(sb, bindex);
 	if (br->br_dbgaufs) {
 		struct qstr qstr = QSTR_INIT(name, strlen(name));
@@ -321,6 +349,19 @@ static void dbgaufs_br_add(struct super_block *sb, aufs_bindex_t bindex,
 			pr_warn("failed creaiting %pd/%s, ignored.\n",
 				parent, name);
 	}
+}
+
+static void dbgaufs_br_add(struct super_block *sb, aufs_bindex_t bindex,
+			   struct dentry *parent, struct au_sbinfo *sbinfo)
+{
+	struct au_branch *br;
+	struct au_xino *xi;
+	unsigned int u;
+
+	br = au_sbr(sb, bindex);
+	xi = br->br_xino;
+	for (u = 0; u < xi->xi_nfile; u++)
+		dbgaufs_br_do_add(sb, bindex, u, parent, sbinfo);
 }
 
 void dbgaufs_brs_add(struct super_block *sb, aufs_bindex_t bindex, int topdown)

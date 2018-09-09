@@ -1443,7 +1443,8 @@ static int au_opt_simple(struct super_block *sb, struct au_opt *opt,
 
 	case Opt_trunc_xino_path:
 	case Opt_itrunc_xino:
-		err = au_xino_trunc(sb, opt->xino_itrunc.bindex);
+		err = au_xino_trunc(sb, opt->xino_itrunc.bindex,
+				    /*idx_begin*/0);
 		if (!err)
 			err = 1;
 		break;
