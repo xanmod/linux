@@ -1603,17 +1603,19 @@ task_preemptible_rq_idle(struct task_struct *p, cpumask_t *chk_mask)
 	if (cpumask_and(&tmp, chk_mask, &sched_cpu_sg_idle_mask))
 		return best_mask_cpu(task_cpu(p), &tmp);
 #endif
-	if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[SCHED_RQ_EMPTY])) {
-#ifdef CONFIG_SMT_NICE
-		/* Only ttwu on cpu which is not smt supressed */
-		cpumask_t t;
-		if (cpumask_andnot(&t, &tmp,  &sched_smt_supressed_mask))
-			best_mask_cpu(task_cpu(p), &t);
-#else
-		return best_mask_cpu(task_cpu(p), &tmp);
-#endif /* !CONFIG_SMT_NICE */
-	}
 
+#ifdef CONFIG_SMT_NICE
+	/* Only ttwu on cpu which is not smt supressed */
+	if (cpumask_andnot(&tmp, chk_mask, &sched_smt_supressed_mask)) {
+		cpumask_t t;
+		if (cpumask_and(&t, &tmp, &sched_rq_queued_masks[SCHED_RQ_EMPTY]))
+			return best_mask_cpu(task_cpu(p), &t);
+		return best_mask_cpu(task_cpu(p), &tmp);
+	}
+#endif
+
+	if (cpumask_and(&tmp, chk_mask, &sched_rq_queued_masks[SCHED_RQ_EMPTY]))
+		return best_mask_cpu(task_cpu(p), &tmp);
 	return best_mask_cpu(task_cpu(p), chk_mask);
 }
 
