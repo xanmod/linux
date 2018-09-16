@@ -892,6 +892,8 @@ static int btrfs_parse_early_options(const char *options, fmode_t flags,
 	char *device_name, *opts, *orig, *p;
 	int error = 0;
 
+	lockdep_assert_held(&uuid_mutex);
+
 	if (!options)
 		return 0;
 
@@ -1526,22 +1528,12 @@ static struct dentry *btrfs_mount_root(struct file_system_type *fs_type,
 	if (!(flags & SB_RDONLY))
 		mode |= FMODE_WRITE;
 
-	error = btrfs_parse_early_options(data, mode, fs_type,
-					  &fs_devices);
-	if (error) {
-		return ERR_PTR(error);
-	}
-
 	security_init_mnt_opts(&new_sec_opts);
 	if (data) {
 		error = parse_security_options(data, &new_sec_opts);
 		if (error)
 			return ERR_PTR(error);
 	}
-
-	error = btrfs_scan_one_device(device_name, mode, fs_type, &fs_devices);
-	if (error)
-		goto error_sec_opts;
 
 	/*
 	 * Setup a dummy root and fs_info for test/set super.  This is because
@@ -1555,8 +1547,6 @@ static struct dentry *btrfs_mount_root(struct file_system_type *fs_type,
 		goto error_sec_opts;
 	}
 
-	fs_info->fs_devices = fs_devices;
-
 	fs_info->super_copy = kzalloc(BTRFS_SUPER_INFO_SIZE, GFP_KERNEL);
 	fs_info->super_for_commit = kzalloc(BTRFS_SUPER_INFO_SIZE, GFP_KERNEL);
 	security_init_mnt_opts(&fs_info->security_opts);
@@ -1565,7 +1555,23 @@ static struct dentry *btrfs_mount_root(struct file_system_type *fs_type,
 		goto error_fs_info;
 	}
 
+	mutex_lock(&uuid_mutex);
+	error = btrfs_parse_early_options(data, mode, fs_type, &fs_devices);
+	if (error) {
+		mutex_unlock(&uuid_mutex);
+		goto error_fs_info;
+	}
+
+	error = btrfs_scan_one_device(device_name, mode, fs_type, &fs_devices);
+	if (error) {
+		mutex_unlock(&uuid_mutex);
+		goto error_fs_info;
+	}
+
+	fs_info->fs_devices = fs_devices;
+
 	error = btrfs_open_devices(fs_devices, mode, fs_type);
+	mutex_unlock(&uuid_mutex);
 	if (error)
 		goto error_fs_info;
 
@@ -2234,15 +2240,21 @@ static long btrfs_control_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case BTRFS_IOC_SCAN_DEV:
+		mutex_lock(&uuid_mutex);
 		ret = btrfs_scan_one_device(vol->name, FMODE_READ,
 					    &btrfs_root_fs_type, &fs_devices);
+		mutex_unlock(&uuid_mutex);
 		break;
 	case BTRFS_IOC_DEVICES_READY:
+		mutex_lock(&uuid_mutex);
 		ret = btrfs_scan_one_device(vol->name, FMODE_READ,
 					    &btrfs_root_fs_type, &fs_devices);
-		if (ret)
+		if (ret) {
+			mutex_unlock(&uuid_mutex);
 			break;
+		}
 		ret = !(fs_devices->num_devices == fs_devices->total_devices);
+		mutex_unlock(&uuid_mutex);
 		break;
 	case BTRFS_IOC_GET_SUPPORTED_FEATURES:
 		ret = btrfs_ioctl_get_supported_features((void __user*)arg);
@@ -2368,7 +2380,7 @@ static __cold void btrfs_interface_exit(void)
 
 static void __init btrfs_print_mod_info(void)
 {
-	pr_info("Btrfs loaded, crc32c=%s"
+	static const char options[] = ""
 #ifdef CONFIG_BTRFS_DEBUG
 			", debug=on"
 #endif
@@ -2381,8 +2393,8 @@ static void __init btrfs_print_mod_info(void)
 #ifdef CONFIG_BTRFS_FS_REF_VERIFY
 			", ref-verify=on"
 #endif
-			"\n",
-			crc32c_impl());
+			;
+	pr_info("Btrfs loaded, crc32c=%s%s\n", crc32c_impl(), options);
 }
 
 static int __init init_btrfs_fs(void)

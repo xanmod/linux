@@ -2149,8 +2149,12 @@ static void f2fs_write_failed(struct address_space *mapping, loff_t to)
 
 	if (to > i_size) {
 		down_write(&F2FS_I(inode)->i_mmap_sem);
+		down_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
+
 		truncate_pagecache(inode, i_size);
 		f2fs_truncate_blocks(inode, i_size, true);
+
+		up_write(&F2FS_I(inode)->i_gc_rwsem[WRITE]);
 		up_write(&F2FS_I(inode)->i_mmap_sem);
 	}
 }
@@ -2489,6 +2493,10 @@ static int f2fs_set_data_page_dirty(struct page *page)
 
 	if (!PageUptodate(page))
 		SetPageUptodate(page);
+
+	/* don't remain PG_checked flag which was set during GC */
+	if (is_cold_data(page))
+		clear_cold_data(page);
 
 	if (f2fs_is_atomic_file(inode) && !f2fs_is_commit_atomic_write(inode)) {
 		if (!IS_ATOMIC_WRITTEN_PAGE(page)) {

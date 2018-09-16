@@ -1334,6 +1334,7 @@ amdgpu_dm_register_backlight_device(struct amdgpu_display_manager *dm)
 	struct backlight_properties props = { 0 };
 
 	props.max_brightness = AMDGPU_MAX_BL_LEVEL;
+	props.brightness = AMDGPU_MAX_BL_LEVEL;
 	props.type = BACKLIGHT_RAW;
 
 	snprintf(bl_name, sizeof(bl_name), "amdgpu_bl%d",
@@ -2123,13 +2124,8 @@ convert_color_depth_from_display_info(const struct drm_connector *connector)
 static enum dc_aspect_ratio
 get_aspect_ratio(const struct drm_display_mode *mode_in)
 {
-	int32_t width = mode_in->crtc_hdisplay * 9;
-	int32_t height = mode_in->crtc_vdisplay * 16;
-
-	if ((width - height) < 10 && (width - height) > -10)
-		return ASPECT_RATIO_16_9;
-	else
-		return ASPECT_RATIO_4_3;
+	/* 1-1 mapping, since both enums follow the HDMI spec. */
+	return (enum dc_aspect_ratio) mode_in->picture_aspect_ratio;
 }
 
 static enum dc_color_space
