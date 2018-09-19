@@ -349,18 +349,4 @@ unsigned long arch_scale_cpu_capacity(struct sched_domain *sd, int cpu)
 
 extern void schedule_idle(void);
 
-/*
- * !! For sched_setattr_nocheck() (kernel) only !!
- *
- * This is actually gross. :(
- *
- * It is used to make schedutil kworker(s) higher priority than SCHED_DEADLINE
- * tasks, but still be able to sleep. We need this on platforms that cannot
- * atomically change clock frequency. Remove once fast switching will be
- * available on such platforms.
- *
- * SUGOV stands for SchedUtil GOVernor.
- */
-#define SCHED_FLAG_SUGOV	0x10000000
-
 #endif /* PDS_SCHED_H */

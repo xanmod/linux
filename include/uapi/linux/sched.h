@@ -42,10 +42,7 @@
 #define SCHED_ISO		4
 #endif /* CONFIG_SCHED_PDS */
 #define SCHED_IDLE		5
-#ifdef CONFIG_SCHED_PDS
-/* Re-mapping SCHED_DEADLINE to SCHED_FIFO in PDS */
-#define SCHED_DEADLINE		SCHED_FIFO
-#else
+#ifndef CONFIG_SCHED_PDS
 #define SCHED_DEADLINE		6
 #endif /* !CONFIG_SCHED_PDS */
 

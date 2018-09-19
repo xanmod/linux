@@ -583,10 +583,16 @@ static int sugov_kthread_create(struct sugov_policy *sg_policy)
 	struct task_struct *thread;
 	struct sched_attr attr = {
 		.size		= sizeof(struct sched_attr),
+#ifdef CONFIG_SCHED_PDS
+		.sched_policy	= SCHED_FIFO,
+		.sched_nice	= 0,
+		.sched_priority	= 1,
+#else
 		.sched_policy	= SCHED_DEADLINE,
 		.sched_flags	= SCHED_FLAG_SUGOV,
 		.sched_nice	= 0,
 		.sched_priority	= 0,
+#endif
 		/*
 		 * Fake (unused) bandwidth; workaround to "fix"
 		 * priority inheritance.
