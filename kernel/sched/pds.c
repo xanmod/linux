@@ -75,8 +75,6 @@
 
 #define RESCHED_US	(100) /* Reschedule if less than this many μs left */
 
-#define MIN_VISIBLE_DEADLINE	(1 << 8)
-
 enum {
 	BASE_CPU_AFFINITY_CHK_LEVEL = 1,
 #ifdef CONFIG_SCHED_SMT
@@ -2134,35 +2132,23 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 	/*
 	 * Share the timeslice between parent and child, thus the
 	 * total amount of pending timeslices in the system doesn't change,
-	 * resulting in more scheduling fairness. But this limited the fork
-	 * boost in one time slice. So punishment for run queue time slice only
-	 * apply to IDLE and BATCH policy tasks.
-	 * If it's negative, it won't matter since that's the same as being 0.
-	 * as is its last_ran value.
+	 * resulting in more scheduling fairness.
 	 */
-	if (likely(p->policy != SCHED_FIFO)) {
+	if (SCHED_NORMAL == p->policy || SCHED_RR == p->policy ||
+	    SCHED_ISO == p->policy) {
 		raw_spin_lock_irqsave(&rq->lock, flags);
-		if (idleprio_task(p) || batch_task(p)) {
-			rq->curr->time_slice /= 2;
-			p->time_slice = rq->curr->time_slice;
+		rq->curr->time_slice /= 2;
+		p->time_slice = rq->curr->time_slice;
 #ifdef CONFIG_SCHED_HRTICK
-			hrtick_start(rq, rq->curr->time_slice);
+		hrtick_start(rq, rq->curr->time_slice);
 #endif
-		} else
-			p->time_slice = rq->curr->time_slice / 2;
 
 		if (p->time_slice < RESCHED_US) {
 			update_rq_clock(rq);
 			time_slice_expired(p, rq);
-		} else {
-			/*
-			 * child should has earlier deadline than parent,
-			 * which will do child-runs-first in anticipation
-			 * of an exec. usually avoids a lot of COW overhead.
-			 */
-			p->deadline -= MIN_VISIBLE_DEADLINE;
+			resched_curr(rq);
+		} else
 			update_task_priodl(p);
-		}
 		raw_spin_unlock_irqrestore(&rq->lock, flags);
 	} else
 		update_task_priodl(p);
