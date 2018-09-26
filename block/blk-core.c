@@ -791,9 +791,13 @@ void blk_cleanup_queue(struct request_queue *q)
 	 * make sure all in-progress dispatch are completed because
 	 * blk_freeze_queue() can only complete all requests, and
 	 * dispatch may still be in-progress since we dispatch requests
-	 * from more than one contexts
+	 * from more than one contexts.
+	 *
+	 * No need to quiesce queue if it isn't initialized yet since
+	 * blk_freeze_queue() should be enough for cases of passthrough
+	 * request.
 	 */
-	if (q->mq_ops)
+	if (q->mq_ops && blk_queue_init_done(q))
 		blk_mq_quiesce_queue(q);
 
 	/* for synchronous bio-based driver finish in-flight integrity i/o */
@@ -2161,8 +2165,11 @@ static inline bool bio_check_ro(struct bio *bio, struct hd_struct *part)
 {
 	const int op = bio_op(bio);
 
-	if (part->policy && (op_is_write(op) && !op_is_flush(op))) {
+	if (part->policy && op_is_write(op)) {
 		char b[BDEVNAME_SIZE];
+
+		if (op_is_flush(bio->bi_opf) && !bio_sectors(bio))
+			return false;
 
 		WARN_ONCE(1,
 		       "generic_make_request: Trying to write "
