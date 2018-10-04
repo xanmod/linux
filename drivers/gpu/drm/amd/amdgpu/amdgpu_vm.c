@@ -123,6 +123,7 @@ static void amdgpu_vm_bo_base_init(struct amdgpu_vm_bo_base *base,
 	 * is validated on next vm use to avoid fault.
 	 * */
 	list_move_tail(&base->vm_status, &vm->evicted);
+	base->moved = true;
 }
 
 /**
@@ -303,7 +304,6 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 	uint64_t addr;
 	int r;
 
-	addr = amdgpu_bo_gpu_offset(bo);
 	entries = amdgpu_bo_size(bo) / 8;
 
 	if (pte_support_ats) {
@@ -335,6 +335,7 @@ static int amdgpu_vm_clear_bo(struct amdgpu_device *adev,
 	if (r)
 		goto error;
 
+	addr = amdgpu_bo_gpu_offset(bo);
 	if (ats_entries) {
 		uint64_t ats_value;
 

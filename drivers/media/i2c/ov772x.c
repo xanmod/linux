@@ -542,9 +542,19 @@ static struct ov772x_priv *to_ov772x(struct v4l2_subdev *sd)
 	return container_of(sd, struct ov772x_priv, subdev);
 }
 
-static inline int ov772x_read(struct i2c_client *client, u8 addr)
+static int ov772x_read(struct i2c_client *client, u8 addr)
 {
-	return i2c_smbus_read_byte_data(client, addr);
+	int ret;
+	u8 val;
+
+	ret = i2c_master_send(client, &addr, 1);
+	if (ret < 0)
+		return ret;
+	ret = i2c_master_recv(client, &val, 1);
+	if (ret < 0)
+		return ret;
+
+	return val;
 }
 
 static inline int ov772x_write(struct i2c_client *client, u8 addr, u8 value)
@@ -1136,7 +1146,7 @@ static int ov772x_set_fmt(struct v4l2_subdev *sd,
 static int ov772x_video_probe(struct ov772x_priv *priv)
 {
 	struct i2c_client  *client = v4l2_get_subdevdata(&priv->subdev);
-	u8                  pid, ver;
+	int		    pid, ver, midh, midl;
 	const char         *devname;
 	int		    ret;
 
@@ -1146,7 +1156,11 @@ static int ov772x_video_probe(struct ov772x_priv *priv)
 
 	/* Check and show product ID and manufacturer ID. */
 	pid = ov772x_read(client, PID);
+	if (pid < 0)
+		return pid;
 	ver = ov772x_read(client, VER);
+	if (ver < 0)
+		return ver;
 
 	switch (VERSION(pid, ver)) {
 	case OV7720:
@@ -1162,13 +1176,17 @@ static int ov772x_video_probe(struct ov772x_priv *priv)
 		goto done;
 	}
 
+	midh = ov772x_read(client, MIDH);
+	if (midh < 0)
+		return midh;
+	midl = ov772x_read(client, MIDL);
+	if (midl < 0)
+		return midl;
+
 	dev_info(&client->dev,
 		 "%s Product ID %0x:%0x Manufacturer ID %x:%x\n",
-		 devname,
-		 pid,
-		 ver,
-		 ov772x_read(client, MIDH),
-		 ov772x_read(client, MIDL));
+		 devname, pid, ver, midh, midl);
+
 	ret = v4l2_ctrl_handler_setup(&priv->hdl);
 
 done:
@@ -1255,13 +1273,11 @@ static int ov772x_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA |
-					      I2C_FUNC_PROTOCOL_MANGLING)) {
+	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA)) {
 		dev_err(&adapter->dev,
-			"I2C-Adapter doesn't support SMBUS_BYTE_DATA or PROTOCOL_MANGLING\n");
+			"I2C-Adapter doesn't support SMBUS_BYTE_DATA\n");
 		return -EIO;
 	}
-	client->flags |= I2C_CLIENT_SCCB;
 
 	priv = devm_kzalloc(&client->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
