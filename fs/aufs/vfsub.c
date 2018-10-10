@@ -111,9 +111,10 @@ out:
  * cf. linux/fs/namei.c:do_last(), lookup_open() and atomic_open().
  */
 int vfsub_atomic_open(struct inode *dir, struct dentry *dentry,
-		      struct vfsub_aopen_args *args, struct au_branch *br)
+		      struct vfsub_aopen_args *args)
 {
 	int err;
+	struct au_branch *br = args->br;
 	struct file *file = args->file;
 	/* copied from linux/fs/namei.c:atomic_open() */
 	struct dentry *const DENTRY_NOT_SET = (void *)-1UL;
@@ -125,31 +126,38 @@ int vfsub_atomic_open(struct inode *dir, struct dentry *dentry,
 	if (unlikely(err))
 		goto out;
 
-	args->file->f_path.dentry = DENTRY_NOT_SET;
-	args->file->f_path.mnt = au_br_mnt(br);
+	au_lcnt_inc(&br->br_nfiles);
+	file->f_path.dentry = DENTRY_NOT_SET;
+	file->f_path.mnt = au_br_mnt(br);
 	err = dir->i_op->atomic_open(dir, dentry, file, args->open_flag,
 				     args->create_mode, args->opened);
-	if (err >= 0) {
-		/* some filesystems don't set FILE_CREATED while succeeded? */
-		if (*args->opened & FILE_CREATED)
-			fsnotify_create(dir, dentry);
-	} else
+	if (unlikely(err < 0)) {
+		au_lcnt_dec(&br->br_nfiles);
 		goto out;
-
-
-	if (!err) {
-		/* todo: call VFS:may_open() here */
-		err = open_check_o_direct(file);
-		/* todo: ima_file_check() too? */
-		if (!err && (args->open_flag & __FMODE_EXEC))
-			err = deny_write_access(file);
-		if (unlikely(err))
-			/* note that the file is created and still opened */
-			goto out;
 	}
 
-	au_br_get(br);
-	fsnotify_open(file);
+	/* temporary workaround for nfsv4 branch */
+	if (au_test_nfs(dir->i_sb))
+		nfs_mark_for_revalidate(dir);
+
+	/* some filesystems don't set FILE_CREATED while succeeded? */
+	if (*args->opened & FILE_CREATED)
+		fsnotify_create(dir, dentry);
+	if (!(*args->opened & FILE_OPENED)) {
+		au_lcnt_dec(&br->br_nfiles);
+		goto out;
+	}
+
+	/* todo: call VFS:may_open() here */
+	err = open_check_o_direct(file);
+	/* todo: ima_file_check() too? */
+	if (!err && (args->open_flag & __FMODE_EXEC))
+		err = deny_write_access(file);
+	if (!err)
+		fsnotify_open(file);
+	else
+		au_lcnt_dec(&br->br_nfiles);
+	/* note that the file is created and still opened */
 
 out:
 	return err;

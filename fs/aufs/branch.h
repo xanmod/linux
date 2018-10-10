@@ -28,6 +28,7 @@
 #include <linux/mount.h>
 #include "dirren.h"
 #include "dynop.h"
+#include "lcnt.h"
 #include "rwsem.h"
 #include "super.h"
 
@@ -113,7 +114,8 @@ struct au_branch {
 	struct path		br_path;
 	spinlock_t		br_dykey_lock;
 	struct au_dykey		*br_dykey[AuBrDynOp];
-	struct percpu_counter	br_count;
+	au_lcnt_t		br_nfiles;	/* opened files */
+	au_lcnt_t		br_count;	/* in-use for other */
 
 	struct au_wbr		*br_wbr;
 	struct au_br_fhsm	*br_fhsm;
@@ -149,31 +151,6 @@ static inline struct dentry *au_br_dentry(struct au_branch *br)
 static inline struct super_block *au_br_sb(struct au_branch *br)
 {
 	return au_br_mnt(br)->mnt_sb;
-}
-
-static inline void au_br_get(struct au_branch *br)
-{
-	percpu_counter_inc(&br->br_count);
-}
-
-static inline void au_br_put(struct au_branch *br)
-{
-	percpu_counter_dec(&br->br_count);
-}
-
-static inline s64 au_br_count(struct au_branch *br)
-{
-	return percpu_counter_sum(&br->br_count);
-}
-
-static inline void au_br_count_init(struct au_branch *br)
-{
-	percpu_counter_init(&br->br_count, 0, GFP_NOFS);
-}
-
-static inline void au_br_count_fin(struct au_branch *br)
-{
-	percpu_counter_destroy(&br->br_count);
 }
 
 static inline int au_br_rdonly(struct au_branch *br)
@@ -249,6 +226,7 @@ int au_br_stfs(struct au_branch *br, struct aufs_stfs *stfs);
 /* xino.c */
 static const loff_t au_loff_max = LLONG_MAX;
 
+aufs_bindex_t au_xi_root(struct super_block *sb, struct dentry *dentry);
 struct file *au_xino_create(struct super_block *sb, char *fpath, int silent);
 struct file *au_xino_create2(struct super_block *sb, struct path *base,
 			     struct file *copy_src);
@@ -333,16 +311,6 @@ static inline
 struct super_block *au_sbr_sb(struct super_block *sb, aufs_bindex_t bindex)
 {
 	return au_br_sb(au_sbr(sb, bindex));
-}
-
-static inline void au_sbr_get(struct super_block *sb, aufs_bindex_t bindex)
-{
-	au_br_get(au_sbr(sb, bindex));
-}
-
-static inline void au_sbr_put(struct super_block *sb, aufs_bindex_t bindex)
-{
-	au_br_put(au_sbr(sb, bindex));
 }
 
 static inline int au_sbr_perm(struct super_block *sb, aufs_bindex_t bindex)

@@ -38,8 +38,10 @@ static void au_br_do_free(struct au_branch *br)
 	au_dr_hino_free(&br->br_dirren);
 	au_xino_put(br);
 
-	AuDebugOn(au_br_count(br));
-	au_br_count_fin(br);
+	AuLCntZero(au_lcnt_read(&br->br_nfiles, /*do_rev*/0));
+	au_lcnt_fin(&br->br_nfiles, /*do_sync*/0);
+	AuLCntZero(au_lcnt_read(&br->br_count, /*do_rev*/0));
+	au_lcnt_fin(&br->br_count, /*do_sync*/0);
 
 	wbr = br->br_wbr;
 	if (wbr) {
@@ -62,10 +64,15 @@ static void au_br_do_free(struct au_branch *br)
 			break;
 
 	/* recursive lock, s_umount of branch's */
+	/* synchronize_rcu(); */ /* why? */
 	lockdep_off();
 	path_put(&br->br_path);
 	lockdep_on();
 	kfree(wbr);
+	au_lcnt_wait_for_fin(&br->br_nfiles);
+	au_lcnt_wait_for_fin(&br->br_count);
+	/* I don't know why, but percpu_refcount requires this */
+	/* synchronize_rcu(); */
 	kfree(br);
 }
 
@@ -390,7 +397,8 @@ static int au_br_init(struct au_branch *br, struct super_block *sb,
 	br->br_perm = add->perm;
 	br->br_path = add->path; /* set first, path_get() later */
 	spin_lock_init(&br->br_dykey_lock);
-	au_br_count_init(br);
+	au_lcnt_init(&br->br_nfiles, /*release*/NULL);
+	au_lcnt_init(&br->br_count, /*release*/NULL);
 	br->br_id = au_new_br_id(sb);
 	AuDebugOn(br->br_id < 0);
 
@@ -502,7 +510,6 @@ int au_br_add(struct super_block *sb, struct au_opt_add *add, int remount)
 	struct dentry *root, *h_dentry;
 	struct inode *root_inode;
 	struct au_branch *add_branch;
-	struct file *xf;
 
 	root = sb->s_root;
 	root_inode = d_inode(root);
@@ -540,19 +547,6 @@ int au_br_add(struct super_block *sb, struct au_opt_add *add, int remount)
 		sb->s_maxbytes = h_dentry->d_sb->s_maxbytes;
 	} else
 		au_add_nlink(root_inode, d_inode(h_dentry));
-
-	/*
-	 * this test/set prevents aufs from handling unnecessary notify events
-	 * of xino files, in case of re-adding a writable branch which was
-	 * once detached from aufs.
-	 */
-	if (au_xino_brid(sb) < 0
-	    && au_br_writable(add_branch->br_perm)
-	    && !au_test_fs_bad_xino(h_dentry->d_sb)) {
-		xf = au_xino_file(add_branch->br_xino, /*idx*/-1);
-		if (xf && xf->f_path.dentry->d_parent == h_dentry)
-			au_xino_brid_set(sb, add_branch->br_id);
-	}
 
 out:
 	return err;
@@ -592,7 +586,10 @@ static unsigned long long au_farray_cb(struct super_block *sb, void *a,
 static struct file **au_farray_alloc(struct super_block *sb,
 				     unsigned long long *max)
 {
-	*max = au_nfiles(sb);
+	struct au_sbinfo *sbi;
+
+	sbi = au_sbi(sb);
+	*max = au_lcnt_read(&sbi->si_nfiles, /*do_rev*/1);
 	return au_array_alloc(max, au_farray_cb, sb, /*arg*/NULL);
 }
 
@@ -1035,11 +1032,16 @@ int au_br_del(struct super_block *sb, struct au_opt_del *del, int remount)
 		AuVerbose(verbose, "no more branches left\n");
 		goto out;
 	}
+
 	br = au_sbr(sb, bindex);
 	AuDebugOn(!path_equal(&br->br_path, &del->h_path));
+	if (unlikely(au_lcnt_read(&br->br_count, /*do_rev*/1))) {
+		AuVerbose(verbose, "br %pd2 is busy now\n", del->h_path.dentry);
+		goto out;
+	}
 
 	br_id = br->br_id;
-	opened = au_br_count(br);
+	opened = au_lcnt_read(&br->br_nfiles, /*do_rev*/1);
 	if (unlikely(opened)) {
 		to_free = au_array_alloc(&opened, empty_cb, sb, NULL);
 		err = PTR_ERR(to_free);
@@ -1096,8 +1098,6 @@ int au_br_del(struct super_block *sb, struct au_opt_del *del, int remount)
 	if (au_opt_test(mnt_flags, PLINK))
 		au_plink_half_refresh(sb, br_id);
 
-	if (au_xino_brid(sb) == br_id)
-		au_xino_brid_set(sb, -1);
 	goto out; /* success */
 
 out_wh:

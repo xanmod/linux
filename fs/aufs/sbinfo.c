@@ -36,10 +36,10 @@ void au_si_free(struct kobject *kobj)
 		AuDebugOn(!hlist_bl_empty(sbinfo->si_plink + i));
 	AuDebugOn(atomic_read(&sbinfo->si_nowait.nw_len));
 
-	AuDebugOn(percpu_counter_sum(&sbinfo->si_ninodes));
-	percpu_counter_destroy(&sbinfo->si_ninodes);
-	AuDebugOn(percpu_counter_sum(&sbinfo->si_nfiles));
-	percpu_counter_destroy(&sbinfo->si_nfiles);
+	AuLCntZero(au_lcnt_read(&sbinfo->si_ninodes, /*do_rev*/0));
+	au_lcnt_fin(&sbinfo->si_ninodes, /*do_sync*/0);
+	AuLCntZero(au_lcnt_read(&sbinfo->si_nfiles, /*do_rev*/0));
+	au_lcnt_fin(&sbinfo->si_nfiles, /*do_sync*/0);
 
 	dbgaufs_si_fin(sbinfo);
 	au_rw_write_lock(&sbinfo->si_rwsem);
@@ -50,6 +50,8 @@ void au_si_free(struct kobject *kobj)
 	mutex_destroy(&sbinfo->si_xib_mtx);
 	AuRwDestroy(&sbinfo->si_rwsem);
 
+	au_lcnt_wait_for_fin(&sbinfo->si_ninodes);
+	/* si_nfiles is waited too */
 	kfree(sbinfo);
 }
 
@@ -81,8 +83,8 @@ int au_si_alloc(struct super_block *sb)
 	au_nwt_init(&sbinfo->si_nowait);
 	au_rw_init_wlock(&sbinfo->si_rwsem);
 
-	percpu_counter_init(&sbinfo->si_ninodes, 0, GFP_NOFS);
-	percpu_counter_init(&sbinfo->si_nfiles, 0, GFP_NOFS);
+	au_lcnt_init(&sbinfo->si_ninodes, /*release*/NULL);
+	au_lcnt_init(&sbinfo->si_nfiles, /*release*/NULL);
 
 	sbinfo->si_bbot = -1;
 	sbinfo->si_last_br_id = AUFS_BRANCH_MAX / 2;
@@ -100,7 +102,6 @@ int au_si_alloc(struct super_block *sb)
 	sbinfo->si_xino_expire
 		= msecs_to_jiffies(AUFS_XINO_DEF_SEC * MSEC_PER_SEC);
 	mutex_init(&sbinfo->si_xib_mtx);
-	sbinfo->si_xino_brid = -1;
 	/* leave si_xib_last_pindex and si_xib_next_bit */
 
 	INIT_HLIST_BL_HEAD(&sbinfo->si_aopen);

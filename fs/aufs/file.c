@@ -83,7 +83,7 @@ struct file *au_h_open(struct dentry *dentry, aufs_bindex_t bindex, int flags,
 		}
 	}
 	flags &= ~O_CREAT;
-	au_br_get(br);
+	au_lcnt_inc(&br->br_nfiles);
 	h_path.dentry = h_dentry;
 	h_path.mnt = au_br_mnt(br);
 	h_file = vfsub_dentry_open(&h_path, flags);
@@ -102,7 +102,7 @@ struct file *au_h_open(struct dentry *dentry, aufs_bindex_t bindex, int flags,
 	goto out; /* success */
 
 out_br:
-	au_br_put(br);
+	au_lcnt_dec(&br->br_nfiles);
 out:
 	return h_file;
 }
@@ -250,7 +250,8 @@ int au_do_open(struct file *file, struct au_do_open_args *args)
 			err = args->open(file, vfsub_file_flags(file), NULL);
 		else {
 			lockdep_off();
-			err = args->open(file, vfsub_file_flags(file), NULL);
+			err = args->open(file, vfsub_file_flags(file),
+					 args->h_file);
 			lockdep_on();
 		}
 	}
@@ -284,10 +285,12 @@ int au_reopen_nondir(struct file *file)
 	int err;
 	aufs_bindex_t btop;
 	struct dentry *dentry;
+	struct au_branch *br;
 	struct file *h_file, *h_file_tmp;
 
 	dentry = file->f_path.dentry;
 	btop = au_dbtop(dentry);
+	br = au_sbr(dentry->d_sb, btop);
 	h_file_tmp = NULL;
 	if (au_fbtop(file) == btop) {
 		h_file = au_hf_top(file);
@@ -295,6 +298,7 @@ int au_reopen_nondir(struct file *file)
 			return 0; /* success */
 		h_file_tmp = h_file;
 		get_file(h_file_tmp);
+		au_lcnt_inc(&br->br_nfiles);
 		au_set_h_fptr(file, btop, NULL);
 	}
 	AuDebugOn(au_fi(file)->fi_hdir);
@@ -315,7 +319,7 @@ int au_reopen_nondir(struct file *file)
 	err = PTR_ERR(h_file);
 	if (IS_ERR(h_file)) {
 		if (h_file_tmp) {
-			au_sbr_get(dentry->d_sb, btop);
+			/* revert */
 			au_set_h_fptr(file, btop, h_file_tmp);
 			h_file_tmp = NULL;
 		}
@@ -330,8 +334,10 @@ int au_reopen_nondir(struct file *file)
 	/* file->f_ra = h_file->f_ra; */
 
 out:
-	if (h_file_tmp)
+	if (h_file_tmp) {
 		fput(h_file_tmp);
+		au_lcnt_dec(&br->br_nfiles);
+	}
 	return err;
 }
 

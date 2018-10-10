@@ -855,10 +855,10 @@ int au_vdir_fill_de(struct file *file, struct dir_context *ctx)
 	struct au_vdir *vdir_cache;
 	struct au_vdir_de *de;
 
-	vdir_cache = au_fvdir_cache(file);
 	if (!seek_vdir(file, ctx))
 		return 0;
 
+	vdir_cache = au_fvdir_cache(file);
 	deblk_sz = vdir_cache->vd_deblk_sz;
 	while (1) {
 		deblk_end.deblk = vdir_cache->vd_deblk[vdir_cache->vd_last.ul];
