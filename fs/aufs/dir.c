@@ -588,6 +588,7 @@ static int do_test_empty(struct dentry *dentry, struct test_empty_arg *arg)
 {
 	int err;
 	struct file *h_file;
+	struct au_branch *br;
 
 	h_file = au_h_open(dentry, arg->bindex,
 			   O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_LARGEFILE,
@@ -612,7 +613,8 @@ static int do_test_empty(struct dentry *dentry, struct test_empty_arg *arg)
 
 out_put:
 	fput(h_file);
-	au_sbr_put(dentry->d_sb, arg->bindex);
+	br = au_sbr(dentry->d_sb, arg->bindex);
+	au_lcnt_dec(&br->br_nfiles);
 out:
 	return err;
 }

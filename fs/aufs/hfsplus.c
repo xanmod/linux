@@ -50,8 +50,11 @@ struct file *au_h_open_pre(struct dentry *dentry, aufs_bindex_t bindex,
 void au_h_open_post(struct dentry *dentry, aufs_bindex_t bindex,
 		    struct file *h_file)
 {
+	struct au_branch *br;
+
 	if (h_file) {
 		fput(h_file);
-		au_sbr_put(dentry->d_sb, bindex);
+		br = au_sbr(dentry->d_sb, bindex);
+		au_lcnt_dec(&br->br_nfiles);
 	}
 }

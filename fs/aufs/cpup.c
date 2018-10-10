@@ -447,6 +447,7 @@ static int au_cp_regular(struct au_cp_generic *cpg)
 			.label = &&out_src
 		}
 	};
+	struct au_branch *br;
 	struct super_block *sb, *h_src_sb;
 	struct inode *h_src_inode;
 	struct task_struct *tsk = current;
@@ -484,11 +485,13 @@ static int au_cp_regular(struct au_cp_generic *cpg)
 		task_work_run();
 		flush_delayed_fput();
 	}
-	au_sbr_put(sb, file[DST].bindex);
+	br = au_sbr(sb, file[DST].bindex);
+	au_lcnt_dec(&br->br_nfiles);
 
 out_src:
 	fput(file[SRC].file);
-	au_sbr_put(sb, file[SRC].bindex);
+	br = au_sbr(sb, file[SRC].bindex);
+	au_lcnt_dec(&br->br_nfiles);
 out:
 	return err;
 }

@@ -622,7 +622,7 @@ aufs_fh_to_dentry(struct super_block *sb, struct fid *fid, int fh_len,
 
 	/* is the parent dir cached? */
 	br = au_sbr(sb, nsi_lock.bindex);
-	au_br_get(br);
+	au_lcnt_inc(&br->br_nfiles);
 	dentry = decode_by_dir_ino(sb, ino, dir_ino, &nsi_lock);
 	if (IS_ERR(dentry))
 		goto out_unlock;
@@ -646,7 +646,7 @@ accept:
 	dentry = ERR_PTR(-ESTALE);
 out_unlock:
 	if (br)
-		au_br_put(br);
+		au_lcnt_dec(&br->br_nfiles);
 	si_read_unlock(sb);
 out:
 	AuTraceErrPtr(dentry);

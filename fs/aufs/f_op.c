@@ -49,29 +49,30 @@ int au_do_open_nondir(struct file *file, int flags, struct file *h_file)
 		if (unlikely(err))
 			goto out;
 		h_file = au_h_open(dentry, bindex, flags, file, /*force_wr*/0);
+		if (IS_ERR(h_file)) {
+			err = PTR_ERR(h_file);
+			goto out;
+		}
 	} else {
 		h_dentry = h_file->f_path.dentry;
 		err = vfsub_test_mntns(file->f_path.mnt, h_dentry->d_sb);
 		if (unlikely(err))
 			goto out;
-		get_file(h_file);
+		/* br ref is already inc-ed */
 	}
-	if (IS_ERR(h_file))
-		err = PTR_ERR(h_file);
-	else {
-		if ((flags & __O_TMPFILE)
-		    && !(flags & O_EXCL)) {
-			h_inode = file_inode(h_file);
-			spin_lock(&h_inode->i_lock);
-			h_inode->i_state |= I_LINKABLE;
-			spin_unlock(&h_inode->i_lock);
-		}
-		au_set_fbtop(file, bindex);
-		au_set_h_fptr(file, bindex, h_file);
-		au_update_figen(file);
-		/* todo: necessary? */
-		/* file->f_ra = h_file->f_ra; */
+
+	if ((flags & __O_TMPFILE)
+	    && !(flags & O_EXCL)) {
+		h_inode = file_inode(h_file);
+		spin_lock(&h_inode->i_lock);
+		h_inode->i_state |= I_LINKABLE;
+		spin_unlock(&h_inode->i_lock);
 	}
+	au_set_fbtop(file, bindex);
+	au_set_h_fptr(file, bindex, h_file);
+	au_update_figen(file);
+	/* todo: necessary? */
+	/* file->f_ra = h_file->f_ra; */
 
 out:
 	return err;

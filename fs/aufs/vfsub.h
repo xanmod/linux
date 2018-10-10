@@ -98,15 +98,16 @@ int vfsub_sync_filesystem(struct super_block *h_sb, int wait);
 int vfsub_update_h_iattr(struct path *h_path, int *did);
 struct file *vfsub_dentry_open(struct path *path, int flags);
 struct file *vfsub_filp_open(const char *path, int oflags, int mode);
-struct vfsub_aopen_args {
-	struct file	*file;
-	unsigned int	open_flag;
-	umode_t		create_mode;
-	int		*opened;
-};
 struct au_branch;
+struct vfsub_aopen_args {
+	struct file		*file;
+	unsigned int		open_flag;
+	umode_t			create_mode;
+	struct au_branch	*br;
+	int			*opened;
+};
 int vfsub_atomic_open(struct inode *dir, struct dentry *dentry,
-		      struct vfsub_aopen_args *args, struct au_branch *br);
+		      struct vfsub_aopen_args *args);
 int vfsub_kern_path(const char *name, unsigned int flags, struct path *path);
 
 struct dentry *vfsub_lookup_one_len_unlocked(const char *name,

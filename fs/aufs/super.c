@@ -187,6 +187,7 @@ static int au_show_xino(struct seq_file *seq, struct super_block *sb)
 	struct qstr *name;
 	struct file *f;
 	struct dentry *d, *h_root;
+	struct au_branch *br;
 
 	AuRwMustAnyLock(&sbinfo->si_rwsem);
 
@@ -197,11 +198,12 @@ static int au_show_xino(struct seq_file *seq, struct super_block *sb)
 
 	/* stop printing the default xino path on the first writable branch */
 	h_root = NULL;
-	brid = au_xino_brid(sb);
-	if (brid >= 0) {
-		bindex = au_br_index(sb, brid);
-		h_root = au_hdentry(au_di(sb->s_root), bindex)->hd_dentry;
+	bindex = au_xi_root(sb, f->f_path.dentry);
+	if (bindex >= 0) {
+		br = au_sbr_sb(sb, bindex);
+		h_root = au_br_dentry(br);
 	}
+
 	d = f->f_path.dentry;
 	name = &d->d_name;
 	/* safe ->d_parent because the file is unlinked */
@@ -539,7 +541,10 @@ static unsigned long long au_iarray_cb(struct super_block *sb, void *a,
 
 struct inode **au_iarray_alloc(struct super_block *sb, unsigned long long *max)
 {
-	*max = au_ninodes(sb);
+	struct au_sbinfo *sbi;
+
+	sbi = au_sbi(sb);
+	*max = au_lcnt_read(&sbi->si_ninodes, /*do_rev*/1);
 	return au_array_alloc(max, au_iarray_cb, sb, &sb->s_inodes);
 }
 

@@ -28,7 +28,7 @@ void au_hfput(struct au_hfile *hf, int execed)
 		allow_write_access(hf->hf_file);
 	fput(hf->hf_file);
 	hf->hf_file = NULL;
-	au_br_put(hf->hf_br);
+	au_lcnt_dec(&hf->hf_br->br_nfiles);
 	hf->hf_br = NULL;
 }
 
@@ -107,7 +107,7 @@ void au_finfo_fin(struct file *file)
 {
 	struct au_finfo *finfo;
 
-	au_nfiles_dec(file->f_path.dentry->d_sb);
+	au_lcnt_dec(&au_sbi(file->f_path.dentry->d_sb)->si_nfiles);
 
 	finfo = au_fi(file);
 	AuDebugOn(finfo->fi_hdir);
@@ -135,7 +135,7 @@ int au_finfo_init(struct file *file, struct au_fidir *fidir)
 		goto out;
 
 	err = 0;
-	au_nfiles_inc(dentry->d_sb);
+	au_lcnt_inc(&au_sbi(dentry->d_sb)->si_nfiles);
 	au_rw_write_lock(&finfo->fi_rwsem);
 	finfo->fi_btop = -1;
 	finfo->fi_hdir = fidir;
