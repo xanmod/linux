@@ -52,10 +52,15 @@
 #define has_rt_policy(p)	(is_rt_policy((p)->policy))
 
 /* is_idle_policy() and idleprio_task() are defined in include/linux/sched.h */
-#define task_running_idle(p)	((p)->prio == IDLE_PRIO)
+#define is_idle_policy(policy)	((policy) == SCHED_IDLE)
+#define idleprio_task(p)	unlikely(is_idle_policy((p)->policy))
 
 /* is_iso_policy() and iso_task() are defined in include/linux/sched.h */
 #define task_running_iso(p)	((p)->prio == ISO_PRIO)
+
+#define is_normal_policy(policy)	(SCHED_NORMAL == (policy))
+#define normal_task(p)			(is_normal_policy((p)->policy))
+#define task_running_normal(p)		(NORMAL_PRIO == (p)->prio)
 
 #define ISO_PERIOD		((5 * HZ) + 1)
 
@@ -905,7 +910,7 @@ static inline void check_preempt_curr(struct rq *rq, struct task_struct *p)
 	if (curr->prio == PRIO_LIMIT)
 		resched_curr(rq);
 
-	if (batch_task(p) || idleprio_task(p))
+	if (task_running_idle(p))
 		return;
 
 	if (p->priodl < curr->priodl)
@@ -1072,13 +1077,13 @@ static inline int rq_dither(struct rq *rq)
 
 static inline int normal_prio(struct task_struct *p)
 {
-	if (has_rt_policy(p))
-		return MAX_RT_PRIO - 1 - p->rt_priority;
-	if (idleprio_task(p))
-		return IDLE_PRIO;
+	if (normal_task(p))
+		return NORMAL_PRIO;
 	if (iso_task(p))
 		return ISO_PRIO;
-	return NORMAL_PRIO;
+	if (has_rt_policy(p))
+		return MAX_RT_PRIO - 1 - p->rt_priority;
+	return IDLE_PRIO;
 }
 
 /*
@@ -1680,7 +1685,6 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 static inline int select_task_rq(struct task_struct *p)
 {
 	cpumask_t chk_mask;
-	int preempt_level;
 
 	if (unlikely(!cpumask_and(&chk_mask, &p->cpus_allowed, cpu_online_mask)))
 		return select_fallback_rq(task_cpu(p), p);
@@ -1696,10 +1700,8 @@ static inline int select_task_rq(struct task_struct *p)
 		update_task_priodl(p);
 	}
 
-	preempt_level = batch_task(p) ?
-		SCHED_RQ_NORMAL_0:task_running_policy_level(p, this_rq());
-
-	return task_preemptible_rq(p, &chk_mask, preempt_level);
+	return task_preemptible_rq(p, &chk_mask,
+				   task_running_policy_level(p, this_rq()));
 }
 #else /* CONFIG_SMP */
 static inline int select_task_rq(struct task_struct *p)
@@ -3328,7 +3330,7 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
 
 	pds_update_curr(rq, p);
 
-	if (p->time_slice < RESCHED_US || batch_task(p)) {
+	if (p->time_slice < RESCHED_US) {
 		time_slice_expired(p, rq);
 		if (SCHED_FIFO != p->policy && task_on_rq_queued(p))
 			requeue_task(p, rq);

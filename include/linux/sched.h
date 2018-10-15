@@ -1237,8 +1237,7 @@ void cpu_nonscaling(int cpu);
 /* replace the uncertian rt_timeout with 0UL */
 #define tsk_rttimeout(t)		(0UL)
 
-#define is_idle_policy(policy)	((policy) == SCHED_IDLE)
-#define idleprio_task(p)	unlikely(is_idle_policy((p)->policy))
+#define task_running_idle(p)	((p)->prio == IDLE_PRIO)
 
 #define is_iso_policy(policy)	((policy) == SCHED_ISO)
 #define iso_task(p)		unlikely(is_iso_policy((p)->policy))
