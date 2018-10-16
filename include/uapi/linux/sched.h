@@ -37,10 +37,10 @@
 #define SCHED_FIFO		1
 #define SCHED_RR		2
 #define SCHED_BATCH		3
-/* SCHED_ISO: Implemented on BFS/PDS only */
+/* SCHED_ISO: Implemented in BFS/MuQSSPDS only */
 #ifdef CONFIG_SCHED_PDS
 #define SCHED_ISO		4
-#endif /* CONFIG_SCHED_PDS */
+#endif
 #define SCHED_IDLE		5
 #define SCHED_DEADLINE		6
 

@@ -42,7 +42,6 @@ show up in /proc/sys/kernel:
 - hung_task_warnings
 - hyperv_record_panic_msg
 - kexec_load_disabled
-- iso_cpu
 - kptr_restrict
 - l2cr                        [ PPC only ]
 - modprobe                    ==> Documentation/debugging-modules.txt
@@ -435,16 +434,6 @@ values to unprivileged users is a concern.
 
 When kptr_restrict is set to (2), kernel pointers printed using
 %pK will be replaced with 0's regardless of privileges.
-
-==============================================================
-
-iso_cpu: (BFS CPU scheduler only).
-
-This sets the percentage cpu that the unprivileged SCHED_ISO tasks can
-run effectively at realtime priority, averaged over a rolling five
-seconds over the -whole- system, meaning all cpus.
-
-Set to 70 (percent) by default.
 
 ==============================================================
 
@@ -875,7 +864,7 @@ rebooting. ???
 
 ==============================================================
 
-rr_interval: (BFS CPU scheduler only)
+rr_interval: (PDS CPU scheduler only)
 
 This is the smallest duration that any cpu process scheduling unit
 will run for. Increasing this value can increase throughput of cpu

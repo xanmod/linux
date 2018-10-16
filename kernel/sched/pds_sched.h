@@ -62,9 +62,6 @@ struct rq {
 
 	atomic_t nr_iowait;
 
-	int iso_ticks;
-	bool iso_refractory;
-
 #ifdef CONFIG_SMP
 	int cpu;		/* cpu of this runqueue */
 	bool online;

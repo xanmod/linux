@@ -24,12 +24,10 @@ static inline bool task_is_realtime(struct task_struct *tsk)
 
 	if (policy == SCHED_FIFO || policy == SCHED_RR)
 		return true;
-#ifdef CONFIG_SCHED_PDS
-	if (policy == SCHED_ISO)
-#else
+#ifndef CONFIG_SCHED_PDS
 	if (policy == SCHED_DEADLINE)
-#endif
 		return true;
+#endif
 	return false;
 }
 

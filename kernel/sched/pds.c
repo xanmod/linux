@@ -45,26 +45,14 @@
 
 #define rt_prio(prio)		((prio) < MAX_RT_PRIO)
 #define rt_task(p)		rt_prio((p)->prio)
-#define batch_task(p)		((p)->policy == SCHED_BATCH)
-#define is_rt_policy(policy)	((policy) == SCHED_FIFO || \
+#define rt_policy(policy)	((policy) == SCHED_FIFO || \
 				 (policy) == SCHED_RR || \
 				 (policy) == SCHED_ISO)
-#define has_rt_policy(p)	(is_rt_policy((p)->policy))
+#define task_has_rt_policy(p)	(rt_policy((p)->policy))
 
-/* is_idle_policy() and idleprio_task() are defined in include/linux/sched.h */
-#define is_idle_policy(policy)	((policy) == SCHED_IDLE)
-#define idleprio_task(p)	unlikely(is_idle_policy((p)->policy))
+#define idle_policy(policy)	((policy) == SCHED_IDLE)
+#define idleprio_task(p)	unlikely(idle_policy((p)->policy))
 
-/* is_iso_policy() and iso_task() are defined in include/linux/sched.h */
-#define task_running_iso(p)	((p)->prio == ISO_PRIO)
-
-#define is_normal_policy(policy)	(SCHED_NORMAL == (policy))
-#define normal_task(p)			(is_normal_policy((p)->policy))
-#define task_running_normal(p)		(NORMAL_PRIO == (p)->prio)
-
-#define ISO_PERIOD		((5 * HZ) + 1)
-
-#define SCHED_PRIO(p)		((p) + MAX_RT_PRIO)
 #define STOP_PRIO		(MAX_RT_PRIO - 1)
 
 /*
@@ -151,13 +139,6 @@ static const u64 sched_prio2deadline[NICE_WIDTH] = {
 /*  15 */	176805139, 194485652, 213934217, 235327638, 258860401
 };
 
-/*
- * sched_iso_cpu - sysctl which determines the CPUs percentage SCHED_ISO tasks
- * are allowed to run five seconds as real time tasks. This is the total over
- * all online cpus.
- */
-int sched_iso_cpu __read_mostly = 70;
-
 /**
  * sched_yield_type - Choose what sort of yield sched_yield will perform.
  * 0: No yield.
@@ -193,6 +174,7 @@ SCHED_RQ_NORMAL_4,
 SCHED_RQ_NORMAL_5,
 SCHED_RQ_NORMAL_6,
 SCHED_RQ_NORMAL_7,
+SCHED_RQ_ISO,
 SCHED_RQ_RT,
 NR_SCHED_RQ_QUEUED_LEVEL
 };
@@ -226,8 +208,8 @@ static cpumask_t sched_cpu_sg_idle_mask ____cacheline_aligned_in_smp;
 static cpumask_t sched_cpu_psg_mask ____cacheline_aligned_in_smp;
 /*
  * SMT supressed mask
- * When a cpu is running task with NORMAL/BATCH/ISO/RT policy, its sibling cpu
- * will be supressed to run IDLE policy task.
+ * When a cpu is running task with NORMAL/ISO/RT policy, its sibling cpu
+ * will be supressed to run IDLE priority task.
  */
 static cpumask_t sched_smt_supressed_mask ____cacheline_aligned_in_smp;
 #endif /* CONFIG_SMT_NICE */
@@ -587,7 +569,9 @@ task_running_policy_level(const struct task_struct *p, const struct rq *rq)
 	if (NORMAL_PRIO == prio)
 		return SCHED_RQ_NORMAL_0 + task_deadline_level(p, rq);
 
-	if (prio <= ISO_PRIO)
+	if (ISO_PRIO == prio)
+		return SCHED_RQ_ISO;
+	if (prio < MAX_RT_PRIO)
 		return SCHED_RQ_RT;
 	return PRIO_LIMIT - prio;
 }
@@ -754,15 +738,6 @@ static inline bool idleprio_suitable(struct task_struct *p)
 }
 
 /*
- * To determine if a task of SCHED_ISO can run in pseudo-realtime, we check
- * that the iso_refractory flag is not set.
- */
-static bool isoprio_suitable(struct rq *rq)
-{
-	return !rq->iso_refractory;
-}
-
-/*
  * pds_skiplist_random_level -- Returns a pseudo-random level number for skip
  * list node which is used in PDS run queue.
  *
@@ -822,12 +797,6 @@ DEFINE_SKIPLIST_INSERT_FUNC(pds_skiplist_insert, pds_skiplist_task_search);
 static inline void enqueue_task(struct task_struct *p, struct rq *rq)
 {
 	lockdep_assert_held(&rq->lock);
-
-	/* Check ISO tasks suitable to run normal priority */
-	if (iso_task(p)) {
-		p->prio = isoprio_suitable(rq)? p->normal_prio:NORMAL_PRIO;
-		update_task_priodl(p);
-	}
 
 	WARN_ONCE(task_rq(p) != rq, "pds: enqueue task reside on cpu%d to cpu%d\n",
 		  task_cpu(p), cpu_of(rq));
@@ -1077,11 +1046,18 @@ static inline int rq_dither(struct rq *rq)
 
 static inline int normal_prio(struct task_struct *p)
 {
-	if (normal_task(p))
-		return NORMAL_PRIO;
-	if (has_rt_policy(p))
+	static const int policy_to_prio[] = {
+		NORMAL_PRIO,	/* SCHED_NORMAL */
+		0,		/* SCHED_FIFO */
+		0,		/* SCHED_RR */
+		IDLE_PRIO,	/* SCHED_BATCH */
+		ISO_PRIO,	/* SCHED_ISO */
+		IDLE_PRIO	/* SCHED_IDLE */
+	};
+
+	if (task_has_rt_policy(p))
 		return MAX_RT_PRIO - 1 - p->rt_priority;
-	return IDLE_PRIO;
+	return policy_to_prio[p->policy];
 }
 
 /*
@@ -2119,7 +2095,7 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 	 * Revert to default priority/policy on fork if requested.
 	 */
 	if (unlikely(p->sched_reset_on_fork)) {
-		if (has_rt_policy(p)) {
+		if (task_has_rt_policy(p)) {
 			p->policy = SCHED_NORMAL;
 			p->static_prio = NICE_TO_PRIO(0);
 			p->rt_priority = 0;
@@ -2140,8 +2116,7 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 	 * total amount of pending timeslices in the system doesn't change,
 	 * resulting in more scheduling fairness.
 	 */
-	if (SCHED_NORMAL == p->policy || SCHED_RR == p->policy ||
-	    SCHED_ISO == p->policy) {
+	if (task_has_rt_policy(p)) {
 		struct rq *rq = this_rq();
 
 		raw_spin_lock_irqsave(&rq->lock, flags);
@@ -2814,49 +2789,6 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 	return ns;
 }
 
-/*
- * Functions to test for when SCHED_ISO tasks have used their allocated
- * quota as real time scheduling and convert them back to SCHED_NORMAL.
- * Where possible, the data is tested lockless, to avoid grabbing iso_lock
- * because the occasional inaccurate result won't matter. However the
- * tick data is only ever modified under lock. iso_refractory is only simply
- * set to 0 or 1 so it's not worth grabbing the lock yet again for that.
- */
-
-/*
- * Test if SCHED_ISO tasks have run longer than their alloted period as RT
- * tasks and set the refractory flag if necessary. There is 10% hysteresis
- * for unsetting the flag. 115/128 is ~90/100 as a fast shift instead of a
- * slow division.
- */
-static inline bool test_ret_isorefractory(struct rq *rq)
-{
-	if (likely(!rq->iso_refractory)) {
-		if (rq->iso_ticks > ISO_PERIOD * sched_iso_cpu)
-			return (rq->iso_refractory = true);
-	} else {
-		if (rq->iso_ticks < ISO_PERIOD * (sched_iso_cpu * 115 / 128))
-			return (rq->iso_refractory = false);
-	}
-	return rq->iso_refractory;
-}
-
-static inline void iso_tick(struct rq *rq)
-{
-	rq->iso_ticks += 100;
-}
-
-/* No SCHED_ISO task was running so decrease rq->iso_ticks */
-static inline void no_iso_tick(struct rq *rq)
-{
-	if (rq->iso_ticks) {
-		rq->iso_ticks -= rq->iso_ticks / ISO_PERIOD + 1;
-		if (unlikely(rq->iso_refractory && rq->iso_ticks <
-		    ISO_PERIOD * (sched_iso_cpu * 115 / 128)))
-			rq->iso_refractory = false;
-	}
-}
-
 /* This manages tasks that have run out of timeslice during a scheduler_tick */
 static inline void pds_scheduler_task_tick(struct rq *rq)
 {
@@ -2868,29 +2800,6 @@ static inline void pds_scheduler_task_tick(struct rq *rq)
 	pds_update_curr(rq, p);
 
 	cpufreq_update_util(rq, 0);
-	/*
-	 * If a SCHED_ISO task is running we increment the iso_ticks. In
-	 * order to prevent SCHED_ISO tasks from causing starvation in the
-	 * presence of true RT tasks we account those as iso_ticks as well.
-	 */
-	if (unlikely(rt_task(p) || task_running_iso(p))) {
-		if (rq->iso_ticks <= (ISO_PERIOD * 128) - 128)
-			iso_tick(rq);
-	} else
-		no_iso_tick(rq);
-
-	if (unlikely(iso_task(p))) {
-		if (unlikely(test_ret_isorefractory(rq))) {
-			if (task_running_iso(p)) {
-				/*
-				 * SCHED_ISO task is running as RT and limit
-				 * has been hit. Force it to reschedule as
-				 * SCHED_NORMAL by zeroing its time_slice
-				 */
-				p->time_slice = 0;
-			}
-		}
-	}
 
 	/*
 	 * Tasks that were scheduled in the first half of a tick are not
@@ -3301,7 +3210,7 @@ static void time_slice_expired(struct task_struct *p, struct rq *rq)
 {
 	p->time_slice = timeslice();
 
-	if (unlikely(has_rt_policy(p)))
+	if (unlikely(task_has_rt_policy(p)))
 		return;
 	if (p->policy == SCHED_NORMAL) {
 		p->deadline /= 2;
@@ -3416,6 +3325,9 @@ static inline int take_other_rq_task(struct rq *rq, int cpu, int filter_prio)
 			cpumask_or(&chk, &chk, &t);
 		}
 #endif
+	} else if (NORMAL_PRIO == filter_prio) {
+		cpumask_or(&chk, &sched_rq_pending_masks[SCHED_RQ_RT],
+			   &sched_rq_pending_masks[SCHED_RQ_ISO]);
 	} else if (IDLE_PRIO == filter_prio) {
 		cpumask_complement(&chk, &sched_rq_pending_masks[SCHED_RQ_EMPTY]);
 		cpumask_andnot(&chk, &chk, &sched_rq_pending_masks[SCHED_RQ_IDLE]);
@@ -4045,20 +3957,19 @@ void set_user_nice(struct task_struct *p, long nice)
 
 	/* rq lock may not held!! */
 	update_rq_clock(rq);
+
+	p->static_prio = new_static;
 	/*
 	 * The RT priorities are set via sched_setscheduler(), but we still
 	 * allow the 'normal' nice value to be set - but as expected
 	 * it wont have any effect on scheduling until the task is
 	 * not SCHED_NORMAL/SCHED_BATCH:
 	 */
-	if (has_rt_policy(p)) {
-		p->static_prio = new_static;
+	if (task_has_rt_policy(p))
 		goto out_unlock;
-	}
 
 	p->deadline -= task_deadline_diff(p);
 	p->deadline += static_deadline_diff(new_static);
-	p->static_prio = new_static;
 	p->prio = effective_prio(p);
 	update_task_priodl(p);
 
@@ -4125,14 +4036,14 @@ SYSCALL_DEFINE1(nice, int, increment)
  *
  * Return: The priority value as seen by users in /proc.
  * RT tasks are offset by -100. Normal tasks are centered around 1, value goes
- * from 0 (SCHED_ISO) up to 82 (nice +19 SCHED_IDLE).
+ * from 0(SCHED_ISO) up to 82 (nice +19 SCHED_IDLE).
  */
 int task_prio(const struct task_struct *p)
 {
 	int level, prio = p->prio - MAX_RT_PRIO;
 	static const int level_to_nice_prio[] = {39, 33, 26, 20, 14, 7, 0, 0};
 
-	/* rt tasks and iso tasks */
+	/* rt tasks */
 	if (prio <= 0)
 		goto out;
 
@@ -4457,7 +4368,7 @@ recheck:
 	 * Allow unprivileged RT tasks to decrease priority:
 	 */
 	if (user && !capable(CAP_SYS_NICE)) {
-		if (is_rt_policy(policy)) {
+		if (rt_policy(policy)) {
 			unsigned long rlim_rtprio =
 					task_rlimit(p, RLIMIT_RTPRIO);
 
@@ -4475,12 +4386,6 @@ recheck:
 				 * Can only downgrade policies but not back to
 				 * SCHED_NORMAL
 				 */
-				case SCHED_ISO:
-					if (policy == SCHED_ISO)
-						return 0;
-					if (policy == SCHED_NORMAL)
-						return -EPERM;
-					break;
 				case SCHED_BATCH:
 					if (policy == SCHED_BATCH)
 						return 0;
@@ -4539,13 +4444,19 @@ recheck:
 	/*
 	 * If not changing anything there's no need to proceed further:
 	 */
-	if (unlikely(policy == p->policy && (!is_rt_policy(policy) ||
-		attr->sched_priority == p->rt_priority))) {
+	if (unlikely(policy == p->policy)) {
+		if (rt_policy(policy) && attr->sched_priority != p->rt_priority)
+			goto change;
+		if (!rt_policy(policy) &&
+		    NICE_TO_PRIO(attr->sched_nice) != p->static_prio)
+			goto change;
+
 		p->sched_reset_on_fork = reset_on_fork;
 		__task_access_unlock(p, lock);
 		raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 		return 0;
 	}
+change:
 
 	/* Re-check policy now with rq lock held */
 	if (unlikely(oldpolicy != -1 && oldpolicy != p->policy)) {
@@ -4598,32 +4509,12 @@ static int _sched_setscheduler(struct task_struct *p, int policy,
 		.sched_priority = param->sched_priority,
 		.sched_nice     = PRIO_TO_NICE(p->static_prio),
 	};
-	unsigned long rlim_rtprio = 0;
 
 	/* Fixup the legacy SCHED_RESET_ON_FORK hack. */
 	if ((policy != SETPARAM_POLICY) && (policy & SCHED_RESET_ON_FORK)) {
 		attr.sched_flags |= SCHED_FLAG_RESET_ON_FORK;
 		policy &= ~SCHED_RESET_ON_FORK;
 		attr.sched_policy = policy;
-	}
-
-	if (is_rt_policy(policy) && !capable(CAP_SYS_NICE)) {
-		unsigned long lflags;
-
-		if (!lock_task_sighand(p, &lflags))
-			return -ESRCH;
-		rlim_rtprio = task_rlimit(p, RLIMIT_RTPRIO);
-		unlock_task_sighand(p, &lflags);
-		if (!rlim_rtprio) {
-			/*
-			 * If the caller requested an RT policy without having the
-			 * necessary rights, we downgrade the policy to SCHED_ISO.
-			 * We also set the attr to zero to pass the checks.
-			 */
-			attr.sched_policy = SCHED_ISO;
-			attr.sched_priority = 0;
-			attr.sched_nice = 0;
-		}
 	}
 
 	return __sched_setscheduler(p, &attr, check, true);
@@ -4887,7 +4778,7 @@ SYSCALL_DEFINE2(sched_getparam, pid_t, pid, struct sched_param __user *, param)
 	if (retval)
 		goto out_unlock;
 
-	if (has_rt_policy(p))
+	if (task_has_rt_policy(p))
 		lp.sched_priority = p->rt_priority;
 	rcu_read_unlock();
 
@@ -6320,8 +6211,6 @@ void __init sched_init(void)
 #endif
 		rq->nr_switches = 0;
 		atomic_set(&rq->nr_iowait, 0);
-		rq->iso_ticks = 0;
-		rq->iso_refractory = 0;
 		hrtick_rq_init(rq);
 	}
 #ifdef CONFIG_SMP
@@ -6449,7 +6338,7 @@ void normalize_rt_tasks(void)
 		if (p->flags & PF_KTHREAD)
 			continue;
 
-		if (!rt_task(p) && !iso_task(p)) {
+		if (!rt_task(p)) {
 			/*
 			 * Renice negative nice level userspace
 			 * tasks back to 0:

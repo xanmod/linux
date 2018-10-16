@@ -1238,10 +1238,6 @@ void cpu_nonscaling(int cpu);
 #define tsk_rttimeout(t)		(0UL)
 
 #define task_running_idle(p)	((p)->prio == IDLE_PRIO)
-
-#define is_iso_policy(policy)	((policy) == SCHED_ISO)
-#define iso_task(p)		unlikely(is_iso_policy((p)->policy))
-
 #else /* CFS */
 extern int runqueue_is_locked(int cpu);
 static inline void cpu_scaling(int cpu)
