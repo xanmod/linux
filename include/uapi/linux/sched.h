@@ -42,9 +42,7 @@
 #define SCHED_ISO		4
 #endif /* CONFIG_SCHED_PDS */
 #define SCHED_IDLE		5
-#ifndef CONFIG_SCHED_PDS
 #define SCHED_DEADLINE		6
-#endif /* !CONFIG_SCHED_PDS */
 
 /* Can be ORed in to make sure the process is reverted back to SCHED_NORMAL on fork */
 #define SCHED_RESET_ON_FORK     0x40000000

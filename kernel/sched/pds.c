@@ -4402,6 +4402,12 @@ static int
 __sched_setscheduler(struct task_struct *p,
 		     const struct sched_attr *attr, bool user, bool pi)
 {
+	const struct sched_attr dl_squash_attr = {
+		.size		= sizeof(struct sched_attr),
+		.sched_policy	= SCHED_FIFO,
+		.sched_nice	= 0,
+		.sched_priority = 99,
+	};
 	int newprio = MAX_RT_PRIO - 1 - attr->sched_priority;
 	int retval, oldpolicy = -1;
 	int policy = attr->sched_policy;
@@ -4412,6 +4418,15 @@ __sched_setscheduler(struct task_struct *p,
 
 	/* The pi code expects interrupts enabled */
 	BUG_ON(pi && in_interrupt());
+
+	/*
+	 * PDS supports SCHED_DEADLINE by squash it as prio 0 SCHED_FIFO
+	 */
+	if (unlikely(SCHED_DEADLINE == policy)) {
+		attr = &dl_squash_attr;
+		policy = attr->sched_policy;
+		newprio = MAX_RT_PRIO - 1 - attr->sched_priority;
+	}
 recheck:
 	/* Double check policy once rq lock held */
 	if (policy < 0) {
