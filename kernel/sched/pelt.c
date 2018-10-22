@@ -240,6 +240,7 @@ ___update_load_avg(struct sched_avg *sa, unsigned long load, unsigned long runna
 	WRITE_ONCE(sa->util_avg, sa->util_sum / divider);
 }
 
+#ifndef CONFIG_SCHED_PDS
 /*
  * sched_entity:
  *
@@ -357,6 +358,7 @@ int update_dl_rq_load_avg(u64 now, struct rq *rq, int running)
 
 	return 0;
 }
+#endif
 
 #if defined(CONFIG_IRQ_TIME_ACCOUNTING) || defined(CONFIG_PARAVIRT_TIME_ACCOUNTING)
 /*

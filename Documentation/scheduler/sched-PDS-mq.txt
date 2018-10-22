@@ -1,0 +1,56 @@
+        Priority and Deadline based Skiplist multiple queue Scheduler
+        -------------------------------------------------------------
+
+CONTENT
+========
+
+ 0. Development
+ 1. Overview
+   1.1 Design goal
+   1.2 Design summary
+ 2. Design Detail
+   2.1 Skip list implementation
+   2.2 Task preempt
+   2.3 Task policy, priority and deadline
+   2.4 Task selection
+   2.5 Run queue balance
+   2.6 Task migration
+
+
+0. Development
+==============
+
+Priority and Deadline based Skiplist multiple queue scheduler, referred to as
+PDS from here on, is developed upon the enhancement patchset VRQ(Variable Run
+Queue) for BFS(Brain Fuck Scheduler by Con Kolivas). PDS inherits the existing
+design from VRQ and inspired by the introduction of skiplist data structure
+to the scheduler by Con Kolivas. However, PDS is different from MuQSS(Multiple
+Queue Skiplist Scheduler, the successor after BFS) in many ways.
+
+1. Overview
+===========
+
+1.1 Design goal
+---------------
+
+PDS is designed to make the cpu process scheduler code to be simple, but while
+efficiency and scalable. Be Simple, the scheduler code will be easy to be read
+and the behavious of scheduler will be easy to predict. Be efficiency, the
+scheduler shall be well balance the thoughput performance and task interactivity
+at the same time for different properties the tasks behave. Be scalable, the
+performance of the scheduler should be in good shape with the glowing of
+workload or with the growing of the cpu numbers.
+
+1.2 Design summary
+------------------
+
+PDS is described as a multiple run queues cpu scheduler. Each cpu has its own
+run queue. A heavry customized skiplist is used as the backend data structure
+of the cpu run queue. Tasks in run queue is sorted by priority then virtual
+deadline(simplfy to just deadline from here on). In PDS, balance action among
+run queues are kept as less as possible to reduce the migration cost. Cpumask
+data structure is widely used in cpu affinity checking and cpu preemption/
+selection to make PDS scalable with increasing cpu number.
+
+
+To be continued...
