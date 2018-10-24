@@ -2065,6 +2065,7 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 {
 	unsigned long flags;
 	int cpu = get_cpu();
+	struct rq *rq = this_rq();
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	INIT_HLIST_HEAD(&p->preempt_notifiers);
@@ -2116,25 +2117,20 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 	 * total amount of pending timeslices in the system doesn't change,
 	 * resulting in more scheduling fairness.
 	 */
-	if (task_has_rt_policy(p)) {
-		struct rq *rq = this_rq();
-
-		raw_spin_lock_irqsave(&rq->lock, flags);
-		rq->curr->time_slice /= 2;
-		p->time_slice = rq->curr->time_slice;
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	rq->curr->time_slice /= 2;
+	p->time_slice = rq->curr->time_slice;
 #ifdef CONFIG_SCHED_HRTICK
-		hrtick_start(rq, rq->curr->time_slice);
+	hrtick_start(rq, rq->curr->time_slice);
 #endif
 
-		if (p->time_slice < RESCHED_US) {
-			update_rq_clock(rq);
-			time_slice_expired(p, rq);
-			resched_curr(rq);
-		} else
-			update_task_priodl(p);
-		raw_spin_unlock_irqrestore(&rq->lock, flags);
+	if (p->time_slice < RESCHED_US) {
+		update_rq_clock(rq);
+		time_slice_expired(p, rq);
+		resched_curr(rq);
 	} else
 		update_task_priodl(p);
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
 
 	/*
 	 * The child is not yet in the pid-hash so no cgroup attach races,
