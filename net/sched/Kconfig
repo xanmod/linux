@@ -441,6 +441,9 @@ choice
 	config DEFAULT_SFQ
 		bool "Stochastic Fair Queue" if NET_SCH_SFQ
 
+	config DEFAULT_CAKE
+		bool "Common Applications Kept Enhanced" if NET_SCH_CAKE
+
 	config DEFAULT_PFIFO_FAST
 		bool "Priority FIFO Fast"
 endchoice
@@ -451,6 +454,7 @@ config DEFAULT_NET_SCH
 	default "fq" if DEFAULT_FQ
 	default "fq_codel" if DEFAULT_FQ_CODEL
 	default "sfq" if DEFAULT_SFQ
+	default "cake" if DEFAULT_CAKE
 	default "pfifo_fast"
 endif
 
