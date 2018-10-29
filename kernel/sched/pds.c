@@ -1079,8 +1079,6 @@ static inline int normal_prio(struct task_struct *p)
 {
 	if (normal_task(p))
 		return NORMAL_PRIO;
-	if (iso_task(p))
-		return ISO_PRIO;
 	if (has_rt_policy(p))
 		return MAX_RT_PRIO - 1 - p->rt_priority;
 	return IDLE_PRIO;
