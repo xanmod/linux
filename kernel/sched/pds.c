@@ -1561,9 +1561,6 @@ static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
 {
 	cpumask_t tmp, *mask;
 
-	if (cpumask_weight(cpumask) == 1)
-		return cpumask_first(cpumask);
-
 	if (cpumask_test_cpu(cpu, cpumask))
 		return cpu;
 
