@@ -3289,8 +3289,12 @@ take_queued_task_cpumask(struct rq *rq, cpumask_t *chk_mask, int filter_prio)
 		int nr_migrated;
 		struct rq *src_rq = cpu_rq(src_cpu);
 
-		if (unlikely(!do_raw_spin_trylock(&src_rq->lock)))
-			continue;
+		if (unlikely(!do_raw_spin_trylock(&src_rq->lock))) {
+			if (PRIO_LIMIT == filter_prio)
+				continue;
+			else
+				return 0;
+		}
 		spin_acquire(&src_rq->lock.dep_map, SINGLE_DEPTH_NESTING, 1, _RET_IP_);
 
 		update_rq_clock(src_rq);
@@ -3330,6 +3334,9 @@ static inline int take_other_rq_task(struct rq *rq, int cpu, int filter_prio)
 	} else
 		cpumask_copy(&chk, &sched_rq_pending_masks[SCHED_RQ_RT]);
 
+	if (cpumask_empty(&chk))
+		return 0;
+
 	affinity_mask = per_cpu(sched_cpu_llc_start_mask, cpu);
 	end = per_cpu(sched_cpu_affinity_chk_end_masks, cpu);
 	do {
@@ -3357,14 +3364,12 @@ choose_next_task(struct rq *rq, int cpu, struct task_struct *prev)
 				return rq_first_queued_task(rq);
 			return rq->idle;
 		}
-		return next;
 	}
 #endif
 
 #ifdef	CONFIG_SMP
 	if (likely(rq->online))
-		if ((next->prio > prev->prio || PRIO_LIMIT == next->prio) &&
-		    take_other_rq_task(rq, cpu, next->prio)) {
+		if (take_other_rq_task(rq, cpu, next->prio)) {
 			resched_curr(rq);
 			return rq_first_queued_task(rq);
 		}
