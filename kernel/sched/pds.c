@@ -157,12 +157,6 @@ static inline int timeslice(void)
 }
 
 #ifdef CONFIG_SMP
-/*
- * RQ balance mask and shift
- */
-static u64 sched_balance_mask ____cacheline_aligned_in_smp = (8ULL - 1);
-static u64 sched_balance_shift ____cacheline_aligned_in_smp = 0UL;
-
 enum {
 SCHED_RQ_EMPTY		=	0,
 SCHED_RQ_IDLE,
@@ -2877,6 +2871,15 @@ static inline bool pds_sg_balance(struct rq *rq)
 	struct task_struct *p;
 
 	/*
+	 * Sibling balance only happens when only one task is running
+	 * When no task is running, there will be no need to balance
+	 * When there are queued tasks in this rq, they will be handled
+	 * in policy fair balance
+	 */
+	if (1 != rq->nr_running)
+		return false;
+
+	/*
 	 * Quick exit if no idle sibling group to be balanced to, or
 	 * in case cpu has no smt capability, which sched_cpu_sg_idle_mask will
 	 * not be changed.
@@ -2907,89 +2910,6 @@ static inline bool pds_sg_balance(struct rq *rq)
 	return false;
 }
 #endif /* CONFIG_SCHED_SMT */
-
-/**
- * PDS load balance function, be called in scheduler_tick()
- *
- * return: true if balance happened and rq->lock released, otherwise false.
- * context: interrupt disabled, rq->lock
- */
-static inline bool pds_load_balance(struct rq *rq)
-{
-	int level, pending_level, cpu = cpu_of(rq);
-	struct skiplist_node *node;
-	struct task_struct *p;
-	cpumask_t check;
-
-	if (cpu !=
-	    ((NS_TO_MS(rq->clock) & sched_balance_mask) >> sched_balance_shift))
-		return false;
-
-	/*
-	 * this function is called when rq is locked and nr_running >= 2
-	 */
-	node = rq->sl_header.next[0]->next[0];
-	p = skiplist_entry(node, struct task_struct, sl_node);
-
-	/*
-	 * balance preempt start from SCHED_RQ_IDLE mask,
-	 * SCHED_RQ_EMPTY mask should be handled in ttwu
-	 */
-	level = find_next_bit(sched_rq_queued_masks_bitmap,
-			      NR_SCHED_RQ_QUEUED_LEVEL, SCHED_RQ_IDLE);
-	pending_level = task_running_policy_level(p, rq);
-
-	if (level >= pending_level)
-		return false;
-
-	if (cpumask_and(&check, &sched_rq_queued_masks[level],
-			&p->cpus_allowed)) {
-		WARN_ONCE(cpumask_test_cpu(cpu_of(rq), &check),
-			  "pds: %d - %d, %d, %llu %d, %d, %llu",
-			  level,
-			  pending_level, p->prio, p->deadline,
-			  task_running_policy_level(rq->curr, rq),
-			  rq->curr->prio, rq->curr->deadline);
-
-		raw_spin_unlock(&rq->lock);
-		raw_spin_lock(&p->pi_lock);
-		raw_spin_lock(&rq->lock);
-
-		/*
-		 * _something_ may have changed the task, double check again
-		 */
-		if (likely(!p->on_cpu && task_on_rq_queued(p) && rq == task_rq(p)))
-			rq = __migrate_task(rq, p, best_mask_cpu(cpu, &check));
-
-		raw_spin_unlock(&rq->lock);
-		raw_spin_unlock(&p->pi_lock);
-
-		return true;
-	}
-
-	return false;
-}
-
-static inline bool pds_trigger_balance(struct rq *rq)
-{
-	if (0 == rq->nr_running)
-		return false;
-
-	/*
-	 * Sibling balance only happens when only one task is running
-	 * When no task is running, there will be no need to balance
-	 * When there are queued tasks in this rq, they will be handled
-	 * in policy fair balance
-	 */
-	if (1 == rq->nr_running) {
-#ifdef CONFIG_SCHED_SMT
-		pds_sg_balance(rq);
-#endif
-		return false;
-	} else {
-		return pds_load_balance(rq);
-	}
-}
 #endif /* CONFIG_SMP */
 
 /*
@@ -3011,8 +2931,8 @@ void scheduler_tick(void)
 	calc_global_load_tick(rq);
 	rq->last_tick = rq->clock;
 
-#ifdef CONFIG_SMP
-	if (!pds_trigger_balance(rq))
+#ifdef CONFIG_SCHED_SMT
+	pds_sg_balance(rq);
 #endif
 	raw_spin_unlock(&rq->lock);
 
@@ -6095,20 +6015,6 @@ static void sched_init_topology_cpumask(void)
 }
 #endif
 
-static inline void sched_init_rq_balance(void)
-{
-	unsigned long shift;
-	unsigned long x;
-
-	x = num_possible_cpus();
-	x = max((unsigned long)SCHED_DEFAULT_RR, x) - 1;
-	shift = find_last_bit(&x, sizeof(x) * 8);
-	x = num_possible_cpus() - 1;
-
-	sched_balance_mask = (1UL << (shift + 1)) - 1;
-	sched_balance_shift = shift - find_last_bit(&x, sizeof(x) * 8);
-}
-
 void __init sched_init_smp(void)
 {
 	/* Move init over to a non-isolated CPU */
@@ -6118,8 +6024,6 @@ void __init sched_init_smp(void)
 	cpumask_copy(&sched_rq_queued_masks[SCHED_RQ_EMPTY], cpu_online_mask);
 
 	sched_init_topology_cpumask();
-
-	sched_init_rq_balance();
 
 	sched_smp_initialized = true;
 }
