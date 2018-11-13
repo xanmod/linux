@@ -106,7 +106,7 @@ static inline int task_on_rq_migrating(struct task_struct *p)
  * Value is in ms and set to a minimum of 6ms. Scales with number of cpus.
  * Tunable via /proc interface.
  */
-#define SCHED_DEFAULT_RR (6)
+#define SCHED_DEFAULT_RR (4)
 int rr_interval __read_mostly = SCHED_DEFAULT_RR;
 
 static int __init rr_interval_set(char *str)
