@@ -2837,77 +2837,59 @@ static int active_load_balance_cpu_stop(void *data)
 	return 0;
 }
 
-static __latent_entropy void pds_run_rebalance(struct softirq_action *h)
+/* pds_sg_balance_trigger - trigger slibing group balance for @cpu */
+static void pds_sg_balance_trigger(const int cpu)
 {
-	struct rq *this_rq = this_rq();
+	struct rq *rq = cpu_rq(cpu);
 	unsigned long flags;
 	struct task_struct *curr;
 	cpumask_t tmp;
 
-	raw_spin_lock_irqsave(&this_rq->lock, flags);
-	curr = this_rq->curr;
+	if (!raw_spin_trylock_irqsave(&rq->lock, flags))
+		return;
+	curr = rq->curr;
 	if (!is_idle_task(curr) &&
 	    cpumask_and(&tmp, &curr->cpus_allowed, &sched_cpu_sg_idle_mask)) {
 		int active_balance = 0;
 
-		if (likely(!this_rq->active_balance)) {
-			this_rq->active_balance = 1;
+		if (likely(!rq->active_balance)) {
+			rq->active_balance = 1;
 			active_balance = 1;
 		}
 
-		raw_spin_unlock_irqrestore(&this_rq->lock, flags);
+		raw_spin_unlock_irqrestore(&rq->lock, flags);
 
 		if (likely(active_balance))
-			stop_one_cpu_nowait(cpu_of(this_rq),
-					    active_load_balance_cpu_stop, curr,
-					    &this_rq->active_balance_work);
+			stop_one_cpu_nowait(cpu, active_load_balance_cpu_stop,
+					    curr, &rq->active_balance_work);
 	} else
-		raw_spin_unlock_irqrestore(&this_rq->lock, flags);
+		raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
-static inline bool pds_sg_balance(struct rq *rq)
+/*
+ * pds_sg_balance_check - slibing group balance check for run queue @rq
+ */
+static inline void pds_sg_balance_check(const struct rq *rq)
 {
-	int cpu;
-	struct task_struct *p;
+	cpumask_t chk;
+	int i;
 
-	/*
-	 * Sibling balance only happens when only one task is running
-	 * When no task is running, there will be no need to balance
-	 * When there are queued tasks in this rq, they will be handled
-	 * in policy fair balance
-	 */
-	if (1 != rq->nr_running)
-		return false;
+	/* Only cpu in slibing idle group will do the checking */
+	if (!cpumask_test_cpu(cpu_of(rq), &sched_cpu_sg_idle_mask))
+		return;
 
-	/*
-	 * Quick exit if no idle sibling group to be balanced to, or
-	 * in case cpu has no smt capability, which sched_cpu_sg_idle_mask will
-	 * not be changed.
-	 */
-	if (cpumask_empty(&sched_cpu_sg_idle_mask))
-		return false;
+	/* Find potential cpus which can migrate the currently running task */
+	if (!cpumask_andnot(&chk, &sched_rq_pending_masks[SCHED_RQ_EMPTY],
+			    &sched_rq_queued_masks[SCHED_RQ_EMPTY]))
+		return;
 
-	/*
-	 * First cpu in smt group does not do smt balance
-	 */
-	cpu = cpu_of(rq);
-	if (cpu == per_cpu(sd_llc_id, cpu))
-		return false;
-
-	/*
-	 * Exit if any idle cpu in this smt group
-	 */
-	if (cpumask_intersects(cpu_smt_mask(cpu),
-			       &sched_rq_queued_masks[SCHED_RQ_EMPTY]))
-		return false;
-
-	p = rq->curr;
-	if (cpumask_intersects(&p->cpus_allowed, &sched_cpu_sg_idle_mask)) {
-		raise_softirq(SCHED_SOFTIRQ);
-		return true;
+	for_each_cpu(i, &chk) {
+		/* skip the cpu which has idle slibing cpu */
+		if (cpumask_test_cpu(per_cpu(sched_sibling_cpu, i),
+				     &sched_rq_queued_masks[SCHED_RQ_EMPTY]))
+			continue;
+		pds_sg_balance_trigger(i);
 	}
-
-	return false;
 }
 #endif /* CONFIG_SCHED_SMT */
 #endif /* CONFIG_SMP */
@@ -2930,10 +2912,6 @@ void scheduler_tick(void)
 	update_sched_rq_queued_masks_normal(rq);
 	calc_global_load_tick(rq);
 	rq->last_tick = rq->clock;
-
-#ifdef CONFIG_SCHED_SMT
-	pds_sg_balance(rq);
-#endif
 	raw_spin_unlock(&rq->lock);
 
 	perf_event_task_tick();
@@ -3502,7 +3480,9 @@ static void __sched notrace __schedule(bool preempt)
 
 		/* Also unlocks the rq: */
 		rq = context_switch(rq, prev, next);
-		cpu = cpu_of(rq);
+#ifdef CONFIG_SCHED_SMT
+		pds_sg_balance_check(rq);
+#endif
 	} else
 		raw_spin_unlock_irq(&rq->lock);
 }
@@ -6140,10 +6120,6 @@ void __init sched_init(void)
 	idle_thread_set_boot_cpu();
 
 	sched_init_topology_cpumask_early();
-
-#ifdef CONFIG_SCHED_SMT
-	open_softirq(SCHED_SOFTIRQ, pds_run_rebalance);
-#endif
 #endif /* SMP */
 
 	init_schedstats();

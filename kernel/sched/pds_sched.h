@@ -247,7 +247,7 @@ static inline struct cpuidle_state *idle_get_state(struct rq *rq)
 }
 #endif
 
-static inline int cpu_of(struct rq *rq)
+static inline int cpu_of(const struct rq *rq)
 {
 #ifdef CONFIG_SMP
 	return rq->cpu;
