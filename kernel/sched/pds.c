@@ -619,7 +619,7 @@ static inline void update_sched_rq_queued_masks(struct rq *rq)
 		return;
 
 #ifdef CONFIG_SCHED_SMT
-	if (~0 == per_cpu(sched_sibling_cpu, cpu))
+	if (cpu == per_cpu(sched_sibling_cpu, cpu))
 		return;
 
 	if (SCHED_RQ_EMPTY == last_level) {
@@ -6103,7 +6103,7 @@ void __init sched_init(void)
 		rq->queued_level = SCHED_RQ_EMPTY;
 		rq->pending_level = SCHED_RQ_EMPTY;
 #ifdef CONFIG_SCHED_SMT
-		per_cpu(sched_sibling_cpu, i) = ~0;
+		per_cpu(sched_sibling_cpu, i) = i;
 		rq->active_balance = 0;
 #endif
 #endif
