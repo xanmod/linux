@@ -2860,25 +2860,23 @@ static inline void pds_scheduler_task_tick(struct rq *rq)
 #ifdef CONFIG_SCHED_SMT
 static int active_load_balance_cpu_stop(void *data)
 {
-	struct rq *origin_rq, *rq = this_rq();
+	struct rq *rq = this_rq();
 	struct task_struct *p = data;
 	cpumask_t tmp;
 	unsigned long flags;
 
-	origin_rq = rq;
 	local_irq_save(flags);
 
 	raw_spin_lock(&p->pi_lock);
 	raw_spin_lock(&rq->lock);
 
+	rq->active_balance = 0;
 	/*
 	 * _something_ may have changed the task, double check again
 	 */
 	if (task_on_rq_queued(p) && task_rq(p) == rq &&
 	    cpumask_and(&tmp, &p->cpus_allowed, &sched_cpu_sg_idle_mask))
 		rq = __migrate_task(rq, p, cpumask_any(&tmp));
-
-	origin_rq->active_balance = 0;
 
 	raw_spin_unlock(&rq->lock);
 	raw_spin_unlock(&p->pi_lock);
@@ -2894,13 +2892,12 @@ static void pds_sg_balance_trigger(const int cpu)
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long flags;
 	struct task_struct *curr;
-	cpumask_t tmp;
 
 	if (!raw_spin_trylock_irqsave(&rq->lock, flags))
 		return;
 	curr = rq->curr;
 	if (!is_idle_task(curr) &&
-	    cpumask_and(&tmp, &curr->cpus_allowed, &sched_cpu_sg_idle_mask)) {
+	    cpumask_intersects(&curr->cpus_allowed, &sched_cpu_sg_idle_mask)) {
 		int active_balance = 0;
 
 		if (likely(!rq->active_balance)) {
