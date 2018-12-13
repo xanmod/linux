@@ -1615,17 +1615,17 @@ out:
 	return dest_cpu;
 }
 
-static inline int best_mask_cpu(const int cpu, cpumask_t *cpumask)
+static inline int best_mask_cpu(int cpu, cpumask_t *cpumask)
 {
-	cpumask_t tmp, *mask;
+	cpumask_t *mask;
 
 	if (cpumask_test_cpu(cpu, cpumask))
 		return cpu;
 
 	for (mask = &(per_cpu(sched_cpu_affinity_chk_masks, cpu)[0]);
 	     mask < per_cpu(sched_cpu_affinity_chk_end_masks, cpu); mask++)
-		if (cpumask_and(&tmp, cpumask, mask))
-			return cpumask_any(&tmp);
+		if ((cpu = cpumask_any_and(cpumask, mask)) < nr_cpu_ids)
+			return cpu;
 
 	/* Safe fallback, should never come here */
 	return cpumask_first(cpumask);
@@ -2862,7 +2862,7 @@ static int active_load_balance_cpu_stop(void *data)
 {
 	struct rq *rq = this_rq();
 	struct task_struct *p = data;
-	cpumask_t tmp;
+	int cpu;
 	unsigned long flags;
 
 	local_irq_save(flags);
@@ -2875,8 +2875,8 @@ static int active_load_balance_cpu_stop(void *data)
 	 * _something_ may have changed the task, double check again
 	 */
 	if (task_on_rq_queued(p) && task_rq(p) == rq &&
-	    cpumask_and(&tmp, &p->cpus_allowed, &sched_cpu_sg_idle_mask))
-		rq = __migrate_task(rq, p, cpumask_any(&tmp));
+	    (cpu = cpumask_any_and(&p->cpus_allowed, &sched_cpu_sg_idle_mask)) < nr_cpu_ids)
+		rq = __migrate_task(rq, p, cpu);
 
 	raw_spin_unlock(&rq->lock);
 	raw_spin_unlock(&p->pi_lock);
@@ -6010,7 +6010,7 @@ static void sched_init_topology_cpumask(void)
 		cpumask_setall(chk);
 		cpumask_clear_cpu(cpu, chk);
 		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu))) {
-			per_cpu(sched_sibling_cpu, cpu) = cpumask_any(chk);
+			per_cpu(sched_sibling_cpu, cpu) = cpumask_first(chk);
 			printk(KERN_INFO "pds: cpu #%d affinity check mask - smt 0x%08lx",
 			       cpu, (chk++)->bits[0]);
 		}
