@@ -1622,13 +1622,11 @@ static inline int best_mask_cpu(int cpu, cpumask_t *cpumask)
 	if (cpumask_test_cpu(cpu, cpumask))
 		return cpu;
 
-	for (mask = &(per_cpu(sched_cpu_affinity_chk_masks, cpu)[0]);
-	     mask < per_cpu(sched_cpu_affinity_chk_end_masks, cpu); mask++)
-		if ((cpu = cpumask_any_and(cpumask, mask)) < nr_cpu_ids)
-			return cpu;
+	mask = &(per_cpu(sched_cpu_affinity_chk_masks, cpu)[0]);
+	while ((cpu = cpumask_any_and(cpumask, mask)) >= nr_cpu_ids)
+		mask++;
 
-	/* Safe fallback, should never come here */
-	return cpumask_first(cpumask);
+	return cpu;
 }
 
 /*
