@@ -582,7 +582,7 @@ static void resched_cpu_if_curr_is(int cpu, int priority)
 	if (set_nr_if_polling(rq->idle)) {
 		trace_sched_wake_idle_without_ipi(cpu);
 	} else {
-		if (unlikely(!do_raw_spin_trylock(&rq->lock)))
+		if (!do_raw_spin_trylock(&rq->lock))
 			goto out;
 		spin_acquire(&rq->lock.dep_map, SINGLE_DEPTH_NESTING, 1, _RET_IP_);
 
