@@ -3217,11 +3217,10 @@ take_queued_task_cpumask(struct rq *rq, cpumask_t *chk_mask, int filter_prio)
 		int nr_migrated;
 		struct rq *src_rq = cpu_rq(src_cpu);
 
-		if (unlikely(!do_raw_spin_trylock(&src_rq->lock))) {
+		if (!do_raw_spin_trylock(&src_rq->lock)) {
 			if (PRIO_LIMIT == filter_prio)
 				continue;
-			else
-				return 0;
+			return 0;
 		}
 		spin_acquire(&src_rq->lock.dep_map, SINGLE_DEPTH_NESTING, 1, _RET_IP_);
 
@@ -3231,7 +3230,7 @@ take_queued_task_cpumask(struct rq *rq, cpumask_t *chk_mask, int filter_prio)
 		spin_release(&src_rq->lock.dep_map, 1, _RET_IP_);
 		do_raw_spin_unlock(&src_rq->lock);
 
-		if (nr_migrated)
+		if (nr_migrated || PRIO_LIMIT != filter_prio)
 			return nr_migrated;
 	}
 	return 0;
