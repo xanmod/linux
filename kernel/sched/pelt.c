@@ -360,7 +360,7 @@ int update_dl_rq_load_avg(u64 now, struct rq *rq, int running)
 }
 #endif
 
-#if defined(CONFIG_IRQ_TIME_ACCOUNTING) || defined(CONFIG_PARAVIRT_TIME_ACCOUNTING)
+#ifdef CONFIG_HAVE_SCHED_AVG_IRQ
 /*
  * irq:
  *
