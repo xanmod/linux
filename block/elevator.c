@@ -968,6 +968,40 @@ out:
 }
 
 /*
+ * For blk-mq devices, we default to using kyber, if available, for single
+ * queue devices.  If kyber isn't available OR we have multiple queues,
+ * default to "none".
+ */
+int elevator_init_mq(struct request_queue *q)
+{
+	struct elevator_type *e;
+	int err = 0;
+
+	if (q->nr_hw_queues != 1)
+		return 0;
+
+	/*
+	 * q->sysfs_lock must be held to provide mutual exclusion between
+	 * elevator_switch() and here.
+	 */
+	mutex_lock(&q->sysfs_lock);
+	if (unlikely(q->elevator))
+		goto out_unlock;
+
+	e = elevator_get(q, "kyber", false);
+	if (!e)
+		goto out_unlock;
+
+	err = blk_mq_init_sched(q, e);
+	if (err)
+		elevator_put(e);
+out_unlock:
+	mutex_unlock(&q->sysfs_lock);
+	return err;
+}
+
+
+/*
  * switch to new_e io scheduler. be careful not to introduce deadlocks -
  * we don't free the old io scheduler, before we have allocated what we
  * need for the new one. this way we have a chance of going back to the old
