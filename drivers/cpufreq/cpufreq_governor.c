@@ -537,6 +537,7 @@ int cpufreq_dbs_governor_start(struct cpufreq_policy *policy)
 	gov->start(policy);
 
 	gov_set_update_util(policy_dbs, sampling_rate);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(cpufreq_dbs_governor_start);
