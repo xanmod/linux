@@ -6012,6 +6012,7 @@ static void sched_init_topology_cpumask(void)
 			       cpu, (chk++)->bits[0]);
 		}
 #endif
+#ifdef CONFIG_SCHED_MC
 		cpumask_setall(chk);
 		cpumask_clear_cpu(cpu, chk);
 		if (cpumask_and(chk, chk, cpu_coregroup_mask(cpu))) {
@@ -6026,7 +6027,15 @@ static void sched_init_topology_cpumask(void)
 		 */
 		per_cpu(sd_llc_id, cpu) =
 			cpumask_first(cpu_coregroup_mask(cpu));
+#else
+		per_cpu(sd_llc_id, cpu) =
+			cpumask_first(topology_core_cpumask(cpu));
 
+		per_cpu(sched_cpu_llc_start_mask, cpu) = chk;
+
+		cpumask_setall(chk);
+		cpumask_clear_cpu(cpu, chk);
+#endif /* NOT CONFIG_SCHED_MC */
 		if (cpumask_and(chk, chk, topology_core_cpumask(cpu)))
 			printk(KERN_INFO "pds: cpu #%d affinity check mask - core 0x%08lx",
 			       cpu, (chk++)->bits[0]);
