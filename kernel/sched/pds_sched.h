@@ -215,17 +215,6 @@ static inline u64 rq_clock_task(struct rq *rq)
 	return rq->clock_task;
 }
 
-struct rq
-*task_access_lock_irqsave(struct task_struct *p, raw_spinlock_t **plock,
-			  unsigned long *flags);
-
-static inline void
-task_access_unlock_irqrestore(struct task_struct *p, raw_spinlock_t *lock,
-			      unsigned long *flags)
-{
-	raw_spin_unlock_irqrestore(lock, *flags);
-}
-
 /*
  * {de,en}queue flags:
  *

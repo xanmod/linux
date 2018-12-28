@@ -259,7 +259,7 @@ __task_access_unlock(struct task_struct *p, raw_spinlock_t *lock)
 		raw_spin_unlock(lock);
 }
 
-struct rq
+static inline struct rq
 *task_access_lock_irqsave(struct task_struct *p, raw_spinlock_t **plock,
 			  unsigned long *flags)
 {
@@ -288,6 +288,13 @@ struct rq
 			raw_spin_unlock_irqrestore(&p->pi_lock, *flags);
 		}
 	}
+}
+
+static inline void
+task_access_unlock_irqrestore(struct task_struct *p, raw_spinlock_t *lock,
+			      unsigned long *flags)
+{
+	raw_spin_unlock_irqrestore(lock, *flags);
 }
 
 /*
