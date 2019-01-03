@@ -2012,6 +2012,12 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 		atomic_dec(&task_rq(p)->nr_iowait);
 	}
 
+	if (SCHED_ISO == p->policy && ISO_PRIO != p->prio) {
+		p->prio = ISO_PRIO;
+		p->deadline = 0UL;
+		update_task_priodl(p);
+	}
+
 	cpu = select_task_rq(p);
 
 	if (cpu != task_cpu(p)) {
@@ -3169,6 +3175,11 @@ static inline void check_deadline(struct task_struct *p, struct rq *rq)
 
 	if (p->time_slice < RESCHED_US) {
 		time_slice_expired(p, rq);
+		if (SCHED_ISO == p->policy && ISO_PRIO == p->prio) {
+			p->prio = NORMAL_PRIO;
+			p->deadline = rq->clock + task_deadline_diff(p);
+			update_task_priodl(p);
+		}
 		if (SCHED_FIFO != p->policy && task_on_rq_queued(p))
 			requeue_task(p, rq);
 	}
