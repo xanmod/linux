@@ -824,10 +824,9 @@ static inline int pds_skiplist_random_level(const struct task_struct *p)
 	 * so mask out ~microseconds as a factor of the random seed for skiplist
 	 * insertion.
 	 * 2. Use address of task structure pointer as another factor of the
-	 * random seed for task burst forking scenario. Shift right 9 bits to
-	 * remove the aligned zero bits in the task structure address.
+	 * random seed for task burst forking scenario.
 	 */
-	randseed = (task_rq(p)->clock >> 10) ^ ((long unsigned int)p >> 9);
+	randseed = (task_rq(p)->clock ^ (long unsigned int)p) >> 10;
 
 	return find_first_bit(&randseed, NUM_SKIPLIST_LEVEL - 1);
 }
