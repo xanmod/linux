@@ -4315,7 +4315,7 @@ recheck:
 	 * Allow unprivileged RT tasks to decrease priority:
 	 */
 	if (user && !capable(CAP_SYS_NICE)) {
-		if (rt_policy(policy)) {
+		if (SCHED_FIFO == policy || SCHED_RR == policy) {
 			unsigned long rlim_rtprio =
 					task_rlimit(p, RLIMIT_RTPRIO);
 
@@ -4327,25 +4327,6 @@ recheck:
 			if (attr->sched_priority > p->rt_priority &&
 			    attr->sched_priority > rlim_rtprio)
 				return -EPERM;
-		} else {
-			switch (p->policy) {
-				/*
-				 * Can only downgrade policies but not back to
-				 * SCHED_NORMAL
-				 */
-				case SCHED_BATCH:
-					if (policy == SCHED_BATCH)
-						return 0;
-					if (policy != SCHED_IDLE)
-						return -EPERM;
-					break;
-				case SCHED_IDLE:
-					if (policy == SCHED_IDLE)
-						return 0;
-					return -EPERM;
-				default:
-					break;
-			}
 		}
 
 		/* Can't change other user's priorities */
