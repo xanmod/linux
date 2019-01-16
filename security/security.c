@@ -890,6 +890,7 @@ int security_binder_set_context_mgr(const struct cred *mgr)
 {
 	return call_int_hook(binder_set_context_mgr, mgr);
 }
+EXPORT_SYMBOL(security_binder_set_context_mgr);
 
 /**
  * security_binder_transaction() - Check if a binder transaction is allowed
@@ -905,6 +906,7 @@ int security_binder_transaction(const struct cred *from,
 {
 	return call_int_hook(binder_transaction, from, to);
 }
+EXPORT_SYMBOL(security_binder_transaction);
 
 /**
  * security_binder_transfer_binder() - Check if a binder transfer is allowed
@@ -920,6 +922,7 @@ int security_binder_transfer_binder(const struct cred *from,
 {
 	return call_int_hook(binder_transfer_binder, from, to);
 }
+EXPORT_SYMBOL(security_binder_transfer_binder);
 
 /**
  * security_binder_transfer_file() - Check if a binder file xfer is allowed
@@ -936,6 +939,7 @@ int security_binder_transfer_file(const struct cred *from,
 {
 	return call_int_hook(binder_transfer_file, from, to, file);
 }
+EXPORT_SYMBOL(security_binder_transfer_file);
 
 /**
  * security_ptrace_access_check() - Check if tracing is allowed

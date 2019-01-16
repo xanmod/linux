@@ -823,6 +823,7 @@ struct file *file_close_fd(unsigned int fd)
 
 	return file;
 }
+EXPORT_SYMBOL(close_fd_get_file);
 
 void do_close_on_exec(struct files_struct *files)
 {
