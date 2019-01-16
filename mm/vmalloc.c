@@ -316,6 +316,7 @@ int map_kernel_range_noflush(unsigned long addr, unsigned long size,
 
 	return 0;
 }
+EXPORT_SYMBOL(map_kernel_range_noflush);
 
 int map_kernel_range(unsigned long start, unsigned long size, pgprot_t prot,
 		struct page **pages)
@@ -2131,6 +2132,7 @@ struct vm_struct *get_vm_area(unsigned long size, unsigned long flags)
 				  NUMA_NO_NODE, GFP_KERNEL,
 				  __builtin_return_address(0));
 }
+EXPORT_SYMBOL(get_vm_area);
 
 struct vm_struct *get_vm_area_caller(unsigned long size, unsigned long flags,
 				const void *caller)
