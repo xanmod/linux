@@ -771,6 +771,7 @@ out_err:
 	*res = NULL;
 	return -ENOENT;
 }
+EXPORT_SYMBOL(close_fd_get_file);
 
 /*
  * variant of close_fd that gets a ref on the file for later fput.

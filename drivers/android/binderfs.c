@@ -113,7 +113,7 @@ static int binderfs_binder_device_create(struct inode *ref_inode,
 	struct super_block *sb = ref_inode->i_sb;
 	struct binderfs_info *info = sb->s_fs_info;
 #if defined(CONFIG_IPC_NS)
-	bool use_reserve = (info->ipc_ns == &init_ipc_ns);
+	bool use_reserve = (info->ipc_ns == show_init_ipc_ns());
 #else
 	bool use_reserve = true;
 #endif
@@ -402,7 +402,7 @@ static int binderfs_binder_ctl_create(struct super_block *sb)
 	struct dentry *root = sb->s_root;
 	struct binderfs_info *info = sb->s_fs_info;
 #if defined(CONFIG_IPC_NS)
-	bool use_reserve = (info->ipc_ns == &init_ipc_ns);
+	bool use_reserve = (info->ipc_ns == show_init_ipc_ns());
 #else
 	bool use_reserve = true;
 #endif
@@ -682,7 +682,7 @@ static int binderfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		return -ENOMEM;
 	info = sb->s_fs_info;
 
-	info->ipc_ns = get_ipc_ns(current->nsproxy->ipc_ns);
+	info->ipc_ns = get_ipc_ns_exported(current->nsproxy->ipc_ns);
 
 	info->root_gid = make_kgid(sb->s_user_ns, 0);
 	if (!gid_valid(info->root_gid))
