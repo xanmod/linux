@@ -1934,6 +1934,7 @@ void zap_page_range_single(struct vm_area_struct *vma, unsigned long address,
 	tlb_finish_mmu(&tlb);
 	hugetlb_zap_end(vma, details);
 }
+EXPORT_SYMBOL(zap_page_range_single);
 
 /**
  * zap_vma_ptes - remove ptes mapping the vma

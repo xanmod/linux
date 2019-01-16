@@ -140,6 +140,7 @@ int can_nice(const struct task_struct *p, const int nice)
 {
 	return is_nice_reduction(p, nice) || capable(CAP_SYS_NICE);
 }
+EXPORT_SYMBOL(can_nice);
 
 #ifdef __ARCH_WANT_SYS_NICE
 
