@@ -243,6 +243,7 @@ void __wake_up_pollfree(struct wait_queue_head *wq_head)
 	/* POLLFREE must have cleared the queue. */
 	WARN_ON_ONCE(waitqueue_active(wq_head));
 }
+EXPORT_SYMBOL(__wake_up_pollfree);
 
 /*
  * Note: we use "set_current_state()" _after_ the wait-queue add,
