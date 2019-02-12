@@ -24,6 +24,18 @@ struct printk_ringbuffer {
 	atomic_t ctx;
 };
 
+struct prb_entry {
+	unsigned int size;
+	u64 seq;
+	char data[0];
+};
+
+struct prb_handle {
+	struct printk_ringbuffer *rb;
+	unsigned int cpu;
+	struct prb_entry *entry;
+};
+
 #define DECLARE_STATIC_PRINTKRB_CPULOCK(name)				\
 static DEFINE_PER_CPU(unsigned long, _##name##_percpu_irqflags);	\
 static struct prb_cpulock name = {					\
@@ -44,6 +56,11 @@ static struct printk_ringbuffer name = {				\
 	.cpulock = cpulockptr,						\
 	.ctx = ATOMIC_INIT(0),						\
 }
+
+/* writer interface */
+char *prb_reserve(struct prb_handle *h, struct printk_ringbuffer *rb,
+		  unsigned int size);
+void prb_commit(struct prb_handle *h);
 
 /* utility functions */
 void prb_lock(struct prb_cpulock *cpu_lock, unsigned int *cpu_store);
