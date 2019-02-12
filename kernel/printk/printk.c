@@ -1515,6 +1515,16 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 	return do_syslog(type, buf, len, SYSLOG_FROM_READER);
 }
 
+static void print_console_dropped(struct console *con, u64 count)
+{
+	char text[64];
+	int len;
+
+	len = sprintf(text, "** %llu printk message%s dropped **\n",
+		      count, count > 1 ? "s" : "");
+	con->write(con, text, len);
+}
+
 static void format_text(struct printk_log *msg, u64 seq,
 			char *ext_text, size_t *ext_len,
 			char *text, size_t *len, bool time)
@@ -1548,7 +1558,7 @@ static void format_text(struct printk_log *msg, u64 seq,
  * log_buf[start] to log_buf[end - 1].
  * The console_lock must be held.
  */
-static void call_console_drivers(const char *ext_text, size_t ext_len,
+static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
 				 const char *text, size_t len)
 {
 	struct console *con;
@@ -1563,6 +1573,19 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
 		if (!cpu_online(raw_smp_processor_id()) &&
 		    !(con->flags & CON_ANYTIME))
 			continue;
+		if (con->printk_seq >= seq)
+			continue;
+
+		con->printk_seq++;
+		if (con->printk_seq < seq) {
+			print_console_dropped(con, seq - con->printk_seq);
+			con->printk_seq = seq;
+		}
+
+		/* for supressed messages, only seq is updated */
+		if (len == 0 && ext_len == 0)
+			continue;
+
 		if (con->flags & CON_EXTENDED)
 			con->write(con, ext_text, ext_len);
 		else
@@ -1791,7 +1814,7 @@ static ssize_t msg_print_ext_header(char *buf, size_t size,
 static ssize_t msg_print_ext_body(char *buf, size_t size,
 				  char *dict, size_t dict_len,
 				  char *text, size_t text_len) { return 0; }
-static void call_console_drivers(const char *ext_text, size_t ext_len,
+static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
 				 const char *text, size_t len) {}
 static size_t msg_print_text(const struct printk_log *msg, bool syslog,
 			     bool time, char *buf, size_t size) { return 0; }
@@ -2594,8 +2617,9 @@ static int printk_kthread_func(void *data)
 
 		console_lock();
 		console_may_schedule = 0;
+		call_console_drivers(master_seq, ext_text,
+				     ext_len, text, len);
 		if (len > 0 || ext_len > 0) {
-			call_console_drivers(ext_text, ext_len, text, len);
 			boot_delay_msec(msg->level);
 			printk_delay();
 		}
