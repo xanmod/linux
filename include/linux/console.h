@@ -153,6 +153,7 @@ struct console {
 	short	index;
 	int	cflag;
 	unsigned long printk_seq;
+	int	wrote_history;
 	void	*data;
 	struct	 console *next;
 };
