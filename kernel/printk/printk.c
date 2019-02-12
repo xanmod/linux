@@ -45,6 +45,7 @@
 #include <linux/ctype.h>
 #include <linux/uio.h>
 #include <linux/kthread.h>
+#include <linux/clocksource.h>
 #include <linux/printk_ringbuffer.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
@@ -61,11 +62,12 @@
 #include "braille.h"
 #include "internal.h"
 
-int console_printk[4] = {
+int console_printk[5] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
 	MESSAGE_LOGLEVEL_DEFAULT,	/* default_message_loglevel */
 	CONSOLE_LOGLEVEL_MIN,		/* minimum_console_loglevel */
 	CONSOLE_LOGLEVEL_DEFAULT,	/* default_console_loglevel */
+	CONSOLE_LOGLEVEL_EMERGENCY,	/* emergency_console_loglevel */
 };
 EXPORT_SYMBOL_GPL(console_printk);
 
@@ -497,6 +499,9 @@ static u32 log_next(u32 idx)
 	}
 	return idx + msg->len;
 }
+
+static void printk_emergency(char *buffer, int level, u64 ts_nsec, u16 cpu,
+			     char *text, u16 text_len);
 
 /* insert record into the buffer, discard old ones, update heads */
 static int log_store(u32 caller_id, int facility, int level,
@@ -1649,7 +1654,7 @@ out:
  * The console_lock must be held.
  */
 static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
-				 const char *text, size_t len)
+				 const char *text, size_t len, int level)
 {
 	struct console *con;
 
@@ -1665,6 +1670,18 @@ static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
 			}
 			con->wrote_history = 1;
 			con->printk_seq = seq - 1;
+		}
+		if (con->write_atomic && level < emergency_console_loglevel) {
+			/* skip emergency messages, already printed */
+			if (con->printk_seq < seq)
+				con->printk_seq = seq;
+			continue;
+		}
+		if (con->flags & CON_BOOT) {
+			/* skip emergency messages, already printed */
+			if (con->printk_seq < seq)
+				con->printk_seq = seq;
+			continue;
 		}
 		if (!con->write)
 			continue;
@@ -1785,8 +1802,12 @@ asmlinkage int vprintk_emit(int facility, int level,
 
 	cpu = raw_smp_processor_id();
 
-	text = rbuf;
-	text_len = vscnprintf(text, PRINTK_SPRINT_MAX, fmt, args);
+	/*
+	 * If this turns out to be an emergency message, there
+	 * may need to be a prefix added. Leave room for it.
+	 */
+	text = rbuf + PREFIX_MAX;
+	text_len = vscnprintf(text, PRINTK_SPRINT_MAX - PREFIX_MAX, fmt, args);
 
 	/* strip and flag a trailing newline */
 	if (text_len && text[text_len-1] == '\n') {
@@ -1818,6 +1839,14 @@ asmlinkage int vprintk_emit(int facility, int level,
 
 	if (dict)
 		lflags |= LOG_NEWLINE;
+
+	/*
+	 * NOTE:
+	 * - rbuf points to beginning of allocated buffer
+	 * - text points to beginning of text
+	 * - there is room before text for prefix
+	 */
+	printk_emergency(rbuf, level, ts_nsec, cpu, text, text_len);
 
 	printed_len = log_store(caller_id, facility, level, lflags, ts_nsec, cpu,
 				dict, dictlen, text, text_len);
@@ -1900,7 +1929,7 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 				  char *dict, size_t dict_len,
 				  char *text, size_t text_len) { return 0; }
 static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
-				 const char *text, size_t len) {}
+				 const char *text, size_t len, int level) {}
 static size_t msg_print_text(const struct printk_log *msg, bool syslog,
 			     bool time, char *buf, size_t size) { return 0; }
 static bool suppress_message_printing(int level) { return false; }
@@ -2683,7 +2712,7 @@ static int printk_kthread_func(void *data)
 		console_lock();
 		console_may_schedule = 0;
 		call_console_drivers(master_seq, ext_text,
-				     ext_len, text, len);
+				     ext_len, text, len, msg->level);
 		if (len > 0 || ext_len > 0)
 			printk_delay(msg->level);
 		console_unlock();
@@ -3111,6 +3140,76 @@ void kmsg_dump_rewind(struct kmsg_dumper *dumper)
 	logbuf_unlock_irqrestore(flags);
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
+
+static bool console_can_emergency(int level)
+{
+	struct console *con;
+
+	for_each_console(con) {
+		if (!(con->flags & CON_ENABLED))
+			continue;
+		if (con->write_atomic && level < emergency_console_loglevel)
+			return true;
+		if (con->write && (con->flags & CON_BOOT))
+			return true;
+	}
+	return false;
+}
+
+static void call_emergency_console_drivers(int level, const char *text,
+					   size_t text_len)
+{
+	struct console *con;
+
+	for_each_console(con) {
+		if (!(con->flags & CON_ENABLED))
+			continue;
+		if (con->write_atomic && level < emergency_console_loglevel) {
+			con->write_atomic(con, text, text_len);
+			continue;
+		}
+		if (con->write && (con->flags & CON_BOOT)) {
+			con->write(con, text, text_len);
+			continue;
+		}
+	}
+}
+
+static void printk_emergency(char *buffer, int level, u64 ts_nsec, u16 cpu,
+			     char *text, u16 text_len)
+{
+	struct printk_log msg;
+	size_t prefix_len;
+
+	if (!console_can_emergency(level))
+		return;
+
+	msg.level = level;
+	msg.ts_nsec = ts_nsec;
+	msg.cpu = cpu;
+	msg.facility = 0;
+
+	/* "text" must have PREFIX_MAX preceding bytes available */
+
+	prefix_len = print_prefix(&msg,
+				  console_msg_format & MSG_FORMAT_SYSLOG,
+				  printk_time, buffer);
+	/* move the prefix forward to the beginning of the message text */
+	text -= prefix_len;
+	memmove(text, buffer, prefix_len);
+	text_len += prefix_len;
+
+	text[text_len++] = '\n';
+
+	call_emergency_console_drivers(level, text, text_len);
+
+	touch_softlockup_watchdog_sync();
+	clocksource_touch_watchdog();
+	rcu_cpu_stall_reset();
+	touch_nmi_watchdog();
+
+	printk_delay(level);
+}
 #endif
 
 void console_atomic_lock(unsigned int *flags)
