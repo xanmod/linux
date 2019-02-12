@@ -45,6 +45,8 @@
 #include <linux/irq_work.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#include <linux/kthread.h>
+#include <linux/printk_ringbuffer.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
@@ -417,7 +419,12 @@ DEFINE_RAW_SPINLOCK(logbuf_lock);
 		printk_safe_exit_irqrestore(flags);	\
 	} while (0)
 
+DECLARE_STATIC_PRINTKRB_CPULOCK(printk_cpulock);
+
 #ifdef CONFIG_PRINTK
+/* record buffer */
+DECLARE_STATIC_PRINTKRB(printk_rb, CONFIG_LOG_BUF_SHIFT, &printk_cpulock);
+
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 /* the next printk record to read by syslog(READ) or /proc/kmsg */
 static u64 syslog_seq;
@@ -779,6 +786,10 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 
 	return p - buf;
 }
+
+#define PRINTK_SPRINT_MAX (LOG_LINE_MAX + PREFIX_MAX)
+#define PRINTK_RECORD_MAX (sizeof(struct printk_log) + \
+				CONSOLE_EXT_LOG_MAX + PRINTK_SPRINT_MAX)
 
 /* /dev/kmsg - userspace message inject/listen interface */
 struct devkmsg_user {
@@ -1618,6 +1629,34 @@ int do_syslog(int type, char __user *buf, int len, int source)
 SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 {
 	return do_syslog(type, buf, len, SYSLOG_FROM_READER);
+}
+
+static void format_text(struct printk_log *msg, u64 seq,
+			char *ext_text, size_t *ext_len,
+			char *text, size_t *len, bool time)
+{
+	if (suppress_message_printing(msg->level)) {
+		/*
+		 * Skip record that has level above the console
+		 * loglevel and update each console's local seq.
+		 */
+		*len = 0;
+		*ext_len = 0;
+		return;
+	}
+
+	*len = msg_print_text(msg, console_msg_format & MSG_FORMAT_SYSLOG,
+			      time, text, PRINTK_SPRINT_MAX);
+	if (nr_ext_console_drivers) {
+		*ext_len = msg_print_ext_header(ext_text, CONSOLE_EXT_LOG_MAX,
+						msg, seq);
+		*ext_len += msg_print_ext_body(ext_text + *ext_len,
+					       CONSOLE_EXT_LOG_MAX - *ext_len,
+					       log_dict(msg), msg->dict_len,
+					       log_text(msg), msg->text_len);
+	} else {
+		*ext_len = 0;
+	}
 }
 
 /*
@@ -2973,6 +3012,72 @@ void wake_up_klogd(void)
 	}
 	preempt_enable();
 }
+
+static int printk_kthread_func(void *data)
+{
+	struct prb_iterator iter;
+	struct printk_log *msg;
+	size_t ext_len;
+	char *ext_text;
+	u64 master_seq;
+	size_t len;
+	char *text;
+	char *buf;
+	int ret;
+
+	ext_text = kmalloc(CONSOLE_EXT_LOG_MAX, GFP_KERNEL);
+	text = kmalloc(PRINTK_SPRINT_MAX, GFP_KERNEL);
+	buf = kmalloc(PRINTK_RECORD_MAX, GFP_KERNEL);
+	if (!ext_text || !text || !buf)
+		return -1;
+
+	prb_iter_init(&iter, &printk_rb, NULL);
+
+	/* the printk kthread never exits */
+	for (;;) {
+		ret = prb_iter_wait_next(&iter, buf,
+					 PRINTK_RECORD_MAX, &master_seq);
+		if (ret == -ERESTARTSYS) {
+			continue;
+		} else if (ret < 0) {
+			/* iterator invalid, start over */
+			prb_iter_init(&iter, &printk_rb, NULL);
+			continue;
+		}
+
+		msg = (struct printk_log *)buf;
+		format_text(msg, master_seq, ext_text, &ext_len, text,
+			    &len, printk_time);
+
+		console_lock();
+		if (len > 0 || ext_len > 0) {
+			call_console_drivers(ext_text, ext_len, text, len);
+			boot_delay_msec(msg->level);
+			printk_delay();
+		}
+		console_unlock();
+	}
+
+	kfree(ext_text);
+	kfree(text);
+	kfree(buf);
+
+	return 0;
+}
+
+static int __init init_printk_kthread(void)
+{
+	struct task_struct *thread;
+
+	thread = kthread_run(printk_kthread_func, NULL, "printk");
+	if (IS_ERR(thread)) {
+		pr_err("printk: unable to create printing thread\n");
+		return PTR_ERR(thread);
+	}
+
+	return 0;
+}
+late_initcall(init_printk_kthread);
 
 void defer_console_output(void)
 {
