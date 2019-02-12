@@ -1515,6 +1515,21 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 	return do_syslog(type, buf, len, SYSLOG_FROM_READER);
 }
 
+int printk_delay_msec __read_mostly;
+
+static inline void printk_delay(int level)
+{
+	boot_delay_msec(level);
+	if (unlikely(printk_delay_msec)) {
+		int m = printk_delay_msec;
+
+		while (m--) {
+			mdelay(1);
+			touch_nmi_watchdog();
+		}
+	}
+}
+
 static void print_console_dropped(struct console *con, u64 count)
 {
 	char text[64];
@@ -1590,20 +1605,6 @@ static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
 			con->write(con, ext_text, ext_len);
 		else
 			con->write(con, text, len);
-	}
-}
-
-int printk_delay_msec __read_mostly;
-
-static inline void printk_delay(void)
-{
-	if (unlikely(printk_delay_msec)) {
-		int m = printk_delay_msec;
-
-		while (m--) {
-			mdelay(1);
-			touch_nmi_watchdog();
-		}
 	}
 }
 
@@ -2619,10 +2620,8 @@ static int printk_kthread_func(void *data)
 		console_may_schedule = 0;
 		call_console_drivers(master_seq, ext_text,
 				     ext_len, text, len);
-		if (len > 0 || ext_len > 0) {
-			boot_delay_msec(msg->level);
-			printk_delay();
-		}
+		if (len > 0 || ext_len > 0)
+			printk_delay(msg->level);
 		console_unlock();
 	}
 
