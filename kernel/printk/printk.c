@@ -417,12 +417,12 @@ static size_t syslog_partial;
 static bool syslog_time;
 
 /* index and sequence number of the first record stored in the buffer */
-static u64 log_first_seq;
 static u32 log_first_idx;
 
 /* index and sequence number of the next record to store in the buffer */
-static u64 log_next_seq;
 static u32 log_next_idx;
+
+static DEFINE_MUTEX(kmsg_dump_lock);
 
 /* the next printk record to read after the last 'clear' command */
 static u64 clear_seq;
@@ -468,38 +468,6 @@ static char *log_text(const struct printk_log *msg)
 static char *log_dict(const struct printk_log *msg)
 {
 	return (char *)msg + sizeof(struct printk_log) + msg->text_len;
-}
-
-/* get record by index; idx must point to valid msg */
-static struct printk_log *log_from_idx(u32 idx)
-{
-	struct printk_log *msg = (struct printk_log *)(log_buf + idx);
-
-	/*
-	 * A length == 0 record is the end of buffer marker. Wrap around and
-	 * read the message at the start of the buffer.
-	 */
-	if (!msg->len)
-		return (struct printk_log *)log_buf;
-	return msg;
-}
-
-/* get next record; idx must point to valid msg */
-static u32 log_next(u32 idx)
-{
-	struct printk_log *msg = (struct printk_log *)(log_buf + idx);
-
-	/* length == 0 indicates the end of the buffer; wrap */
-	/*
-	 * A length == 0 record is the end of buffer marker. Wrap around and
-	 * read the message at the start of the buffer as *this* one, and
-	 * return the one after that.
-	 */
-	if (!msg->len) {
-		msg = (struct printk_log *)log_buf;
-		return msg->len;
-	}
-	return idx + msg->len;
 }
 
 static void printk_emergency(char *buffer, int level, u64 ts_nsec, u16 cpu,
@@ -2114,9 +2082,7 @@ EXPORT_SYMBOL(printk);
 #define printk_time		false
 
 static u64 syslog_seq;
-static u64 log_first_seq;
 static u32 log_first_idx;
-static u64 log_next_seq;
 static char *log_text(const struct printk_log *msg) { return NULL; }
 static char *log_dict(const struct printk_log *msg) { return NULL; }
 static struct printk_log *log_from_idx(u32 idx) { return NULL; }
@@ -3093,7 +3059,6 @@ EXPORT_SYMBOL_GPL(kmsg_dump_reason_str);
 void kmsg_dump(enum kmsg_dump_reason reason)
 {
 	struct kmsg_dumper *dumper;
-	unsigned long flags;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(dumper, &dump_list, list) {
@@ -3113,12 +3078,7 @@ void kmsg_dump(enum kmsg_dump_reason reason)
 		/* initialize iterator with data about the stored records */
 		dumper->active = true;
 
-		logbuf_lock_irqsave(flags);
-		dumper->cur_seq = clear_seq;
-		dumper->cur_idx = clear_idx;
-		dumper->next_seq = log_next_seq;
-		dumper->next_idx = log_next_idx;
-		logbuf_unlock_irqrestore(flags);
+		kmsg_dump_rewind(dumper);
 
 		/* invoke dumper which will iterate over records */
 		dumper->dump(dumper, reason);
@@ -3151,33 +3111,67 @@ void kmsg_dump(enum kmsg_dump_reason reason)
 bool kmsg_dump_get_line_nolock(struct kmsg_dumper *dumper, bool syslog,
 			       char *line, size_t size, size_t *len)
 {
+	struct prb_iterator iter;
 	struct printk_log *msg;
-	size_t l = 0;
-	bool ret = false;
+	struct prb_handle h;
+	bool cont = false;
+	char *msgbuf;
+	char *rbuf;
+	size_t l;
+	u64 seq;
+	int ret;
 
 	if (!dumper->active)
-		goto out;
+		return cont;
 
-	if (dumper->cur_seq < log_first_seq) {
-		/* messages are gone, move to first available one */
-		dumper->cur_seq = log_first_seq;
-		dumper->cur_idx = log_first_idx;
+	rbuf = prb_reserve(&h, &sprint_rb, PRINTK_RECORD_MAX);
+	if (!rbuf)
+		return cont;
+	msgbuf = rbuf;
+retry:
+	for (;;) {
+		prb_iter_init(&iter, &printk_rb, &seq);
+
+		if (dumper->line_seq == seq) {
+			/* already where we want to be */
+			break;
+		} else if (dumper->line_seq < seq) {
+			/* messages are gone, move to first available one */
+			dumper->line_seq = seq;
+			break;
+		}
+
+		ret = prb_iter_seek(&iter, dumper->line_seq);
+		if (ret > 0) {
+			/* seeked to line_seq */
+			break;
+		} else if (ret == 0) {
+			/*
+			 * The end of the list was hit without ever seeing
+			 * line_seq. Reset it to the beginning of the list.
+			 */
+			prb_iter_init(&iter, &printk_rb, &dumper->line_seq);
+			break;
+		}
+		/* iterator invalid, start over */
 	}
 
-	/* last entry */
-	if (dumper->cur_seq >= log_next_seq)
+	ret = prb_iter_next(&iter, msgbuf, PRINTK_RECORD_MAX,
+			    &dumper->line_seq);
+	if (ret == 0)
 		goto out;
+	else if (ret < 0)
+		goto retry;
 
-	msg = log_from_idx(dumper->cur_idx);
+	msg = (struct printk_log *)msgbuf;
 	l = msg_print_text(msg, syslog, printk_time, line, size);
 
-	dumper->cur_idx = log_next(dumper->cur_idx);
-	dumper->cur_seq++;
-	ret = true;
-out:
 	if (len)
 		*len = l;
-	return ret;
+	cont = true;
+out:
+	prb_commit(&h);
+	return cont;
 }
 
 /**
@@ -3200,12 +3194,11 @@ out:
 bool kmsg_dump_get_line(struct kmsg_dumper *dumper, bool syslog,
 			char *line, size_t size, size_t *len)
 {
-	unsigned long flags;
 	bool ret;
 
-	logbuf_lock_irqsave(flags);
+	mutex_lock(&kmsg_dump_lock);
 	ret = kmsg_dump_get_line_nolock(dumper, syslog, line, size, len);
-	logbuf_unlock_irqrestore(flags);
+	mutex_unlock(&kmsg_dump_lock);
 
 	return ret;
 }
@@ -3233,74 +3226,101 @@ EXPORT_SYMBOL_GPL(kmsg_dump_get_line);
 bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 			  char *buf, size_t size, size_t *len)
 {
-	unsigned long flags;
-	u64 seq;
-	u32 idx;
-	u64 next_seq;
-	u32 next_idx;
-	size_t l = 0;
-	bool ret = false;
+	struct prb_iterator iter;
 	bool time = printk_time;
+	struct printk_log *msg;
+	u64 new_end_seq = 0;
+	struct prb_handle h;
+	bool cont = false;
+	char *msgbuf;
+	u64 end_seq;
+	int textlen;
+	u64 seq = 0;
+	char *rbuf;
+	int l = 0;
+	int ret;
 
 	if (!dumper->active)
+		return cont;
+
+	rbuf = prb_reserve(&h, &sprint_rb, PRINTK_RECORD_MAX);
+	if (!rbuf)
+		return cont;
+	msgbuf = rbuf;
+
+	prb_iter_init(&iter, &printk_rb, NULL);
+
+	/*
+	 * seek to the start record, which is set/modified
+	 * by kmsg_dump_get_line_nolock()
+	 */
+	ret = prb_iter_seek(&iter, dumper->line_seq);
+	if (ret <= 0)
+		prb_iter_init(&iter, &printk_rb, &seq);
+
+	/* work with a local end seq to have a constant value */
+	end_seq = dumper->buffer_end_seq;
+	if (!end_seq) {
+		/* initialize end seq to "infinity" */
+		end_seq = -1;
+		dumper->buffer_end_seq = end_seq;
+	}
+retry:
+	if (seq >= end_seq)
 		goto out;
 
-	logbuf_lock_irqsave(flags);
-	if (dumper->cur_seq < log_first_seq) {
-		/* messages are gone, move to first available one */
-		dumper->cur_seq = log_first_seq;
-		dumper->cur_idx = log_first_idx;
+	/* count the total bytes after seq */
+	textlen = count_remaining(&iter, end_seq, msgbuf,
+				  PRINTK_RECORD_MAX, 0, time);
+
+	/* move iter forward until length fits into the buffer */
+	while (textlen > size) {
+		ret = prb_iter_next(&iter, msgbuf, PRINTK_RECORD_MAX, &seq);
+		if (ret == 0) {
+			break;
+		} else if (ret < 0) {
+			prb_iter_init(&iter, &printk_rb, &seq);
+			goto retry;
+		}
+
+		msg = (struct printk_log *)msgbuf;
+		textlen -= msg_print_text(msg, true, time, NULL, 0);
 	}
 
-	/* last entry */
-	if (dumper->cur_seq >= dumper->next_seq) {
-		logbuf_unlock_irqrestore(flags);
-		goto out;
+	/* save end seq for the next interation */
+	new_end_seq = seq + 1;
+
+	/* copy messages to buffer */
+	while (l < size) {
+		ret = prb_iter_next(&iter, msgbuf, PRINTK_RECORD_MAX, &seq);
+		if (ret == 0) {
+			break;
+		} else if (ret < 0) {
+			/*
+			 * iterator (and thus also the start position)
+			 * invalid, start over from beginning of list
+			 */
+			prb_iter_init(&iter, &printk_rb, NULL);
+			continue;
+		}
+
+		if (seq >= end_seq)
+			break;
+
+		msg = (struct printk_log *)msgbuf;
+		textlen = msg_print_text(msg, syslog, time, buf + l, size - l);
+		if (textlen > 0)
+			l += textlen;
+		cont = true;
 	}
 
-	/* calculate length of entire buffer */
-	seq = dumper->cur_seq;
-	idx = dumper->cur_idx;
-	while (seq < dumper->next_seq) {
-		struct printk_log *msg = log_from_idx(idx);
-
-		l += msg_print_text(msg, true, time, NULL, 0);
-		idx = log_next(idx);
-		seq++;
-	}
-
-	/* move first record forward until length fits into the buffer */
-	seq = dumper->cur_seq;
-	idx = dumper->cur_idx;
-	while (l >= size && seq < dumper->next_seq) {
-		struct printk_log *msg = log_from_idx(idx);
-
-		l -= msg_print_text(msg, true, time, NULL, 0);
-		idx = log_next(idx);
-		seq++;
-	}
-
-	/* last message in next interation */
-	next_seq = seq;
-	next_idx = idx;
-
-	l = 0;
-	while (seq < dumper->next_seq) {
-		struct printk_log *msg = log_from_idx(idx);
-
-		l += msg_print_text(msg, syslog, time, buf + l, size - l);
-		idx = log_next(idx);
-		seq++;
-	}
-
-	dumper->next_seq = next_seq;
-	dumper->next_idx = next_idx;
-	ret = true;
-	logbuf_unlock_irqrestore(flags);
-out:
-	if (len)
+	if (cont && len)
 		*len = l;
-	return ret;
+out:
+	prb_commit(&h);
+	if (new_end_seq)
+		dumper->buffer_end_seq = new_end_seq;
+	return cont;
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_get_buffer);
 
@@ -3316,10 +3336,8 @@ EXPORT_SYMBOL_GPL(kmsg_dump_get_buffer);
  */
 void kmsg_dump_rewind_nolock(struct kmsg_dumper *dumper)
 {
-	dumper->cur_seq = clear_seq;
-	dumper->cur_idx = clear_idx;
-	dumper->next_seq = log_next_seq;
-	dumper->next_idx = log_next_idx;
+	dumper->line_seq = 0;
+	dumper->buffer_end_seq = 0;
 }
 
 /**
@@ -3332,11 +3350,9 @@ void kmsg_dump_rewind_nolock(struct kmsg_dumper *dumper)
  */
 void kmsg_dump_rewind(struct kmsg_dumper *dumper)
 {
-	unsigned long flags;
-
-	logbuf_lock_irqsave(flags);
+	mutex_lock(&kmsg_dump_lock);
 	kmsg_dump_rewind_nolock(dumper);
-	logbuf_unlock_irqrestore(flags);
+	mutex_unlock(&kmsg_dump_lock);
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
 
