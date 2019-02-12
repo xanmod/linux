@@ -43,6 +43,19 @@ static struct prb_cpulock name = {					\
 	.irqflags = &_##name##_percpu_irqflags,				\
 }
 
+#define PRB_INIT ((unsigned long)-1)
+
+#define DECLARE_STATIC_PRINTKRB_ITER(name, rbaddr)			\
+static struct prb_iterator name = {					\
+	.rb = rbaddr,							\
+	.lpos = PRB_INIT,						\
+}
+
+struct prb_iterator {
+	struct printk_ringbuffer *rb;
+	unsigned long lpos;
+};
+
 #define DECLARE_STATIC_PRINTKRB(name, szbits, cpulockptr)		\
 static char _##name##_buffer[1 << (szbits)]				\
 	__aligned(__alignof__(long));					\
@@ -61,6 +74,13 @@ static struct printk_ringbuffer name = {				\
 char *prb_reserve(struct prb_handle *h, struct printk_ringbuffer *rb,
 		  unsigned int size);
 void prb_commit(struct prb_handle *h);
+
+/* reader interface */
+void prb_iter_init(struct prb_iterator *iter, struct printk_ringbuffer *rb,
+		   u64 *seq);
+void prb_iter_copy(struct prb_iterator *dest, struct prb_iterator *src);
+int prb_iter_next(struct prb_iterator *iter, char *buf, int size, u64 *seq);
+int prb_iter_data(struct prb_iterator *iter, char *buf, int size, u64 *seq);
 
 /* utility functions */
 void prb_lock(struct prb_cpulock *cpu_lock, unsigned int *cpu_store);
