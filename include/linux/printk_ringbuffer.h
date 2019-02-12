@@ -2,8 +2,10 @@
 #ifndef _LINUX_PRINTK_RINGBUFFER_H
 #define _LINUX_PRINTK_RINGBUFFER_H
 
+#include <linux/irq_work.h>
 #include <linux/atomic.h>
 #include <linux/percpu.h>
+#include <linux/wait.h>
 
 struct prb_cpulock {
 	atomic_t owner;
@@ -22,6 +24,10 @@ struct printk_ringbuffer {
 
 	struct prb_cpulock *cpulock;
 	atomic_t ctx;
+
+	struct wait_queue_head *wq;
+	atomic_long_t wq_counter;
+	struct irq_work *wq_work;
 };
 
 struct prb_entry {
@@ -59,6 +65,15 @@ struct prb_iterator {
 #define DECLARE_STATIC_PRINTKRB(name, szbits, cpulockptr)		\
 static char _##name##_buffer[1 << (szbits)]				\
 	__aligned(__alignof__(long));					\
+static DECLARE_WAIT_QUEUE_HEAD(_##name##_wait);				\
+static void _##name##_wake_work_func(struct irq_work *irq_work)		\
+{									\
+	wake_up_interruptible_all(&_##name##_wait);			\
+}									\
+static struct irq_work _##name##_wake_work = {				\
+	.func = _##name##_wake_work_func,				\
+	.flags = IRQ_WORK_LAZY,						\
+};									\
 static struct printk_ringbuffer name = {				\
 	.buffer = &_##name##_buffer[0],					\
 	.size_bits = szbits,						\
@@ -68,6 +83,9 @@ static struct printk_ringbuffer name = {				\
 	.reserve = ATOMIC_LONG_INIT(-111 * sizeof(long)),		\
 	.cpulock = cpulockptr,						\
 	.ctx = ATOMIC_INIT(0),						\
+	.wq = &_##name##_wait,						\
+	.wq_counter = ATOMIC_LONG_INIT(0),				\
+	.wq_work = &_##name##_wake_work,				\
 }
 
 /* writer interface */
@@ -80,6 +98,8 @@ void prb_iter_init(struct prb_iterator *iter, struct printk_ringbuffer *rb,
 		   u64 *seq);
 void prb_iter_copy(struct prb_iterator *dest, struct prb_iterator *src);
 int prb_iter_next(struct prb_iterator *iter, char *buf, int size, u64 *seq);
+int prb_iter_wait_next(struct prb_iterator *iter, char *buf, int size,
+		       u64 *seq);
 int prb_iter_data(struct prb_iterator *iter, char *buf, int size, u64 *seq);
 
 /* utility functions */
