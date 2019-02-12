@@ -152,6 +152,7 @@ struct console {
 	short	flags;
 	short	index;
 	int	cflag;
+	unsigned long printk_seq;
 	void	*data;
 	struct	 console *next;
 };
