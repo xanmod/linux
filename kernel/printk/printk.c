@@ -1568,6 +1568,77 @@ static void format_text(struct printk_log *msg, u64 seq,
 	}
 }
 
+static void printk_write_history(struct console *con, u64 master_seq)
+{
+	struct prb_iterator iter;
+	bool time = printk_time;
+	static char *ext_text;
+	static char *text;
+	static char *buf;
+	u64 seq;
+
+	ext_text = kmalloc(CONSOLE_EXT_LOG_MAX, GFP_KERNEL);
+	text = kmalloc(PRINTK_SPRINT_MAX, GFP_KERNEL);
+	buf = kmalloc(PRINTK_RECORD_MAX, GFP_KERNEL);
+	if (!ext_text || !text || !buf)
+		return;
+
+	if (!(con->flags & CON_ENABLED))
+		goto out;
+
+	if (!con->write)
+		goto out;
+
+	if (!cpu_online(raw_smp_processor_id()) &&
+	    !(con->flags & CON_ANYTIME))
+		goto out;
+
+	prb_iter_init(&iter, &printk_rb, NULL);
+
+	for (;;) {
+		struct printk_log *msg;
+		size_t ext_len;
+		size_t len;
+		int ret;
+
+		ret = prb_iter_next(&iter, buf, PRINTK_RECORD_MAX, &seq);
+		if (ret == 0) {
+			break;
+		} else if (ret < 0) {
+			prb_iter_init(&iter, &printk_rb, NULL);
+			continue;
+		}
+
+		if (seq > master_seq)
+			break;
+
+		con->printk_seq++;
+		if (con->printk_seq < seq) {
+			print_console_dropped(con, seq - con->printk_seq);
+			con->printk_seq = seq;
+		}
+
+		msg = (struct printk_log *)buf;
+		format_text(msg, master_seq, ext_text, &ext_len, text,
+			    &len, time);
+
+		if (len == 0 && ext_len == 0)
+			continue;
+
+		if (con->flags & CON_EXTENDED)
+			con->write(con, ext_text, ext_len);
+		else
+			con->write(con, text, len);
+
+		printk_delay(msg->level);
+	}
+out:
+	con->wrote_history = 1;
+	kfree(ext_text);
+	kfree(text);
+	kfree(buf);
+}
+
 /*
  * Call the console drivers, asking them to write out
  * log_buf[start] to log_buf[end - 1].
@@ -1583,6 +1654,10 @@ static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
 	for_each_console(con) {
 		if (!(con->flags & CON_ENABLED))
 			continue;
+		if (!con->wrote_history) {
+			printk_write_history(con, seq);
+			continue;
+		}
 		if (!con->write)
 			continue;
 		if (!cpu_online(raw_smp_processor_id()) &&
