@@ -3044,3 +3044,15 @@ void kmsg_dump_rewind(struct kmsg_dumper *dumper)
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
 #endif
+
+void console_atomic_lock(unsigned int *flags)
+{
+	prb_lock(&printk_cpulock, flags);
+}
+EXPORT_SYMBOL(console_atomic_lock);
+
+void console_atomic_unlock(unsigned int flags)
+{
+	prb_unlock(&printk_cpulock, flags);
+}
+EXPORT_SYMBOL(console_atomic_unlock);
