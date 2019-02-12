@@ -35,7 +35,7 @@ static void __dma_tx_complete(void *param)
 
 	ret = serial8250_tx_dma(p);
 	if (ret)
-		serial8250_set_THRI(p);
+		serial8250_set_THRI_sier(p);
 
 	spin_unlock_irqrestore(&p->port.lock, flags);
 }
@@ -98,7 +98,7 @@ int serial8250_tx_dma(struct uart_8250_port *p)
 	dma_async_issue_pending(dma->txchan);
 	if (dma->tx_err) {
 		dma->tx_err = 0;
-		serial8250_clear_THRI(p);
+		serial8250_clear_THRI_sier(p);
 	}
 	return 0;
 err:
