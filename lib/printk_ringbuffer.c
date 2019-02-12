@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/smp.h>
+#include <linux/string.h>
+#include <linux/errno.h>
 #include <linux/printk_ringbuffer.h>
 
 #define PRB_SIZE(rb) (1 << rb->size_bits)
@@ -8,6 +10,7 @@
 #define PRB_WRAPS(rb, lpos) (lpos >> rb->size_bits)
 #define PRB_WRAP_LPOS(rb, lpos, xtra) \
 	((PRB_WRAPS(rb, lpos) + xtra) << rb->size_bits)
+#define PRB_DATA_SIZE(e) (e->size - sizeof(struct prb_entry))
 #define PRB_DATA_ALIGN sizeof(long)
 
 static bool __prb_trylock(struct prb_cpulock *cpu_lock,
@@ -246,4 +249,191 @@ char *prb_reserve(struct prb_handle *h, struct printk_ringbuffer *rb,
 	h->entry->size = size;
 
 	return &h->entry->data[0];
+}
+
+/*
+ * prb_iter_copy: Copy an iterator.
+ * @dest: The iterator to copy to.
+ * @src: The iterator to copy from.
+ *
+ * Make a deep copy of an iterator. This is particularly useful for making
+ * backup copies of an iterator in case a form of rewinding it needed.
+ *
+ * It is safe to call this function from any context and state. But
+ * note that this function is not atomic. Callers should not make copies
+ * to/from iterators that can be accessed by other tasks/contexts.
+ */
+void prb_iter_copy(struct prb_iterator *dest, struct prb_iterator *src)
+{
+	memcpy(dest, src, sizeof(*dest));
+}
+
+/*
+ * prb_iter_init: Initialize an iterator for a ring buffer.
+ * @iter: The iterator to initialize.
+ * @rb: A ring buffer to that @iter should iterate.
+ * @seq: The sequence number of the position preceding the first record.
+ *       May be NULL.
+ *
+ * Initialize an iterator to be used with a specified ring buffer. If @seq
+ * is non-NULL, it will be set such that prb_iter_next() will provide a
+ * sequence value of "@seq + 1" if no records were missed.
+ *
+ * It is safe to call this function from any context and state.
+ */
+void prb_iter_init(struct prb_iterator *iter, struct printk_ringbuffer *rb,
+		   u64 *seq)
+{
+	memset(iter, 0, sizeof(*iter));
+	iter->rb = rb;
+	iter->lpos = PRB_INIT;
+
+	if (!seq)
+		return;
+
+	for (;;) {
+		struct prb_iterator tmp_iter;
+		int ret;
+
+		prb_iter_copy(&tmp_iter, iter);
+
+		ret = prb_iter_next(&tmp_iter, NULL, 0, seq);
+		if (ret < 0)
+			continue;
+
+		if (ret == 0)
+			*seq = 0;
+		else
+			(*seq)--;
+		break;
+	}
+}
+
+static bool is_valid(struct printk_ringbuffer *rb, unsigned long lpos)
+{
+	unsigned long head, tail;
+
+	tail = atomic_long_read(&rb->tail);
+	head = atomic_long_read(&rb->head);
+	head -= tail;
+	lpos -= tail;
+
+	if (lpos >= head)
+		return false;
+	return true;
+}
+
+/*
+ * prb_iter_data: Retrieve the record data at the current position.
+ * @iter: Iterator tracking the current position.
+ * @buf: A buffer to store the data of the record. May be NULL.
+ * @size: The size of @buf. (Ignored if @buf is NULL.)
+ * @seq: The sequence number of the record. May be NULL.
+ *
+ * If @iter is at a record, provide the data and/or sequence number of that
+ * record (if specified by the caller).
+ *
+ * It is safe to call this function from any context and state.
+ *
+ * Returns >=0 if the current record contains valid data (returns 0 if @buf
+ * is NULL or returns the size of the data block if @buf is non-NULL) or
+ * -EINVAL if @iter is now invalid.
+ */
+int prb_iter_data(struct prb_iterator *iter, char *buf, int size, u64 *seq)
+{
+	struct printk_ringbuffer *rb = iter->rb;
+	unsigned long lpos = iter->lpos;
+	unsigned int datsize = 0;
+	struct prb_entry *e;
+
+	if (buf || seq) {
+		e = to_entry(rb, lpos);
+		if (!is_valid(rb, lpos))
+			return -EINVAL;
+		/* memory barrier to ensure valid lpos */
+		smp_rmb();
+		if (buf) {
+			datsize = PRB_DATA_SIZE(e);
+			/* memory barrier to ensure load of datsize */
+			smp_rmb();
+			if (!is_valid(rb, lpos))
+				return -EINVAL;
+			if (PRB_INDEX(rb, lpos) + datsize >
+			    PRB_SIZE(rb) - PRB_DATA_ALIGN) {
+				return -EINVAL;
+			}
+			if (size > datsize)
+				size = datsize;
+			memcpy(buf, &e->data[0], size);
+		}
+		if (seq)
+			*seq = e->seq;
+		/* memory barrier to ensure loads of entry data */
+		smp_rmb();
+	}
+
+	if (!is_valid(rb, lpos))
+		return -EINVAL;
+
+	return datsize;
+}
+
+/*
+ * prb_iter_next: Advance to the next record.
+ * @iter: Iterator tracking the current position.
+ * @buf: A buffer to store the data of the next record. May be NULL.
+ * @size: The size of @buf. (Ignored if @buf is NULL.)
+ * @seq: The sequence number of the next record. May be NULL.
+ *
+ * If a next record is available, @iter is advanced and (if specified)
+ * the data and/or sequence number of that record are provided.
+ *
+ * It is safe to call this function from any context and state.
+ *
+ * Returns 1 if @iter was advanced, 0 if @iter is at the end of the list, or
+ * -EINVAL if @iter is now invalid.
+ */
+int prb_iter_next(struct prb_iterator *iter, char *buf, int size, u64 *seq)
+{
+	struct printk_ringbuffer *rb = iter->rb;
+	unsigned long next_lpos;
+	struct prb_entry *e;
+	unsigned int esize;
+
+	if (iter->lpos == PRB_INIT) {
+		next_lpos = atomic_long_read(&rb->tail);
+	} else {
+		if (!is_valid(rb, iter->lpos))
+			return -EINVAL;
+		/* memory barrier to ensure valid lpos */
+		smp_rmb();
+		e = to_entry(rb, iter->lpos);
+		esize = e->size;
+		/* memory barrier to ensure load of size */
+		smp_rmb();
+		if (!is_valid(rb, iter->lpos))
+			return -EINVAL;
+		next_lpos = iter->lpos + esize;
+	}
+	if (next_lpos == atomic_long_read(&rb->head))
+		return 0;
+	if (!is_valid(rb, next_lpos))
+		return -EINVAL;
+	/* memory barrier to ensure valid lpos */
+	smp_rmb();
+
+	iter->lpos = next_lpos;
+	e = to_entry(rb, iter->lpos);
+	esize = e->size;
+	/* memory barrier to ensure load of size */
+	smp_rmb();
+	if (!is_valid(rb, iter->lpos))
+		return -EINVAL;
+	if (esize == -1)
+		iter->lpos = PRB_WRAP_LPOS(rb, iter->lpos, 1);
+
+	if (prb_iter_data(iter, buf, size, seq) < 0)
+		return -EINVAL;
+
+	return 1;
 }
