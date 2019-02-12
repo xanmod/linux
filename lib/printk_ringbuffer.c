@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
+#include <linux/sched.h>
 #include <linux/smp.h>
 #include <linux/string.h>
 #include <linux/errno.h>
@@ -154,6 +155,7 @@ static bool push_tail(struct printk_ringbuffer *rb, unsigned long tail)
 void prb_commit(struct prb_handle *h)
 {
 	struct printk_ringbuffer *rb = h->rb;
+	bool changed = false;
 	struct prb_entry *e;
 	unsigned long head;
 	unsigned long res;
@@ -175,6 +177,7 @@ void prb_commit(struct prb_handle *h)
 			}
 			e->seq = ++rb->seq;
 			head += e->size;
+			changed = true;
 		}
 		atomic_long_set_release(&rb->head, res);
 		atomic_dec(&rb->ctx);
@@ -185,6 +188,18 @@ void prb_commit(struct prb_handle *h)
 	}
 
 	prb_unlock(rb->cpulock, h->cpu);
+
+	if (changed) {
+		atomic_long_inc(&rb->wq_counter);
+		if (wq_has_sleeper(rb->wq)) {
+#ifdef CONFIG_IRQ_WORK
+			irq_work_queue(rb->wq_work);
+#else
+			if (!in_nmi())
+				wake_up_interruptible_all(rb->wq);
+#endif
+		}
+	}
 }
 
 /*
@@ -436,4 +451,44 @@ int prb_iter_next(struct prb_iterator *iter, char *buf, int size, u64 *seq)
 		return -EINVAL;
 
 	return 1;
+}
+
+/*
+ * prb_iter_wait_next: Advance to the next record, blocking if none available.
+ * @iter: Iterator tracking the current position.
+ * @buf: A buffer to store the data of the next record. May be NULL.
+ * @size: The size of @buf. (Ignored if @buf is NULL.)
+ * @seq: The sequence number of the next record. May be NULL.
+ *
+ * If a next record is already available, this function works like
+ * prb_iter_next(). Otherwise block interruptible until a next record is
+ * available.
+ *
+ * When a next record is available, @iter is advanced and (if specified)
+ * the data and/or sequence number of that record are provided.
+ *
+ * This function might sleep.
+ *
+ * Returns 1 if @iter was advanced, -EINVAL if @iter is now invalid, or
+ * -ERESTARTSYS if interrupted by a signal.
+ */
+int prb_iter_wait_next(struct prb_iterator *iter, char *buf, int size, u64 *seq)
+{
+	unsigned long last_seen;
+	int ret;
+
+	for (;;) {
+		last_seen = atomic_long_read(&iter->rb->wq_counter);
+
+		ret = prb_iter_next(iter, buf, size, seq);
+		if (ret != 0)
+			break;
+
+		ret = wait_event_interruptible(*iter->rb->wq,
+			last_seen != atomic_long_read(&iter->rb->wq_counter));
+		if (ret < 0)
+			break;
+	}
+
+	return ret;
 }
