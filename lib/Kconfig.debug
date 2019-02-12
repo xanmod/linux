@@ -61,6 +61,23 @@ config CONSOLE_LOGLEVEL_QUIET
 	  will be used as the loglevel. IOW passing "quiet" will be the
 	  equivalent of passing "loglevel=<CONSOLE_LOGLEVEL_QUIET>"
 
+config CONSOLE_LOGLEVEL_EMERGENCY
+	int "Emergency console loglevel (1-15)"
+	range 1 15
+	default "5"
+	help
+	  The loglevel to determine if a console message is an emergency
+	  message.
+
+	  If supported by the console driver, emergency messages will be
+	  flushed to the console immediately. This can cause significant system
+	  latencies so the value should be set such that only significant
+	  messages are classified as emergency messages.
+
+	  Setting a default here is equivalent to passing in
+	  emergency_loglevel=<x> in the kernel bootargs. emergency_loglevel=<x>
+	  continues to override whatever value is specified here as well.
+
 config MESSAGE_LOGLEVEL_DEFAULT
 	int "Default message log level (1-7)"
 	range 1 7

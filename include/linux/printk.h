@@ -58,6 +58,7 @@ static inline const char *printk_skip_headers(const char *buffer)
  */
 #define CONSOLE_LOGLEVEL_DEFAULT CONFIG_CONSOLE_LOGLEVEL_DEFAULT
 #define CONSOLE_LOGLEVEL_QUIET	 CONFIG_CONSOLE_LOGLEVEL_QUIET
+#define CONSOLE_LOGLEVEL_EMERGENCY CONFIG_CONSOLE_LOGLEVEL_EMERGENCY
 
 extern int console_printk[];
 
@@ -65,6 +66,7 @@ extern int console_printk[];
 #define default_message_loglevel (console_printk[1])
 #define minimum_console_loglevel (console_printk[2])
 #define default_console_loglevel (console_printk[3])
+#define emergency_console_loglevel (console_printk[4])
 
 static inline void console_silent(void)
 {
