@@ -1736,13 +1736,6 @@ static bool cont_add(u32 caller_id, int facility, int level,
 }
 #endif /* 0 */
 
-int vprintk_store(int facility, int level,
-		  const char *dict, size_t dictlen,
-		  const char *fmt, va_list args)
-{
-	return vprintk_emit(facility, level, dict, dictlen, fmt, args);
-}
-
 /* ring buffer used as memory allocator for temporary sprint buffers */
 DECLARE_STATIC_PRINTKRB(sprint_rb,
 			ilog2(PRINTK_RECORD_MAX + sizeof(struct prb_entry) +
@@ -1810,6 +1803,11 @@ asmlinkage int vprintk_emit(int facility, int level,
 	return printed_len;
 }
 EXPORT_SYMBOL(vprintk_emit);
+
+__printf(1, 0) int vprintk_func(const char *fmt, va_list args)
+{
+	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, 0, fmt, args);
+}
 
 asmlinkage int vprintk(const char *fmt, va_list args)
 {
@@ -3211,5 +3209,4 @@ void kmsg_dump_rewind(struct kmsg_dumper *dumper)
 	logbuf_unlock_irqrestore(flags);
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
-
 #endif
