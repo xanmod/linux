@@ -17,6 +17,7 @@ struct printk_ringbuffer {
 	unsigned int size_bits;
 
 	u64 seq;
+	atomic_long_t lost;
 
 	atomic_long_t tail;
 	atomic_long_t head;
@@ -78,6 +79,7 @@ static struct printk_ringbuffer name = {				\
 	.buffer = &_##name##_buffer[0],					\
 	.size_bits = szbits,						\
 	.seq = 0,							\
+	.lost = ATOMIC_LONG_INIT(0),					\
 	.tail = ATOMIC_LONG_INIT(-111 * sizeof(long)),			\
 	.head = ATOMIC_LONG_INIT(-111 * sizeof(long)),			\
 	.reserve = ATOMIC_LONG_INIT(-111 * sizeof(long)),		\
@@ -100,9 +102,12 @@ void prb_iter_copy(struct prb_iterator *dest, struct prb_iterator *src);
 int prb_iter_next(struct prb_iterator *iter, char *buf, int size, u64 *seq);
 int prb_iter_wait_next(struct prb_iterator *iter, char *buf, int size,
 		       u64 *seq);
+int prb_iter_seek(struct prb_iterator *iter, u64 seq);
 int prb_iter_data(struct prb_iterator *iter, char *buf, int size, u64 *seq);
 
 /* utility functions */
+int prb_buffer_size(struct printk_ringbuffer *rb);
+void prb_inc_lost(struct printk_ringbuffer *rb);
 void prb_lock(struct prb_cpulock *cpu_lock, unsigned int *cpu_store);
 void prb_unlock(struct prb_cpulock *cpu_lock, unsigned int cpu_store);
 
