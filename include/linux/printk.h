@@ -192,6 +192,7 @@ __printf(1, 2) void dump_stack_set_arch_desc(const char *fmt, ...);
 void dump_stack_print_info(const char *log_lvl);
 void show_regs_print_info(const char *log_lvl);
 extern asmlinkage void dump_stack(void) __cold;
+struct wait_queue_head *printk_wait_queue(void);
 #else
 static inline __printf(1, 0)
 int vprintk(const char *s, va_list args)
