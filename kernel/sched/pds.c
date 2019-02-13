@@ -176,8 +176,9 @@ DEFINE_PER_CPU(cpumask_t *, sched_cpu_llc_start_mask);
 DEFINE_PER_CPU(cpumask_t *, sched_cpu_affinity_chk_end_masks);
 
 #ifdef CONFIG_SCHED_SMT
-DEFINE_STATIC_KEY_FALSE(sched_smt_present);
 DEFINE_PER_CPU(int, sched_sibling_cpu);
+DEFINE_STATIC_KEY_FALSE(sched_smt_present);
+EXPORT_SYMBOL_GPL(sched_smt_present);
 
 static cpumask_t sched_cpu_sg_idle_mask ____cacheline_aligned_in_smp;
 
