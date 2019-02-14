@@ -1951,7 +1951,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	 * - text points to beginning of text
 	 * - there is room before text for prefix
 	 */
-	printk_emergency(rbuf, level, ts_nsec, cpu, text, text_len);
+	printk_emergency(rbuf, level & 7, ts_nsec, cpu, text, text_len);
 
 	if ((lflags & LOG_CONT) || !(lflags & LOG_NEWLINE)) {
 		 cont_add(ctx, cpu, caller_id, facility, level, lflags, text, text_len);
@@ -2744,7 +2744,7 @@ late_initcall(init_printk_kthread);
 
 static int vprintk_deferred(const char *fmt, va_list args)
 {
-	return vprintk_emit(0, LOGLEVEL_SCHED, NULL, 0, fmt, args);
+	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, 0, fmt, args);
 }
 
 int printk_deferred(const char *fmt, ...)
