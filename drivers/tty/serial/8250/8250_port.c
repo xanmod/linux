@@ -3177,16 +3177,8 @@ void serial8250_console_write_atomic(struct uart_8250_port *up,
 {
 	struct uart_port *port = &up->port;
 	unsigned int flags;
-	bool locked;
 
 	console_atomic_lock(&flags);
-
-	/*
-	 * If possible, keep any other CPUs from working with the
-	 * UART until the atomic message is completed. This helps
-	 * to keep the output more orderly.
-	 */
-	locked = spin_trylock(&port->lock);
 
 	touch_nmi_watchdog();
 
@@ -3201,9 +3193,6 @@ void serial8250_console_write_atomic(struct uart_8250_port *up,
 
 	wait_for_xmitr(up, BOTH_EMPTY);
 	restore_ier(up);
-
-	if (locked)
-		spin_unlock(&port->lock);
 
 	console_atomic_unlock(flags);
 }
