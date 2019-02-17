@@ -1754,7 +1754,8 @@ out:
  * The console_lock must be held.
  */
 static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
-				 const char *text, size_t len, int level)
+				 const char *text, size_t len, int level,
+				 int facility)
 {
 	struct console *con;
 
@@ -1774,13 +1775,14 @@ static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
 			con->wrote_history = 1;
 			con->printk_seq = seq - 1;
 		}
-		if (con->write_atomic && level < emergency_console_loglevel) {
+		if (con->write_atomic && level < emergency_console_loglevel &&
+		    facility == 0) {
 			/* skip emergency messages, already printed */
 			if (con->printk_seq < seq)
 				con->printk_seq = seq;
 			continue;
 		}
-		if (con->flags & CON_BOOT) {
+		if (con->flags & CON_BOOT && facility == 0) {
 			/* skip emergency messages, already printed */
 			if (con->printk_seq < seq)
 				con->printk_seq = seq;
@@ -1951,7 +1953,10 @@ asmlinkage int vprintk_emit(int facility, int level,
 	 * - text points to beginning of text
 	 * - there is room before text for prefix
 	 */
-	printk_emergency(rbuf, level & 7, ts_nsec, cpu, text, text_len);
+	if (facility == 0) {
+		/* only the kernel can create emergency messages */
+		printk_emergency(rbuf, level & 7, ts_nsec, cpu, text, text_len);
+	}
 
 	if ((lflags & LOG_CONT) || !(lflags & LOG_NEWLINE)) {
 		 cont_add(ctx, cpu, caller_id, facility, level, lflags, text, text_len);
@@ -2715,8 +2720,8 @@ static int printk_kthread_func(void *data)
 			    &len, printk_time);
 
 		console_lock();
-		call_console_drivers(master_seq, ext_text,
-				     ext_len, text, len, msg->level);
+		call_console_drivers(master_seq, ext_text, ext_len, text, len,
+				     msg->level, msg->facility);
 		if (len > 0 || ext_len > 0)
 			printk_delay(msg->level);
 		console_unlock();
