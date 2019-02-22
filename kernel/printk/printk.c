@@ -761,6 +761,7 @@ static loff_t devkmsg_llseek(struct file *file, loff_t offset, int whence)
 {
 	struct devkmsg_user *user = file->private_data;
 	loff_t ret;
+	u64 seq;
 
 	if (!user)
 		return -EBADF;
@@ -783,7 +784,7 @@ static loff_t devkmsg_llseek(struct file *file, loff_t offset, int whence)
 		 * changes no global state, and does not clear anything.
 		 */
 		for (;;) {
-			prb_iter_init(&user->iter, &printk_rb, NULL);
+			prb_iter_init(&user->iter, &printk_rb, &seq);
 			ret = prb_iter_seek(&user->iter, clear_seq);
 			if (ret > 0) {
 				/* seeked to clear seq */
@@ -800,6 +801,10 @@ static loff_t devkmsg_llseek(struct file *file, loff_t offset, int whence)
 				break;
 			}
 			/* iterator invalid, start over */
+
+			/* reset clear_seq if it is no longer available */
+			if (seq > clear_seq)
+				clear_seq = 0;
 		}
 		ret = 0;
 		break;
