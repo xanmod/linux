@@ -781,8 +781,25 @@ cifs_setup_request(struct cifs_ses *ses, struct smb_rqst *rqst)
 }
 
 static void
-cifs_noop_callback(struct mid_q_entry *mid)
+cifs_compound_callback(struct mid_q_entry *mid)
 {
+	struct TCP_Server_Info *server = mid->server;
+
+	add_credits(server, server->ops->get_credits(mid), mid->optype);
+}
+
+static void
+cifs_compound_last_callback(struct mid_q_entry *mid)
+{
+	cifs_compound_callback(mid);
+	cifs_wake_up_task(mid);
+}
+
+static void
+cifs_cancelled_callback(struct mid_q_entry *mid)
+{
+	cifs_compound_callback(mid);
+	DeleteMidQEntry(mid);
 }
 
 int
@@ -860,12 +877,16 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 		}
 
 		midQ[i]->mid_state = MID_REQUEST_SUBMITTED;
+		midQ[i]->optype = optype;
 		/*
-		 * We don't invoke the callback compounds unless it is the last
-		 * request.
+		 * Invoke callback for every part of the compound chain
+		 * to calculate credits properly. Wake up this thread only when
+		 * the last element is received.
 		 */
 		if (i < num_rqst - 1)
-			midQ[i]->callback = cifs_noop_callback;
+			midQ[i]->callback = cifs_compound_callback;
+		else
+			midQ[i]->callback = cifs_compound_last_callback;
 	}
 	cifs_in_send_inc(ses->server);
 	rc = smb_send_rqst(ses->server, num_rqst, rqst, flags);
@@ -879,8 +900,20 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 
 	mutex_unlock(&ses->server->srv_mutex);
 
-	if (rc < 0)
+	if (rc < 0) {
+		/* Sending failed for some reason - return credits back */
+		for (i = 0; i < num_rqst; i++)
+			add_credits(ses->server, credits[i], optype);
 		goto out;
+	}
+
+	/*
+	 * At this point the request is passed to the network stack - we assume
+	 * that any credits taken from the server structure on the client have
+	 * been spent and we can't return them back. Once we receive responses
+	 * we will collect credits granted by the server in the mid callbacks
+	 * and add those credits to the server structure.
+	 */
 
 	/*
 	 * Compounding is never used during session establish.
@@ -894,24 +927,24 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 
 	for (i = 0; i < num_rqst; i++) {
 		rc = wait_for_response(ses->server, midQ[i]);
-		if (rc != 0) {
+		if (rc != 0)
+			break;
+	}
+	if (rc != 0) {
+		for (; i < num_rqst; i++) {
 			cifs_dbg(VFS, "Cancelling wait for mid %llu cmd: %d\n",
 				 midQ[i]->mid, le16_to_cpu(midQ[i]->command));
 			send_cancel(ses->server, &rqst[i], midQ[i]);
 			spin_lock(&GlobalMid_Lock);
 			if (midQ[i]->mid_state == MID_REQUEST_SUBMITTED) {
 				midQ[i]->mid_flags |= MID_WAIT_CANCELLED;
-				midQ[i]->callback = DeleteMidQEntry;
+				midQ[i]->callback = cifs_cancelled_callback;
 				cancelled_mid[i] = true;
+				credits[i] = 0;
 			}
 			spin_unlock(&GlobalMid_Lock);
 		}
 	}
-
-	for (i = 0; i < num_rqst; i++)
-		if (!cancelled_mid[i] && midQ[i]->resp_buf
-		    && (midQ[i]->mid_state == MID_RESPONSE_RECEIVED))
-			credits[i] = ses->server->ops->get_credits(midQ[i]);
 
 	for (i = 0; i < num_rqst; i++) {
 		if (rc < 0)
@@ -971,7 +1004,6 @@ out:
 	for (i = 0; i < num_rqst; i++) {
 		if (!cancelled_mid[i])
 			cifs_delete_mid(midQ[i]);
-		add_credits(ses->server, credits[i], optype);
 	}
 
 	return rc;
