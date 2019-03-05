@@ -20,7 +20,18 @@
  */
 
 #define MAX_USER_RT_PRIO	100
+
+#ifdef CONFIG_SCHED_PDS
+#define ISO_PRIO		(MAX_USER_RT_PRIO)
+
+#define MAX_RT_PRIO		((MAX_USER_RT_PRIO) + 1)
+
+#define NORMAL_PRIO		(MAX_RT_PRIO)
+#define IDLE_PRIO		((MAX_RT_PRIO) + 1)
+#define PRIO_LIMIT		((IDLE_PRIO) + 1)
+#else /* !CONFIG_SCHED_PDS */
 #define MAX_RT_PRIO		MAX_USER_RT_PRIO
+#endif /* CONFIG_SCHED_PDS */
 
 #define MAX_PRIO		(MAX_RT_PRIO + NICE_WIDTH)
 #define DEFAULT_PRIO		(MAX_RT_PRIO + NICE_WIDTH / 2)

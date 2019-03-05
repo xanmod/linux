@@ -792,6 +792,7 @@ check_timers_list(struct list_head *timers,
 	return 0;
 }
 
+#ifndef CONFIG_SCHED_PDS
 static inline void check_dl_overrun(struct task_struct *tsk)
 {
 	if (tsk->dl.dl_overrun) {
@@ -799,6 +800,7 @@ static inline void check_dl_overrun(struct task_struct *tsk)
 		__group_send_sig_info(SIGXCPU, SEND_SIG_PRIV, tsk);
 	}
 }
+#endif
 
 /*
  * Check for any per-thread CPU timers that have fired and move them off
@@ -813,8 +815,10 @@ static void check_thread_timers(struct task_struct *tsk,
 	u64 expires;
 	unsigned long soft;
 
+#ifndef CONFIG_SCHED_PDS
 	if (dl_task(tsk))
 		check_dl_overrun(tsk);
+#endif
 
 	/*
 	 * If cputime_expires is zero, then there are no active
@@ -830,7 +834,7 @@ static void check_thread_timers(struct task_struct *tsk,
 	tsk_expires->virt_exp = expires;
 
 	tsk_expires->sched_exp = check_timers_list(++timers, firing,
-						   tsk->se.sum_exec_runtime);
+						   tsk_seruntime(tsk));
 
 	/*
 	 * Check for the special case thread timers.
@@ -840,7 +844,7 @@ static void check_thread_timers(struct task_struct *tsk,
 		unsigned long hard = task_rlimit_max(tsk, RLIMIT_RTTIME);
 
 		if (hard != RLIM_INFINITY &&
-		    tsk->rt.timeout > DIV_ROUND_UP(hard, USEC_PER_SEC/HZ)) {
+		    tsk_rttimeout(tsk) > DIV_ROUND_UP(hard, USEC_PER_SEC/HZ)) {
 			/*
 			 * At the hard limit, we just die.
 			 * No need to calculate anything else now.
@@ -852,7 +856,7 @@ static void check_thread_timers(struct task_struct *tsk,
 			__group_send_sig_info(SIGKILL, SEND_SIG_PRIV, tsk);
 			return;
 		}
-		if (tsk->rt.timeout > DIV_ROUND_UP(soft, USEC_PER_SEC/HZ)) {
+		if (tsk_rttimeout(tsk) > DIV_ROUND_UP(soft, USEC_PER_SEC/HZ)) {
 			/*
 			 * At the soft limit, send a SIGXCPU every second.
 			 */
@@ -1092,7 +1096,7 @@ static inline int fastpath_timer_check(struct task_struct *tsk)
 		struct task_cputime task_sample;
 
 		task_cputime(tsk, &task_sample.utime, &task_sample.stime);
-		task_sample.sum_exec_runtime = tsk->se.sum_exec_runtime;
+		task_sample.sum_exec_runtime = tsk_seruntime(tsk);
 		if (task_cputime_expired(&task_sample, &tsk->cputime_expires))
 			return 1;
 	}
@@ -1122,8 +1126,10 @@ static inline int fastpath_timer_check(struct task_struct *tsk)
 			return 1;
 	}
 
+#ifndef CONFIG_SCHED_PDS
 	if (dl_task(tsk) && tsk->dl.dl_overrun)
 		return 1;
+#endif
 
 	return 0;
 }

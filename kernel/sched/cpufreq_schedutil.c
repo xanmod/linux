@@ -175,6 +175,7 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	return cpufreq_driver_resolve_freq(policy, freq);
 }
 
+#ifndef CONFIG_SCHED_PDS
 /*
  * This function computes an effective utilization for the given CPU, to be
  * used for frequency selection given the linear relation: f = u * f_max.
@@ -282,6 +283,13 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 
 	return schedutil_freq_util(sg_cpu->cpu, util, max, FREQUENCY_UTIL);
 }
+#else /* CONFIG_SCHED_PDS */
+static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
+{
+	sg_cpu->max = arch_scale_cpu_capacity(NULL, sg_cpu->cpu);
+	return sg_cpu->max;
+}
+#endif
 
 /**
  * sugov_iowait_reset() - Reset the IO boost status of a CPU.
@@ -435,7 +443,9 @@ static inline bool sugov_cpu_is_busy(struct sugov_cpu *sg_cpu) { return false; }
  */
 static inline void ignore_dl_rate_limit(struct sugov_cpu *sg_cpu, struct sugov_policy *sg_policy)
 {
+#ifndef CONFIG_SCHED_PDS
 	if (cpu_bw_dl(cpu_rq(sg_cpu->cpu)) > sg_cpu->bw_dl)
+#endif
 		sg_policy->need_freq_update = true;
 }
 
@@ -676,6 +686,7 @@ static int sugov_kthread_create(struct sugov_policy *sg_policy)
 	}
 
 	ret = sched_setattr_nocheck(thread, &attr);
+
 	if (ret) {
 		kthread_stop(thread);
 		pr_warn("%s: failed to set SCHED_DEADLINE\n", __func__);
