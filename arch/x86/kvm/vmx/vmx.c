@@ -6399,7 +6399,7 @@ static void __vmx_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 		"mov %%" _ASM_AX", %%cr2 \n\t"
 		"3: \n\t"
 		/* Check if vmlaunch or vmresume is needed */
-		"cmpl $0, %c[launched](%%" _ASM_CX ") \n\t"
+		"cmpb $0, %c[launched](%%" _ASM_CX ") \n\t"
 		/* Load guest registers.  Don't clobber flags. */
 		"mov %c[rax](%%" _ASM_CX "), %%" _ASM_AX " \n\t"
 		"mov %c[rbx](%%" _ASM_CX "), %%" _ASM_BX " \n\t"
@@ -6449,10 +6449,15 @@ static void __vmx_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 		"mov %%r13, %c[r13](%%" _ASM_CX ") \n\t"
 		"mov %%r14, %c[r14](%%" _ASM_CX ") \n\t"
 		"mov %%r15, %c[r15](%%" _ASM_CX ") \n\t"
+
 		/*
-		* Clear host registers marked as clobbered to prevent
-		* speculative use.
-		*/
+		 * Clear all general purpose registers (except RSP, which is loaded by
+		 * the CPU during VM-Exit) to prevent speculative use of the guest's
+		 * values, even those that are saved/loaded via the stack.  In theory,
+		 * an L1 cache miss when restoring registers could lead to speculative
+		 * execution with the guest's values.  Zeroing XORs are dirt cheap,
+		 * i.e. the extra paranoia is essentially free.
+		 */
 		"xor %%r8d,  %%r8d \n\t"
 		"xor %%r9d,  %%r9d \n\t"
 		"xor %%r10d, %%r10d \n\t"
@@ -6467,8 +6472,11 @@ static void __vmx_vcpu_run(struct kvm_vcpu *vcpu, struct vcpu_vmx *vmx)
 
 		"xor %%eax, %%eax \n\t"
 		"xor %%ebx, %%ebx \n\t"
+		"xor %%ecx, %%ecx \n\t"
+		"xor %%edx, %%edx \n\t"
 		"xor %%esi, %%esi \n\t"
 		"xor %%edi, %%edi \n\t"
+		"xor %%ebp, %%ebp \n\t"
 		"pop  %%" _ASM_BP "; pop  %%" _ASM_DX " \n\t"
 	      : ASM_CALL_CONSTRAINT
 	      : "c"(vmx), "d"((unsigned long)HOST_RSP), "S"(evmcs_rsp),

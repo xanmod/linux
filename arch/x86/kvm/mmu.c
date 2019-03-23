@@ -5635,12 +5635,7 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 {
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *memslot;
-	bool flush_tlb = true;
-	bool flush = false;
 	int i;
-
-	if (kvm_available_flush_tlb_with_range())
-		flush_tlb = false;
 
 	spin_lock(&kvm->mmu_lock);
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
@@ -5653,16 +5648,11 @@ void kvm_zap_gfn_range(struct kvm *kvm, gfn_t gfn_start, gfn_t gfn_end)
 			if (start >= end)
 				continue;
 
-			flush |= slot_handle_level_range(kvm, memslot,
-					kvm_zap_rmapp, PT_PAGE_TABLE_LEVEL,
-					PT_MAX_HUGEPAGE_LEVEL, start,
-					end - 1, flush_tlb);
+			slot_handle_level_range(kvm, memslot, kvm_zap_rmapp,
+						PT_PAGE_TABLE_LEVEL, PT_MAX_HUGEPAGE_LEVEL,
+						start, end - 1, true);
 		}
 	}
-
-	if (flush)
-		kvm_flush_remote_tlbs_with_address(kvm, gfn_start,
-				gfn_end - gfn_start + 1);
 
 	spin_unlock(&kvm->mmu_lock);
 }
@@ -5901,13 +5891,30 @@ static bool kvm_has_zapped_obsolete_pages(struct kvm *kvm)
 	return unlikely(!list_empty_careful(&kvm->arch.zapped_obsolete_pages));
 }
 
-void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, struct kvm_memslots *slots)
+void kvm_mmu_invalidate_mmio_sptes(struct kvm *kvm, u64 gen)
 {
+	gen &= MMIO_GEN_MASK;
+
 	/*
-	 * The very rare case: if the generation-number is round,
+	 * Shift to eliminate the "update in-progress" flag, which isn't
+	 * included in the spte's generation number.
+	 */
+	gen >>= 1;
+
+	/*
+	 * Generation numbers are incremented in multiples of the number of
+	 * address spaces in order to provide unique generations across all
+	 * address spaces.  Strip what is effectively the address space
+	 * modifier prior to checking for a wrap of the MMIO generation so
+	 * that a wrap in any address space is detected.
+	 */
+	gen &= ~((u64)KVM_ADDRESS_SPACE_NUM - 1);
+
+	/*
+	 * The very rare case: if the MMIO generation number has wrapped,
 	 * zap all shadow pages.
 	 */
-	if (unlikely((slots->generation & MMIO_GEN_MASK) == 0)) {
+	if (unlikely(gen == 0)) {
 		kvm_debug_ratelimited("kvm: zapping shadow pages for mmio generation wraparound\n");
 		kvm_mmu_invalidate_zap_all_pages(kvm);
 	}

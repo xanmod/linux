@@ -2785,6 +2785,18 @@ again:
 }
 EXPORT_SYMBOL(rvt_copy_sge);
 
+static enum ib_wc_status loopback_qp_drop(struct rvt_ibport *rvp,
+					  struct rvt_qp *sqp)
+{
+	rvp->n_pkt_drops++;
+	/*
+	 * For RC, the requester would timeout and retry so
+	 * shortcut the timeouts and just signal too many retries.
+	 */
+	return sqp->ibqp.qp_type == IB_QPT_RC ?
+		IB_WC_RETRY_EXC_ERR : IB_WC_SUCCESS;
+}
+
 /**
  * ruc_loopback - handle UC and RC loopback requests
  * @sqp: the sending QP
@@ -2857,17 +2869,14 @@ again:
 	}
 	spin_unlock_irqrestore(&sqp->s_lock, flags);
 
-	if (!qp || !(ib_rvt_state_ops[qp->state] & RVT_PROCESS_RECV_OK) ||
+	if (!qp) {
+		send_status = loopback_qp_drop(rvp, sqp);
+		goto serr_no_r_lock;
+	}
+	spin_lock_irqsave(&qp->r_lock, flags);
+	if (!(ib_rvt_state_ops[qp->state] & RVT_PROCESS_RECV_OK) ||
 	    qp->ibqp.qp_type != sqp->ibqp.qp_type) {
-		rvp->n_pkt_drops++;
-		/*
-		 * For RC, the requester would timeout and retry so
-		 * shortcut the timeouts and just signal too many retries.
-		 */
-		if (sqp->ibqp.qp_type == IB_QPT_RC)
-			send_status = IB_WC_RETRY_EXC_ERR;
-		else
-			send_status = IB_WC_SUCCESS;
+		send_status = loopback_qp_drop(rvp, sqp);
 		goto serr;
 	}
 
@@ -2893,18 +2902,8 @@ again:
 		goto send_comp;
 
 	case IB_WR_SEND_WITH_INV:
-		if (!rvt_invalidate_rkey(qp, wqe->wr.ex.invalidate_rkey)) {
-			wc.wc_flags = IB_WC_WITH_INVALIDATE;
-			wc.ex.invalidate_rkey = wqe->wr.ex.invalidate_rkey;
-		}
-		goto send;
-
 	case IB_WR_SEND_WITH_IMM:
-		wc.wc_flags = IB_WC_WITH_IMM;
-		wc.ex.imm_data = wqe->wr.ex.imm_data;
-		/* FALLTHROUGH */
 	case IB_WR_SEND:
-send:
 		ret = rvt_get_rwqe(qp, false);
 		if (ret < 0)
 			goto op_err;
@@ -2912,6 +2911,22 @@ send:
 			goto rnr_nak;
 		if (wqe->length > qp->r_len)
 			goto inv_err;
+		switch (wqe->wr.opcode) {
+		case IB_WR_SEND_WITH_INV:
+			if (!rvt_invalidate_rkey(qp,
+						 wqe->wr.ex.invalidate_rkey)) {
+				wc.wc_flags = IB_WC_WITH_INVALIDATE;
+				wc.ex.invalidate_rkey =
+					wqe->wr.ex.invalidate_rkey;
+			}
+			break;
+		case IB_WR_SEND_WITH_IMM:
+			wc.wc_flags = IB_WC_WITH_IMM;
+			wc.ex.imm_data = wqe->wr.ex.imm_data;
+			break;
+		default:
+			break;
+		}
 		break;
 
 	case IB_WR_RDMA_WRITE_WITH_IMM:
@@ -3041,6 +3056,7 @@ do_write:
 		     wqe->wr.send_flags & IB_SEND_SOLICITED);
 
 send_comp:
+	spin_unlock_irqrestore(&qp->r_lock, flags);
 	spin_lock_irqsave(&sqp->s_lock, flags);
 	rvp->n_loop_pkts++;
 flush_send:
@@ -3067,6 +3083,7 @@ rnr_nak:
 	}
 	if (sqp->s_rnr_retry_cnt < 7)
 		sqp->s_rnr_retry--;
+	spin_unlock_irqrestore(&qp->r_lock, flags);
 	spin_lock_irqsave(&sqp->s_lock, flags);
 	if (!(ib_rvt_state_ops[sqp->state] & RVT_PROCESS_RECV_OK))
 		goto clr_busy;
@@ -3095,6 +3112,8 @@ err:
 	rvt_rc_error(qp, wc.status);
 
 serr:
+	spin_unlock_irqrestore(&qp->r_lock, flags);
+serr_no_r_lock:
 	spin_lock_irqsave(&sqp->s_lock, flags);
 	rvt_send_complete(sqp, wqe, send_status);
 	if (sqp->ibqp.qp_type == IB_QPT_RC) {

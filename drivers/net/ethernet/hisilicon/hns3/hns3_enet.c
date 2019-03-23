@@ -1852,7 +1852,9 @@ static pci_ers_result_t hns3_slot_reset(struct pci_dev *pdev)
 
 	/* request the reset */
 	if (ae_dev->ops->reset_event) {
-		ae_dev->ops->reset_event(pdev, NULL);
+		if (!ae_dev->override_pci_need_reset)
+			ae_dev->ops->reset_event(pdev, NULL);
+
 		return PCI_ERS_RESULT_RECOVERED;
 	}
 
@@ -2476,6 +2478,8 @@ static int hns3_add_frag(struct hns3_enet_ring *ring, struct hns3_desc *desc,
 		desc = &ring->desc[ring->next_to_clean];
 		desc_cb = &ring->desc_cb[ring->next_to_clean];
 		bd_base_info = le32_to_cpu(desc->rx.bd_base_info);
+		/* make sure HW write desc complete */
+		dma_rmb();
 		if (!hnae3_get_bit(bd_base_info, HNS3_RXD_VLD_B))
 			return -ENXIO;
 
