@@ -4600,7 +4600,7 @@ static void do_sched_yield(void)
 
 	rq = this_rq_lock_irq(&rf);
 
-	if (rt_task(current)) {
+	if (!rt_task(current)) {
 		current->boost_prio = MAX_PRIORITY_ADJ;
 		requeue_task(current, rq);
 	}
