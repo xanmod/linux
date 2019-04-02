@@ -67,31 +67,57 @@ static inline void print_scheduler_version(void)
 int sched_yield_type __read_mostly = 1;
 
 const static u64 ts_overrun_th[] = {
+	SCHED_TIMESLICE_NS / 32,
+	SCHED_TIMESLICE_NS / 16,
 	SCHED_TIMESLICE_NS / 8,
 	SCHED_TIMESLICE_NS / 4,
 	SCHED_TIMESLICE_NS / 2,
 	SCHED_TIMESLICE_NS * 3 / 4,
-	SCHED_TIMESLICE_NS * 7 / 8,
 	SCHED_TIMESLICE_NS * 15 / 16,
-	SCHED_TIMESLICE_NS * 31 / 32,
 	SCHED_TIMESLICE_NS * 63 / 64,
 	SCHED_TIMESLICE_NS * 127 / 128
 };
 
-const static u64 ts_nonboost_th[] = {
+const static u64 ts_boost_th[] = {
+	SCHED_TIMESLICE_NS >> 10,
+	SCHED_TIMESLICE_NS >> 9,
 	SCHED_TIMESLICE_NS >> 8,
 	SCHED_TIMESLICE_NS >> 7,
 	SCHED_TIMESLICE_NS >> 6,
 	SCHED_TIMESLICE_NS >> 5,
 	SCHED_TIMESLICE_NS >> 4,
 	SCHED_TIMESLICE_NS >> 3,
-	SCHED_TIMESLICE_NS >> 2,
-	SCHED_TIMESLICE_NS >> 1,
-	SCHED_TIMESLICE_NS >> 1
+	SCHED_TIMESLICE_NS >> 2
 };
 
-#define TASK_ST_OVER(p, rq, th)	(((rq)->clock - (rq)->last_ts_switch) > \
+#define TASK_ST(p, rq, op, th)	(((rq)->clock - (rq)->last_ts_switch) op\
 				 (th)[MAX_PRIORITY_ADJ +  (p)->boost_prio])
+
+static inline void boost_task(struct task_struct *p, struct rq *rq)
+{
+	int limit;
+
+	switch (p->policy) {
+	case SCHED_NORMAL:
+		limit = -MAX_PRIORITY_ADJ;
+		break;
+	case SCHED_BATCH:
+	case SCHED_IDLE:
+		limit = 0;
+		break;
+	default:
+		return;
+	}
+
+	if (p->boost_prio > limit && TASK_ST(p, rq, <, ts_boost_th))
+		p->boost_prio--;
+}
+
+static inline void deboost_task(struct task_struct *p)
+{
+	if (p->boost_prio < MAX_PRIORITY_ADJ)
+		p->boost_prio++;
+}
 
 #ifdef CONFIG_SMP
 static cpumask_t sched_rq_pending_mask ____cacheline_aligned_in_smp;
@@ -264,18 +290,6 @@ rq_next_bmq_task(struct task_struct *p, struct rq *rq)
 
 	return list_next_entry(p, bmq_node);
 
-}
-
-static inline void boost_task(struct task_struct *p)
-{
-	if (p->boost_prio > -MAX_PRIORITY_ADJ)
-		p->boost_prio--;
-}
-
-static inline void deboost_task(struct task_struct *p, const int limit)
-{
-	if (p->boost_prio < limit)
-		p->boost_prio++;
 }
 
 /*
@@ -1703,7 +1717,6 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 
 	p->sched_contributes_to_load = !!task_contributes_to_load(p);
 	p->state = TASK_WAKING;
-	boost_task(p);
 
 	if (p->in_iowait) {
 		delayacct_blkio_end(p);
@@ -1776,7 +1789,6 @@ static void try_to_wake_up_local(struct task_struct *p)
 	trace_sched_waking(p);
 
 	if (!task_on_rq_queued(p)) {
-		boost_task(p);
 		if (p->in_iowait) {
 			delayacct_blkio_end(p);
 			atomic_dec(&task_rq(p)->nr_iowait);
@@ -2868,8 +2880,8 @@ static inline void check_curr(struct task_struct *p, struct rq *rq)
 		p->time_slice = SCHED_TIMESLICE_NS;
 		if (SCHED_FIFO != p->policy && task_on_rq_queued(p)) {
 			if (SCHED_RR != p->policy &&
-			    (p->ts_deboost || TASK_ST_OVER(p, rq, ts_overrun_th)))
-				deboost_task(p, MAX_PRIORITY_ADJ);
+			    (p->ts_deboost || TASK_ST(p, rq, >, ts_overrun_th)))
+				deboost_task(p);
 			requeue_task(p, rq);
 		}
 		p->ts_deboost = 0;
@@ -3116,12 +3128,8 @@ static void __sched notrace __schedule(bool preempt)
 		if (signal_pending_state(prev->state, prev)) {
 			prev->state = TASK_RUNNING;
 		} else {
-			prev->ts_deboost |= TASK_ST_OVER(prev, rq, ts_overrun_th);
-			if ((SCHED_NORMAL == prev->policy &&
-			     TASK_ST_OVER(prev, rq, ts_nonboost_th)) ||
-			    SCHED_BATCH == prev->policy ||
-			    SCHED_IDLE == prev->policy)
-				deboost_task(prev, 1);
+			prev->ts_deboost |= TASK_ST(prev, rq, >, ts_overrun_th);
+			boost_task(prev, rq);
 			deactivate_task(prev, rq);
 
 			if (prev->in_iowait) {
