@@ -2,10 +2,6 @@
 /*
  * Scheduler internal types and methods:
  */
-#ifdef CONFIG_SCHED_PDS
-#include "pds_sched.h"
-#else
-
 #include <linux/sched.h>
 
 #include <linux/sched/autogroup.h>
@@ -2311,4 +2307,3 @@ unsigned long scale_irq_capacity(unsigned long util, unsigned long irq, unsigned
 #ifdef CONFIG_SMP
 extern struct static_key_false sched_energy_present;
 #endif
-#endif /* CONFIG_SCHED_PDS */
