@@ -2443,6 +2443,11 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (msr_info->host_initiated)
 			vcpu->arch.microcode_version = data;
 		break;
+	case MSR_IA32_ARCH_CAPABILITIES:
+		if (!msr_info->host_initiated)
+			return 1;
+		vcpu->arch.arch_capabilities = data;
+		break;
 	case MSR_EFER:
 		return set_efer(vcpu, data);
 	case MSR_K7_HWCR:
@@ -2746,6 +2751,12 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_IA32_UCODE_REV:
 		msr_info->data = vcpu->arch.microcode_version;
+		break;
+	case MSR_IA32_ARCH_CAPABILITIES:
+		if (!msr_info->host_initiated &&
+		    !guest_cpuid_has(vcpu, X86_FEATURE_ARCH_CAPABILITIES))
+			return 1;
+		msr_info->data = vcpu->arch.arch_capabilities;
 		break;
 	case MSR_IA32_TSC:
 		msr_info->data = kvm_scale_tsc(vcpu, rdtsc()) + vcpu->arch.tsc_offset;
@@ -6522,14 +6533,27 @@ int kvm_emulate_instruction_from_buffer(struct kvm_vcpu *vcpu,
 }
 EXPORT_SYMBOL_GPL(kvm_emulate_instruction_from_buffer);
 
+static int complete_fast_pio_out(struct kvm_vcpu *vcpu)
+{
+	vcpu->arch.pio.count = 0;
+
+	if (unlikely(!kvm_is_linear_rip(vcpu, vcpu->arch.pio.linear_rip)))
+		return 1;
+
+	return kvm_skip_emulated_instruction(vcpu);
+}
+
 static int kvm_fast_pio_out(struct kvm_vcpu *vcpu, int size,
 			    unsigned short port)
 {
 	unsigned long val = kvm_register_read(vcpu, VCPU_REGS_RAX);
 	int ret = emulator_pio_out_emulated(&vcpu->arch.emulate_ctxt,
 					    size, port, &val, 1);
-	/* do not return to emulator after return from userspace */
-	vcpu->arch.pio.count = 0;
+
+	if (!ret) {
+		vcpu->arch.pio.linear_rip = kvm_get_linear_rip(vcpu);
+		vcpu->arch.complete_userspace_io = complete_fast_pio_out;
+	}
 	return ret;
 }
 
@@ -6539,6 +6563,11 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 
 	/* We should only ever be called with arch.pio.count equal to 1 */
 	BUG_ON(vcpu->arch.pio.count != 1);
+
+	if (unlikely(!kvm_is_linear_rip(vcpu, vcpu->arch.pio.linear_rip))) {
+		vcpu->arch.pio.count = 0;
+		return 1;
+	}
 
 	/* For size less than 4 we merge, else we zero extend */
 	val = (vcpu->arch.pio.size < 4) ? kvm_register_read(vcpu, VCPU_REGS_RAX)
@@ -6552,7 +6581,7 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 				 vcpu->arch.pio.port, &val, 1);
 	kvm_register_write(vcpu, VCPU_REGS_RAX, val);
 
-	return 1;
+	return kvm_skip_emulated_instruction(vcpu);
 }
 
 static int kvm_fast_pio_in(struct kvm_vcpu *vcpu, int size,
@@ -6571,6 +6600,7 @@ static int kvm_fast_pio_in(struct kvm_vcpu *vcpu, int size,
 		return ret;
 	}
 
+	vcpu->arch.pio.linear_rip = kvm_get_linear_rip(vcpu);
 	vcpu->arch.complete_userspace_io = complete_fast_pio_in;
 
 	return 0;
@@ -6578,16 +6608,13 @@ static int kvm_fast_pio_in(struct kvm_vcpu *vcpu, int size,
 
 int kvm_fast_pio(struct kvm_vcpu *vcpu, int size, unsigned short port, int in)
 {
-	int ret = kvm_skip_emulated_instruction(vcpu);
+	int ret;
 
-	/*
-	 * TODO: we might be squashing a KVM_GUESTDBG_SINGLESTEP-triggered
-	 * KVM_EXIT_DEBUG here.
-	 */
 	if (in)
-		return kvm_fast_pio_in(vcpu, size, port) && ret;
+		ret = kvm_fast_pio_in(vcpu, size, port);
 	else
-		return kvm_fast_pio_out(vcpu, size, port) && ret;
+		ret = kvm_fast_pio_out(vcpu, size, port);
+	return ret && kvm_skip_emulated_instruction(vcpu);
 }
 EXPORT_SYMBOL_GPL(kvm_fast_pio);
 
@@ -8725,6 +8752,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm,
 
 int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 {
+	vcpu->arch.arch_capabilities = kvm_get_arch_capabilities();
 	vcpu->arch.msr_platform_info = MSR_PLATFORM_INFO_CPUID_FAULT;
 	kvm_vcpu_mtrr_init(vcpu);
 	vcpu_load(vcpu);
