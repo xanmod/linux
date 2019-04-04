@@ -2,6 +2,10 @@
 /*
  * Scheduler internal types and methods:
  */
+#ifdef CONFIG_SCHED_BMQ
+#include "bmq_sched.h"
+#else
+
 #include <linux/sched.h>
 
 #include <linux/sched/autogroup.h>
@@ -2307,3 +2311,9 @@ unsigned long scale_irq_capacity(unsigned long util, unsigned long irq, unsigned
 #ifdef CONFIG_SMP
 extern struct static_key_false sched_energy_present;
 #endif
+
+static inline int task_running_nice(struct task_struct *p)
+{
+	return (task_nice(p) > 0);
+}
+#endif /* !CONFIG_SCHED_BMQ */
