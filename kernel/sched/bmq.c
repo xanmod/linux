@@ -188,11 +188,11 @@ static inline void update_sched_rq_watermark(struct rq *rq)
 		return;
 
 	cpu = cpu_of(rq);
-	if (!cpumask_andnot(&sched_rq_watermark[last_wm],
-			    &sched_rq_watermark[last_wm], cpumask_of(cpu)))
-		clear_bit(last_wm, sched_rq_watermark_bitmap);
-	cpumask_set_cpu(cpu, &sched_rq_watermark[watermark]);
-	set_bit(watermark, sched_rq_watermark_bitmap);
+	__cpumask_clear_cpu(cpu, &sched_rq_watermark[last_wm]);
+	if (cpumask_empty(&sched_rq_watermark[last_wm]))
+		__clear_bit(last_wm, sched_rq_watermark_bitmap);
+	__cpumask_set_cpu(cpu, &sched_rq_watermark[watermark]);
+	__set_bit(watermark, sched_rq_watermark_bitmap);
 	rq->watermark = watermark;
 
 #ifdef CONFIG_SCHED_SMT
@@ -290,6 +290,16 @@ rq_next_bmq_task(struct task_struct *p, struct rq *rq)
 
 	return list_next_entry(p, bmq_node);
 
+}
+
+static inline struct task_struct *rq_runnable_task(struct rq *rq)
+{
+	struct task_struct *next = rq_first_bmq_task(rq);
+
+	if (unlikely(next == rq->skip))
+		next = rq_next_bmq_task(next, rq);
+
+	return next;
 }
 
 /*
@@ -2969,8 +2979,20 @@ static inline int take_other_rq_tasks(struct rq *rq, int cpu)
 static inline struct task_struct *
 choose_next_task(struct rq *rq, int cpu, struct task_struct *prev)
 {
-	struct task_struct *next = rq_first_bmq_task(rq);
+	struct task_struct *next;
 
+	if (unlikely(rq->skip)) {
+		next = rq_runnable_task(rq);
+#ifdef	CONFIG_SMP
+		if (likely(rq->online))
+			if (next == rq->idle && take_other_rq_tasks(rq, cpu))
+				next = rq_runnable_task(rq);
+#endif
+		rq->skip = NULL;
+		return next;
+	}
+
+	next = rq_first_bmq_task(rq);
 #ifdef	CONFIG_SMP
 	if (likely(rq->online))
 		if (next == rq->idle && take_other_rq_tasks(rq, cpu))
@@ -4608,10 +4630,7 @@ static void do_sched_yield(void)
 
 	rq = this_rq_lock_irq(&rf);
 
-	if (!rt_task(current)) {
-		current->boost_prio = MAX_PRIORITY_ADJ;
-		requeue_task(current, rq);
-	}
+	rq->skip = current;
 	schedstat_inc(rq->yld_count);
 
 	/*
@@ -5747,6 +5766,7 @@ void __init sched_init(void)
 
 		bmq_init(&rq->queue);
 		rq->watermark = IDLE_WM;
+		rq->skip = NULL;
 
 		raw_spin_lock_init(&rq->lock);
 		rq->nr_running = rq->nr_uninterruptible = 0;
