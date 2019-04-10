@@ -56,7 +56,7 @@
 
 static inline void print_scheduler_version(void)
 {
-	printk(KERN_INFO "bmq: BMQ CPU Scheduler 0.91 by Alfred Chen.\n");
+	printk(KERN_INFO "bmq: BMQ CPU Scheduler 0.92 by Alfred Chen.\n");
 }
 
 /**
