@@ -127,8 +127,12 @@ static int __maybe_unused two = 2;
 static int __maybe_unused four = 4;
 static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
-static int one_hundred = 100;
-static int one_thousand = 1000;
+static int __read_mostly one_hundred = 100;
+static int __read_mostly one_thousand = 1000;
+#ifdef CONFIG_SCHED_PDS
+extern int rr_interval;
+extern int sched_yield_type;
+#endif
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
 #endif
