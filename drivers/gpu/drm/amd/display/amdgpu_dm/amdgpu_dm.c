@@ -886,6 +886,7 @@ static void emulated_link_detect(struct dc_link *link)
 		return;
 	}
 
+	/* dc_sink_create returns a new reference */
 	link->local_sink = sink;
 
 	edid_status = dm_helpers_read_local_edid(
@@ -952,6 +953,8 @@ static int dm_resume(void *handle)
 		if (aconnector->fake_enable && aconnector->dc_link->local_sink)
 			aconnector->fake_enable = false;
 
+		if (aconnector->dc_sink)
+			dc_sink_release(aconnector->dc_sink);
 		aconnector->dc_sink = NULL;
 		amdgpu_dm_update_connector_after_detect(aconnector);
 		mutex_unlock(&aconnector->hpd_lock);
@@ -1061,6 +1064,8 @@ amdgpu_dm_update_connector_after_detect(struct amdgpu_dm_connector *aconnector)
 
 
 	sink = aconnector->dc_link->local_sink;
+	if (sink)
+		dc_sink_retain(sink);
 
 	/*
 	 * Edid mgmt connector gets first update only in mode_valid hook and then
@@ -1085,21 +1090,24 @@ amdgpu_dm_update_connector_after_detect(struct amdgpu_dm_connector *aconnector)
 				 * to it anymore after disconnect, so on next crtc to connector
 				 * reshuffle by UMD we will get into unwanted dc_sink release
 				 */
-				if (aconnector->dc_sink != aconnector->dc_em_sink)
-					dc_sink_release(aconnector->dc_sink);
+				dc_sink_release(aconnector->dc_sink);
 			}
 			aconnector->dc_sink = sink;
+			dc_sink_retain(aconnector->dc_sink);
 			amdgpu_dm_update_freesync_caps(connector,
 					aconnector->edid);
 		} else {
 			amdgpu_dm_update_freesync_caps(connector, NULL);
-			if (!aconnector->dc_sink)
+			if (!aconnector->dc_sink) {
 				aconnector->dc_sink = aconnector->dc_em_sink;
-			else if (aconnector->dc_sink != aconnector->dc_em_sink)
 				dc_sink_retain(aconnector->dc_sink);
+			}
 		}
 
 		mutex_unlock(&dev->mode_config.mutex);
+
+		if (sink)
+			dc_sink_release(sink);
 		return;
 	}
 
@@ -1107,8 +1115,10 @@ amdgpu_dm_update_connector_after_detect(struct amdgpu_dm_connector *aconnector)
 	 * TODO: temporary guard to look for proper fix
 	 * if this sink is MST sink, we should not do anything
 	 */
-	if (sink && sink->sink_signal == SIGNAL_TYPE_DISPLAY_PORT_MST)
+	if (sink && sink->sink_signal == SIGNAL_TYPE_DISPLAY_PORT_MST) {
+		dc_sink_release(sink);
 		return;
+	}
 
 	if (aconnector->dc_sink == sink) {
 		/*
@@ -1117,6 +1127,8 @@ amdgpu_dm_update_connector_after_detect(struct amdgpu_dm_connector *aconnector)
 		 */
 		DRM_DEBUG_DRIVER("DCHPD: connector_id=%d: dc_sink didn't change.\n",
 				aconnector->connector_id);
+		if (sink)
+			dc_sink_release(sink);
 		return;
 	}
 
@@ -1138,6 +1150,7 @@ amdgpu_dm_update_connector_after_detect(struct amdgpu_dm_connector *aconnector)
 			amdgpu_dm_update_freesync_caps(connector, NULL);
 
 		aconnector->dc_sink = sink;
+		dc_sink_retain(aconnector->dc_sink);
 		if (sink->dc_edid.length == 0) {
 			aconnector->edid = NULL;
 			drm_dp_cec_unset_edid(&aconnector->dm_dp_aux.aux);
@@ -1158,11 +1171,15 @@ amdgpu_dm_update_connector_after_detect(struct amdgpu_dm_connector *aconnector)
 		amdgpu_dm_update_freesync_caps(connector, NULL);
 		drm_connector_update_edid_property(connector, NULL);
 		aconnector->num_modes = 0;
+		dc_sink_release(aconnector->dc_sink);
 		aconnector->dc_sink = NULL;
 		aconnector->edid = NULL;
 	}
 
 	mutex_unlock(&dev->mode_config.mutex);
+
+	if (sink)
+		dc_sink_release(sink);
 }
 
 static void handle_hpd_irq(void *param)
@@ -2908,6 +2925,7 @@ create_stream_for_sink(struct amdgpu_dm_connector *aconnector,
 		}
 	} else {
 		sink = aconnector->dc_sink;
+		dc_sink_retain(sink);
 	}
 
 	stream = dc_create_stream_for_sink(sink);
@@ -2974,8 +2992,7 @@ create_stream_for_sink(struct amdgpu_dm_connector *aconnector,
 		stream->ignore_msa_timing_param = true;
 
 finish:
-	if (sink && sink->sink_signal == SIGNAL_TYPE_VIRTUAL && aconnector->base.force != DRM_FORCE_ON)
-		dc_sink_release(sink);
+	dc_sink_release(sink);
 
 	return stream;
 }
@@ -3233,6 +3250,14 @@ static void amdgpu_dm_connector_destroy(struct drm_connector *connector)
 		dm->backlight_dev = NULL;
 	}
 #endif
+
+	if (aconnector->dc_em_sink)
+		dc_sink_release(aconnector->dc_em_sink);
+	aconnector->dc_em_sink = NULL;
+	if (aconnector->dc_sink)
+		dc_sink_release(aconnector->dc_sink);
+	aconnector->dc_sink = NULL;
+
 	drm_dp_cec_unregister_connector(&aconnector->dm_dp_aux.aux);
 	drm_connector_unregister(connector);
 	drm_connector_cleanup(connector);
@@ -3330,10 +3355,12 @@ static void create_eml_sink(struct amdgpu_dm_connector *aconnector)
 		(edid->extensions + 1) * EDID_LENGTH,
 		&init_params);
 
-	if (aconnector->base.force == DRM_FORCE_ON)
+	if (aconnector->base.force == DRM_FORCE_ON) {
 		aconnector->dc_sink = aconnector->dc_link->local_sink ?
 		aconnector->dc_link->local_sink :
 		aconnector->dc_em_sink;
+		dc_sink_retain(aconnector->dc_sink);
+	}
 }
 
 static void handle_edid_mgmt(struct amdgpu_dm_connector *aconnector)
@@ -4948,7 +4975,8 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 static void amdgpu_dm_crtc_copy_transient_flags(struct drm_crtc_state *crtc_state,
 						struct dc_stream_state *stream_state)
 {
-	stream_state->mode_changed = crtc_state->mode_changed;
+	stream_state->mode_changed =
+		crtc_state->mode_changed || crtc_state->active_changed;
 }
 
 static int amdgpu_dm_atomic_commit(struct drm_device *dev,
@@ -4969,10 +4997,22 @@ static int amdgpu_dm_atomic_commit(struct drm_device *dev,
 	 */
 	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
 		struct dm_crtc_state *dm_old_crtc_state = to_dm_crtc_state(old_crtc_state);
+		struct dm_crtc_state *dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
 		struct amdgpu_crtc *acrtc = to_amdgpu_crtc(crtc);
 
-		if (drm_atomic_crtc_needs_modeset(new_crtc_state) && dm_old_crtc_state->stream)
+		if (drm_atomic_crtc_needs_modeset(new_crtc_state)
+		    && dm_old_crtc_state->stream) {
+			/*
+			 * CRC capture was enabled but not disabled.
+			 * Release the vblank reference.
+			 */
+			if (dm_new_crtc_state->crc_enabled) {
+				drm_crtc_vblank_put(crtc);
+				dm_new_crtc_state->crc_enabled = false;
+			}
+
 			manage_dm_interrupts(adev, acrtc, false);
+		}
 	}
 	/*
 	 * Add check here for SoC's that support hardware cursor plane, to
