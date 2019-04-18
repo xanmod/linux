@@ -834,39 +834,54 @@ static void lru_add_drain_per_cpu(struct work_struct *dummy)
  */
 void lru_add_drain_all(void)
 {
-	static DEFINE_MUTEX(lock);
-	static struct cpumask has_work;
-	int cpu;
+	if (static_branch_likely(&use_pvec_lock)) {
+		int cpu;
 
-	/*
-	 * Make sure nobody triggers this path before mm_percpu_wq is fully
-	 * initialized.
-	 */
-	if (WARN_ON(!mm_percpu_wq))
-		return;
-
-	mutex_lock(&lock);
-	cpumask_clear(&has_work);
-
-	for_each_online_cpu(cpu) {
-		struct work_struct *work = &per_cpu(lru_add_drain_work, cpu);
-
-		if (pagevec_count(&per_cpu(lru_add_pvec.pvec, cpu)) ||
-		    pagevec_count(&per_cpu(lru_rotate_pvecs.pvec, cpu)) ||
-		    pagevec_count(&per_cpu(lru_deactivate_file_pvecs.pvec, cpu)) ||
-		    pagevec_count(&per_cpu(lru_deactivate_pvecs.pvec, cpu)) ||
-		    pagevec_count(&per_cpu(lru_lazyfree_pvecs.pvec, cpu)) ||
-		    need_activate_page_drain(cpu)) {
-			INIT_WORK(work, lru_add_drain_per_cpu);
-			queue_work_on(cpu, mm_percpu_wq, work);
-			cpumask_set_cpu(cpu, &has_work);
+		for_each_online_cpu(cpu) {
+			if (pagevec_count(&per_cpu(lru_add_pvec.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_rotate_pvecs.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_deactivate_file_pvecs.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_deactivate_pvecs.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_lazyfree_pvecs.pvec, cpu)) ||
+			    need_activate_page_drain(cpu)) {
+				lru_add_drain_cpu(cpu);
+			}
 		}
+	} else {
+		static DEFINE_MUTEX(lock);
+		static struct cpumask has_work;
+		int cpu;
+
+		/*
+		 * Make sure nobody triggers this path before mm_percpu_wq
+		 * is fully initialized.
+		 */
+		if (WARN_ON(!mm_percpu_wq))
+			return;
+
+		mutex_lock(&lock);
+		cpumask_clear(&has_work);
+
+		for_each_online_cpu(cpu) {
+			struct work_struct *work = &per_cpu(lru_add_drain_work, cpu);
+
+			if (pagevec_count(&per_cpu(lru_add_pvec.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_rotate_pvecs.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_deactivate_file_pvecs.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_deactivate_pvecs.pvec, cpu)) ||
+			    pagevec_count(&per_cpu(lru_lazyfree_pvecs.pvec, cpu)) ||
+			    need_activate_page_drain(cpu)) {
+				INIT_WORK(work, lru_add_drain_per_cpu);
+				queue_work_on(cpu, mm_percpu_wq, work);
+				cpumask_set_cpu(cpu, &has_work);
+			}
+		}
+
+		for_each_cpu(cpu, &has_work)
+			flush_work(&per_cpu(lru_add_drain_work, cpu));
+
+		mutex_unlock(&lock);
 	}
-
-	for_each_cpu(cpu, &has_work)
-		flush_work(&per_cpu(lru_add_drain_work, cpu));
-
-	mutex_unlock(&lock);
 }
 #else
 void lru_add_drain_all(void)

@@ -2999,15 +2999,20 @@ void drain_all_pages(struct zone *zone)
 			cpumask_clear_cpu(cpu, &cpus_with_pcps);
 	}
 
-	for_each_cpu(cpu, &cpus_with_pcps) {
-		struct pcpu_drain *drain = per_cpu_ptr(&pcpu_drain, cpu);
+	if (static_branch_likely(&use_pvec_lock)) {
+		for_each_cpu(cpu, &cpus_with_pcps)
+			drain_cpu_pages(cpu, zone);
+	} else {
+		for_each_cpu(cpu, &cpus_with_pcps) {
+			struct pcpu_drain *drain = per_cpu_ptr(&pcpu_drain, cpu);
 
-		drain->zone = zone;
-		INIT_WORK(&drain->work, drain_local_pages_wq);
-		queue_work_on(cpu, mm_percpu_wq, &drain->work);
+			drain->zone = zone;
+			INIT_WORK(&drain->work, drain_local_pages_wq);
+			queue_work_on(cpu, mm_percpu_wq, &drain->work);
+		}
+		for_each_cpu(cpu, &cpus_with_pcps)
+			flush_work(&per_cpu_ptr(&pcpu_drain, cpu)->work);
 	}
-	for_each_cpu(cpu, &cpus_with_pcps)
-		flush_work(&per_cpu_ptr(&pcpu_drain, cpu)->work);
 
 	mutex_unlock(&pcpu_drain_mutex);
 }
