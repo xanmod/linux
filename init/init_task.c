@@ -79,7 +79,6 @@ struct task_struct init_task
 	.restart_block	= {
 		.fn = do_no_restart_syscall,
 	},
-	.ts_deboost	= 0,
 	.boost_prio	= 0,
 	.bmq_idx	= 15,
 	.bmq_node	= LIST_HEAD_INIT(init_task.bmq_node),

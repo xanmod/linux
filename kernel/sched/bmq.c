@@ -66,18 +66,6 @@ static inline void print_scheduler_version(void)
  */
 int sched_yield_type __read_mostly = 1;
 
-const static u64 ts_overrun_th[] = {
-	SCHED_TIMESLICE_NS / 32,
-	SCHED_TIMESLICE_NS / 16,
-	SCHED_TIMESLICE_NS / 8,
-	SCHED_TIMESLICE_NS / 4,
-	SCHED_TIMESLICE_NS / 2,
-	SCHED_TIMESLICE_NS * 3 / 4,
-	SCHED_TIMESLICE_NS * 15 / 16,
-	SCHED_TIMESLICE_NS * 63 / 64,
-	SCHED_TIMESLICE_NS * 127 / 128
-};
-
 const static u64 ts_boost_th[] = {
 	SCHED_TIMESLICE_NS >> 10,
 	SCHED_TIMESLICE_NS >> 9,
@@ -2889,12 +2877,10 @@ static inline void check_curr(struct task_struct *p, struct rq *rq)
 	if (p->time_slice < RESCHED_NS) {
 		p->time_slice = SCHED_TIMESLICE_NS;
 		if (SCHED_FIFO != p->policy && task_on_rq_queued(p)) {
-			if (SCHED_RR != p->policy &&
-			    (p->ts_deboost || TASK_ST(p, rq, >, ts_overrun_th)))
+			if (SCHED_RR != p->policy)
 				deboost_task(p);
 			requeue_task(p, rq);
 		}
-		p->ts_deboost = 0;
 	}
 }
 
@@ -3150,7 +3136,6 @@ static void __sched notrace __schedule(bool preempt)
 		if (signal_pending_state(prev->state, prev)) {
 			prev->state = TASK_RUNNING;
 		} else {
-			prev->ts_deboost |= TASK_ST(prev, rq, >, ts_overrun_th);
 			boost_task(prev, rq);
 			deactivate_task(prev, rq);
 

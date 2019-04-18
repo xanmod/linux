@@ -652,7 +652,6 @@ struct task_struct {
 	int				boost_prio;
 	int				bmq_idx;
 	struct list_head		bmq_node;
-	int				ts_deboost;
 	/* sched_clock time spent running */
 	u64				sched_time;
 #else /* !CONFIG_SCHED_BMQ */
