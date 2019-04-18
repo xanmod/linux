@@ -2894,6 +2894,14 @@ static void drain_pages(unsigned int cpu)
 	}
 }
 
+void drain_cpu_pages(unsigned int cpu, struct zone *zone)
+{
+	if (zone)
+		drain_pages_zone(cpu, zone);
+	else
+		drain_pages(cpu);
+}
+
 /*
  * Spill all of this CPU's per-cpu pages back into the buddy allocator.
  *
@@ -2904,10 +2912,7 @@ void drain_local_pages(struct zone *zone)
 {
 	int cpu = smp_processor_id();
 
-	if (zone)
-		drain_pages_zone(cpu, zone);
-	else
-		drain_pages(cpu);
+	drain_cpu_pages(cpu, zone);
 }
 
 static void drain_local_pages_wq(struct work_struct *work)
