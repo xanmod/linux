@@ -63,6 +63,7 @@ static inline void print_scheduler_version(void)
  * sched_yield_type - Choose what sort of yield sched_yield will perform.
  * 0: No yield.
  * 1: Deboost and requeue task. (default)
+ * 2: Set rq skip task.
  */
 int sched_yield_type __read_mostly = 1;
 
@@ -4616,8 +4617,16 @@ static void do_sched_yield(void)
 	rq = this_rq_lock_irq(&rf);
 
 	schedstat_inc(rq->yld_count);
-	if (rq->nr_running > 1)
-		rq->skip = current;
+
+	if (1 == sched_yield_type) {
+		if (!rt_task(current)) {
+			current->boost_prio = MAX_PRIORITY_ADJ;
+			requeue_task(current, rq);
+		}
+	} else if (2 == sched_yield_type) {
+		if (rq->nr_running > 1)
+			rq->skip = current;
+	}
 
 	/*
 	 * Since we are going to call schedule() anyway, there's
