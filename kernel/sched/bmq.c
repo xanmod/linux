@@ -67,20 +67,9 @@ static inline void print_scheduler_version(void)
  */
 int sched_yield_type __read_mostly = 1;
 
-const static u64 ts_boost_th[] = {
-	SCHED_TIMESLICE_NS >> 10,
-	SCHED_TIMESLICE_NS >> 9,
-	SCHED_TIMESLICE_NS >> 8,
-	SCHED_TIMESLICE_NS >> 7,
-	SCHED_TIMESLICE_NS >> 6,
-	SCHED_TIMESLICE_NS >> 5,
-	SCHED_TIMESLICE_NS >> 4,
-	SCHED_TIMESLICE_NS >> 3,
-	SCHED_TIMESLICE_NS >> 2
-};
-
-#define TASK_ST(p, rq, op, th)	(((rq)->clock - (rq)->last_ts_switch) op\
-				 (th)[MAX_PRIORITY_ADJ +  (p)->boost_prio])
+#define rq_switch_time(rq)	((rq)->clock - (rq)->last_ts_switch)
+#define boost_threshold(p)	(SCHED_TIMESLICE_NS >>\
+				 (10 - MAX_PRIORITY_ADJ -  (p)->boost_prio))
 
 static inline void boost_task(struct task_struct *p, struct rq *rq)
 {
@@ -98,7 +87,7 @@ static inline void boost_task(struct task_struct *p, struct rq *rq)
 		return;
 	}
 
-	if (p->boost_prio > limit && TASK_ST(p, rq, <, ts_boost_th))
+	if (p->boost_prio > limit && rq_switch_time(rq) < boost_threshold(p))
 		p->boost_prio--;
 }
 
