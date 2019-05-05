@@ -177,8 +177,13 @@ static inline void update_sched_rq_watermark(struct rq *rq)
 		return;
 
 	cpu = cpu_of(rq);
+#ifdef CONFIG_X86
 	if (!cpumask_andnot(&sched_rq_watermark[last_wm],
 			    &sched_rq_watermark[last_wm], cpumask_of(cpu)))
+#else
+	cpumask_clear_cpu(cpu, &sched_rq_watermark[last_wm]);
+	if (cpumask_empty(&sched_rq_watermark[last_wm]))
+#endif
 		clear_bit(last_wm, sched_rq_watermark_bitmap);
 	cpumask_set_cpu(cpu, &sched_rq_watermark[watermark]);
 	set_bit(watermark, sched_rq_watermark_bitmap);
