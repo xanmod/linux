@@ -1400,30 +1400,6 @@ static inline int best_mask_cpu(int cpu, cpumask_t *cpumask)
 }
 
 /*
- * task_preemptible_rq - return the rq which the given task can preempt on
- * @p: task wants to preempt CPU
- * @only_preempt_low_policy: indicate only preempt rq running low policy than @p
- */
-static inline int
-task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
-		    unsigned long preempt_level)
-{
-	cpumask_t tmp;
-	unsigned long level;
-
-	level = find_first_bit(sched_rq_watermark_bitmap, WM_BITS);
-	while (level < preempt_level) {
-		if (cpumask_and(&tmp, chk_mask, &sched_rq_watermark[level]))
-			return best_mask_cpu(task_cpu(p), &tmp);
-
-		level = find_next_bit(sched_rq_watermark_bitmap, WM_BITS,
-				      level + 1);
-	}
-
-	return best_mask_cpu(task_cpu(p), chk_mask);
-}
-
-/*
  * wake flags
  */
 #define WF_SYNC		0x01		/* waker goes to sleep after wakeup */
@@ -1432,13 +1408,23 @@ task_preemptible_rq(struct task_struct *p, cpumask_t *chk_mask,
 
 static inline int select_task_rq(struct task_struct *p)
 {
-	cpumask_t chk_mask;
+	cpumask_t chk_mask, tmp;
+	unsigned long preempt_level, level;
 
 	if (unlikely(!cpumask_and(&chk_mask, &p->cpus_allowed, cpu_online_mask)))
 		return select_fallback_rq(task_cpu(p), p);
 
-	return task_preemptible_rq(p, &chk_mask,
-				   SCHED_PRIO2WATERMARK(task_sched_prio(p)));
+	preempt_level = SCHED_PRIO2WATERMARK(task_sched_prio(p));
+	level = find_first_bit(sched_rq_watermark_bitmap, WM_BITS);
+	while (level < preempt_level) {
+		if (cpumask_and(&tmp, &chk_mask, &sched_rq_watermark[level]))
+			return best_mask_cpu(task_cpu(p), &tmp);
+
+		level = find_next_bit(sched_rq_watermark_bitmap, WM_BITS,
+				      level + 1);
+	}
+
+	return best_mask_cpu(task_cpu(p), &chk_mask);
 }
 #else /* CONFIG_SMP */
 static inline int select_task_rq(struct task_struct *p)
