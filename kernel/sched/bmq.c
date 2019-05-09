@@ -1023,37 +1023,6 @@ static inline bool is_cpu_allowed(struct task_struct *p, int cpu)
  */
 
 /*
- * detach_task() -- detach the task for the migration specified in @target_cpu
- */
-static void detach_task(struct rq *rq, struct task_struct *p, int target_cpu)
-{
-	lockdep_assert_held(&rq->lock);
-
-	p->on_rq = TASK_ON_RQ_MIGRATING;
-	if (task_contributes_to_load(p))
-		rq->nr_uninterruptible++;
-	dequeue_task(p, rq, 0);
-
-	set_task_cpu(p, target_cpu);
-}
-
-/*
- * attach_task() -- attach the task detached by detach_task() to its new rq.
- */
-static void attach_task(struct rq *rq, struct task_struct *p)
-{
-	lockdep_assert_held(&rq->lock);
-
-	BUG_ON(task_rq(p) != rq);
-
-	if (task_contributes_to_load(p))
-		rq->nr_uninterruptible--;
-	enqueue_task(p, rq, 0);
-	p->on_rq = TASK_ON_RQ_QUEUED;
-	cpufreq_update_this_cpu(rq, 0);
-}
-
-/*
  * move_queued_task - move a queued task to new rq.
  *
  * Returns (locked) new rq. Old rq's lock is released.
@@ -1061,16 +1030,19 @@ static void attach_task(struct rq *rq, struct task_struct *p)
 static struct rq *move_queued_task(struct rq *rq, struct task_struct *p, int
 				   new_cpu)
 {
-	detach_task(rq, p, new_cpu);
+	lockdep_assert_held(&rq->lock);
+
+	p->on_rq = TASK_ON_RQ_MIGRATING;
+	dequeue_task(p, rq, 0);
+	set_task_cpu(p, new_cpu);
 	raw_spin_unlock(&rq->lock);
 
 	rq = cpu_rq(new_cpu);
 
 	raw_spin_lock(&rq->lock);
-	update_rq_clock(rq);
-
-	attach_task(rq, p);
-
+	BUG_ON(task_cpu(p) != new_cpu);
+	enqueue_task(p, rq, 0);
+	p->on_rq = TASK_ON_RQ_QUEUED;
 	check_preempt_curr(rq, p);
 
 	return rq;
@@ -2892,8 +2864,9 @@ migrate_pending_tasks(struct rq *rq, struct rq *dest_rq)
 			continue;
 		next = rq_next_bmq_task(p, rq);
 		if (cpumask_test_cpu(dest_cpu, &p->cpus_allowed)) {
-			detach_task(rq, p, dest_cpu);
-			attach_task(dest_rq, p);
+			dequeue_task(p, rq, 0);
+			set_task_cpu(p, dest_cpu);
+			enqueue_task(p, dest_rq, 0);
 			nr_migrated++;
 		}
 		nr_tries--;
@@ -2916,7 +2889,8 @@ lock_and_migrate_pending_tasks(struct rq *src_rq, struct rq *rq)
 	spin_acquire(&src_rq->lock.dep_map, SINGLE_DEPTH_NESTING, 1, _RET_IP_);
 
 	update_rq_clock(src_rq);
-	nr_migrated = migrate_pending_tasks(src_rq, rq);
+	if ((nr_migrated = migrate_pending_tasks(src_rq, rq)))
+		cpufreq_update_this_cpu(rq, 0);
 
 	spin_release(&src_rq->lock.dep_map, 1, _RET_IP_);
 	do_raw_spin_unlock(&src_rq->lock);
