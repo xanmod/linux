@@ -649,7 +649,7 @@ static inline void enqueue_task(struct task_struct *p, struct rq *rq, int flags)
 	 * passed.
 	 */
 	if (p->in_iowait)
-		cpufreq_update_this_cpu(rq, SCHED_CPUFREQ_IOWAIT);
+		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 }
 
 static inline void requeue_task(struct task_struct *p, struct rq *rq)
@@ -918,7 +918,7 @@ static void activate_task(struct task_struct *p, struct rq *rq)
 		rq->nr_uninterruptible--;
 	enqueue_task(p, rq, ENQUEUE_WAKEUP);
 	p->on_rq = 1;
-	cpufreq_update_this_cpu(rq, 0);
+	cpufreq_update_util(rq, 0);
 }
 
 /*
@@ -932,7 +932,7 @@ static inline void deactivate_task(struct task_struct *p, struct rq *rq)
 		rq->nr_uninterruptible++;
 	dequeue_task(p, rq, DEQUEUE_SLEEP);
 	p->on_rq = 0;
-	cpufreq_update_this_cpu(rq, 0);
+	cpufreq_update_util(rq, 0);
 }
 
 static inline void __set_task_cpu(struct task_struct *p, unsigned int cpu)
@@ -2890,7 +2890,7 @@ lock_and_migrate_pending_tasks(struct rq *src_rq, struct rq *rq)
 
 	update_rq_clock(src_rq);
 	if ((nr_migrated = migrate_pending_tasks(src_rq, rq)))
-		cpufreq_update_this_cpu(rq, 0);
+		cpufreq_update_util(rq, 0);
 
 	spin_release(&src_rq->lock.dep_map, 1, _RET_IP_);
 	do_raw_spin_unlock(&src_rq->lock);
