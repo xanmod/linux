@@ -258,7 +258,11 @@ __rq_next_bmq_task(const struct rq *rq, unsigned long offset)
 
 static inline struct task_struct *rq_first_bmq_task(struct rq *rq)
 {
-	return __rq_next_bmq_task(rq, 0UL);
+	unsigned long idx = find_first_bit(rq->queue.bitmap, bmq_BITS);
+	const struct list_head *head = &rq->queue.heads[idx];
+
+	BUG_ON(list_empty(head));
+	return list_first_entry(head, struct task_struct, bmq_node);
 }
 
 static inline struct task_struct *
