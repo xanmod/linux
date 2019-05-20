@@ -983,6 +983,9 @@ struct task_struct {
 	int				softirqs_enabled;
 	int				softirq_context;
 #endif
+#ifdef CONFIG_PREEMPT_RT
+	int				softirq_count;
+#endif
 
 #ifdef CONFIG_LOCKDEP
 # define MAX_LOCK_DEPTH			48UL
