@@ -446,6 +446,20 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
 	return ret;
 }
 
+static DEFINE_PER_CPU(spinlock_t, cpu_timer_expiry_lock) = __SPIN_LOCK_UNLOCKED(cpu_timer_expiry_lock);
+
+static void posix_cpu_wait_running(struct k_itimer *timer)
+{
+	int cpu = timer->it.cpu.firing_cpu;
+
+	if (cpu >= 0) {
+		spinlock_t *expiry_lock = per_cpu_ptr(&cpu_timer_expiry_lock, cpu);
+
+		spin_lock_irq(expiry_lock);
+		spin_unlock_irq(expiry_lock);
+	}
+}
+
 static void cleanup_timerqueue(struct timerqueue_head *head)
 {
 	struct timerqueue_node *node;
@@ -783,6 +797,7 @@ static u64 collect_timerqueue(struct timerqueue_head *head,
 			return expires;
 
 		ctmr->firing = 1;
+		ctmr->firing_cpu = smp_processor_id();
 		cpu_timer_dequeue(ctmr);
 		list_add_tail(&ctmr->elist, firing);
 	}
@@ -1121,6 +1136,7 @@ static void __run_posix_cpu_timers(struct task_struct *tsk)
 {
 	struct k_itimer *timer, *next;
 	unsigned long flags;
+	spinlock_t *expiry_lock;
 	LIST_HEAD(firing);
 
 	/*
@@ -1130,8 +1146,13 @@ static void __run_posix_cpu_timers(struct task_struct *tsk)
 	if (!fastpath_timer_check(tsk))
 		return;
 
-	if (!lock_task_sighand(tsk, &flags))
+	expiry_lock = this_cpu_ptr(&cpu_timer_expiry_lock);
+	spin_lock(expiry_lock);
+
+	if (!lock_task_sighand(tsk, &flags)) {
+		spin_unlock(expiry_lock);
 		return;
+	}
 	/*
 	 * Here we take off tsk->signal->cpu_timers[N] and
 	 * tsk->cpu_timers[N] all the timers that are firing, and
@@ -1164,6 +1185,7 @@ static void __run_posix_cpu_timers(struct task_struct *tsk)
 		list_del_init(&timer->it.cpu.elist);
 		cpu_firing = timer->it.cpu.firing;
 		timer->it.cpu.firing = 0;
+		timer->it.cpu.firing_cpu = -1;
 		/*
 		 * The firing flag is -1 if we collided with a reset
 		 * of the timer, which already reported this
@@ -1173,6 +1195,7 @@ static void __run_posix_cpu_timers(struct task_struct *tsk)
 			cpu_timer_fire(timer);
 		spin_unlock(&timer->it_lock);
 	}
+	spin_unlock(expiry_lock);
 }
 
 #ifdef CONFIG_PREEMPT_RT
@@ -1435,6 +1458,8 @@ static int do_cpu_nanosleep(const clockid_t which_clock, int flags,
 		spin_unlock_irq(&timer.it_lock);
 
 		while (error == TIMER_RETRY) {
+
+			posix_cpu_wait_running(&timer);
 			/*
 			 * We need to handle case when timer was or is in the
 			 * middle of firing. In other cases we already freed
@@ -1553,6 +1578,7 @@ const struct k_clock clock_posix_cpu = {
 	.timer_del		= posix_cpu_timer_del,
 	.timer_get		= posix_cpu_timer_get,
 	.timer_rearm		= posix_cpu_timer_rearm,
+	.timer_wait_running	= posix_cpu_wait_running,
 };
 
 const struct k_clock clock_process = {
