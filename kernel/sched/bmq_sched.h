@@ -59,13 +59,10 @@ static inline int task_on_rq_migrating(struct task_struct *p)
 	return p->on_rq == TASK_ON_RQ_MIGRATING;
 }
 
-enum {
-	/* bits:
-	 * RT, Low prio adj range, nice width, high prio adj range, cpu idle task */
-	bmq_BITS = (NICE_WIDTH + 2 * MAX_PRIORITY_ADJ + 2)
-};
-
-#define IDLE_TASK_SCHED_PRIO (bmq_BITS - 1)
+/* bits:
+ * RT, Low prio adj range, nice width, high prio adj range, cpu idle task */
+#define bmq_BITS		(NICE_WIDTH + 2 * MAX_PRIORITY_ADJ + 2)
+#define IDLE_TASK_SCHED_PRIO	(bmq_BITS - 1)
 
 struct bmq {
 	DECLARE_BITMAP(bitmap, bmq_BITS);

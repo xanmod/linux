@@ -155,9 +155,17 @@ ____cacheline_aligned_in_smp;
 #define SCHED_PRIO2WATERMARK(prio) (IDLE_TASK_SCHED_PRIO - (prio) + 1)
 #define TASK_SCHED_WATERMARK(p) (SCHED_PRIO2WATERMARK((p)->bmq_idx))
 
+#if (bmq_BITS <= BITS_PER_LONG) && (WM_BITS <= BITS_PER_LONG)
+#define bmq_find_first_bit(bm, size)		__ffs((bm[0]))
+#define bmq_find_next_bit(bm, size, start)	__ffs((bm[0] & BITMAP_FIRST_WORD_MASK(start)))
+#else
+#define bmq_find_first_bit(bm, size)		find_first_bit((bm), (size))
+#define bmq_find_next_bit(bm, size, start)	find_next_bit(bm, size, start)
+#endif
+
 static inline void update_sched_rq_watermark(struct rq *rq)
 {
-	unsigned long watermark = find_first_bit(rq->queue.bitmap, bmq_BITS);
+	unsigned long watermark = bmq_find_first_bit(rq->queue.bitmap, bmq_BITS);
 	unsigned long last_wm = rq->watermark;
 	int cpu;
 
@@ -249,7 +257,7 @@ static inline void bmq_add_task(struct task_struct *p, struct bmq *q, int idx)
 static inline struct task_struct *
 __rq_next_bmq_task(const struct rq *rq, unsigned long offset)
 {
-	unsigned long idx = find_next_bit(rq->queue.bitmap, bmq_BITS, offset);
+	unsigned long idx = bmq_find_next_bit(rq->queue.bitmap, bmq_BITS, offset);
 	const struct list_head *head = &rq->queue.heads[idx];
 
 	BUG_ON(list_empty(head));
@@ -258,7 +266,7 @@ __rq_next_bmq_task(const struct rq *rq, unsigned long offset)
 
 static inline struct task_struct *rq_first_bmq_task(struct rq *rq)
 {
-	unsigned long idx = find_first_bit(rq->queue.bitmap, bmq_BITS);
+	unsigned long idx = bmq_find_first_bit(rq->queue.bitmap, bmq_BITS);
 	const struct list_head *head = &rq->queue.heads[idx];
 
 	BUG_ON(list_empty(head));
@@ -1391,13 +1399,13 @@ static inline int select_task_rq(struct task_struct *p)
 		return select_fallback_rq(task_cpu(p), p);
 
 	preempt_level = SCHED_PRIO2WATERMARK(task_sched_prio(p));
-	level = find_first_bit(sched_rq_watermark_bitmap, WM_BITS);
+	level = bmq_find_first_bit(sched_rq_watermark_bitmap, WM_BITS);
 	while (level < preempt_level) {
 		if (cpumask_and(&tmp, &chk_mask, &sched_rq_watermark[level]))
 			return best_mask_cpu(task_cpu(p), &tmp);
 
-		level = find_next_bit(sched_rq_watermark_bitmap, WM_BITS,
-				      level + 1);
+		level = bmq_find_next_bit(sched_rq_watermark_bitmap, WM_BITS,
+					  level + 1);
 	}
 
 	return best_mask_cpu(task_cpu(p), &chk_mask);
