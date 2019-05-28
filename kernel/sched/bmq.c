@@ -2912,23 +2912,25 @@ lock_and_migrate_pending_tasks(struct rq *src_rq, struct rq *rq)
 
 static inline int take_other_rq_tasks(struct rq *rq, int cpu)
 {
-	struct cpumask *affinity_mask;
-	struct cpumask chk, tmp;
-	int i, tried;
+	int i, tried = 0;
+	struct cpumask *affinity_mask, *end_mask;
 
-	if (!cpumask_and(&chk, &sched_rq_pending_mask, cpu_online_mask))
+	if (cpumask_empty(&sched_rq_pending_mask))
 		return 0;
 
-	tried = 0;
 	affinity_mask = per_cpu(sched_cpu_llc_start_mask, cpu);
-	while (cpumask_and(&tmp, &chk, affinity_mask++))
-		for_each_cpu_wrap(i, &tmp, cpu) {
+	end_mask = per_cpu(sched_cpu_affinity_chk_end_masks, cpu);
+
+	do {
+		for_each_cpu_and(i, &sched_rq_pending_mask, affinity_mask) {
 			if (lock_and_migrate_pending_tasks(cpu_rq(i), rq))
 				return 1;
 			if (tried)
 				return 0;
 			tried++;
 		}
+	} while (++affinity_mask < end_mask);
+
 	return 0;
 }
 #endif
