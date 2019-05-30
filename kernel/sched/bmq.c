@@ -254,16 +254,6 @@ static inline void bmq_add_task(struct task_struct *p, struct bmq *q, int idx)
 /*
  * This routine used in bmq scheduler only which assume the idle task in the bmq
  */
-static inline struct task_struct *
-__rq_next_bmq_task(const struct rq *rq, unsigned long offset)
-{
-	unsigned long idx = bmq_find_next_bit(rq->queue.bitmap, bmq_BITS, offset);
-	const struct list_head *head = &rq->queue.heads[idx];
-
-	BUG_ON(list_empty(head));
-	return list_first_entry(head, struct task_struct, bmq_node);
-}
-
 static inline struct task_struct *rq_first_bmq_task(struct rq *rq)
 {
 	unsigned long idx = bmq_find_first_bit(rq->queue.bitmap, bmq_BITS);
@@ -277,11 +267,16 @@ static inline struct task_struct *
 rq_next_bmq_task(struct task_struct *p, struct rq *rq)
 {
 	unsigned long idx = p->bmq_idx;
-	const struct list_head *head = &rq->queue.heads[idx];
+	struct list_head *head = &rq->queue.heads[idx];
 
 	BUG_ON(list_empty(head));
-	if (list_is_last(&p->bmq_node, head))
-		return __rq_next_bmq_task(rq, idx + 1);
+	if (list_is_last(&p->bmq_node, head)) {
+		idx = bmq_find_next_bit(rq->queue.bitmap, bmq_BITS, idx + 1);
+		head = &rq->queue.heads[idx];
+
+		BUG_ON(list_empty(head));
+		return list_first_entry(head, struct task_struct, bmq_node);
+	}
 
 	return list_next_entry(p, bmq_node);
 
