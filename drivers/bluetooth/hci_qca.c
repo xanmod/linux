@@ -508,6 +508,8 @@ static int qca_open(struct hci_uart *hu)
 		qcadev = serdev_device_get_drvdata(hu->serdev);
 		if (qcadev->btsoc_type != QCA_WCN3990) {
 			gpiod_set_value_cansleep(qcadev->bt_en, 1);
+			/* Controller needs time to bootup. */
+			msleep(150);
 		} else {
 			hu->init_speed = qcadev->init_speed;
 			hu->oper_speed = qcadev->oper_speed;
@@ -992,7 +994,8 @@ static int qca_set_baudrate(struct hci_dev *hdev, uint8_t baudrate)
 	while (!skb_queue_empty(&qca->txq))
 		usleep_range(100, 200);
 
-	serdev_device_wait_until_sent(hu->serdev,
+	if (hu->serdev)
+		serdev_device_wait_until_sent(hu->serdev,
 		      msecs_to_jiffies(CMD_TRANS_TIMEOUT_MS));
 
 	/* Give the controller time to process the request */

@@ -2502,8 +2502,8 @@ lpfc_sli_def_mbox_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 			} else {
 				ndlp->nlp_flag &= ~NLP_UNREG_INP;
 			}
+			pmb->ctx_ndlp = NULL;
 		}
-		pmb->ctx_ndlp = NULL;
 	}
 
 	/* Check security permission status on INIT_LINK mailbox command */
@@ -7652,12 +7652,6 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 		phba->cfg_xri_rebalancing = 0;
 	}
 
-	/* Arm the CQs and then EQs on device */
-	lpfc_sli4_arm_cqeq_intr(phba);
-
-	/* Indicate device interrupt mode */
-	phba->sli4_hba.intr_enable = 1;
-
 	/* Allow asynchronous mailbox command to go through */
 	spin_lock_irq(&phba->hbalock);
 	phba->sli.sli_flag &= ~LPFC_SLI_ASYNC_MBX_BLK;
@@ -7725,6 +7719,12 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 	if (bf_get(lpfc_conf_trunk_port3, &phba->sli4_hba))
 		phba->trunk_link.link3.state = LPFC_LINK_DOWN;
 	spin_unlock_irq(&phba->hbalock);
+
+	/* Arm the CQs and then EQs on device */
+	lpfc_sli4_arm_cqeq_intr(phba);
+
+	/* Indicate device interrupt mode */
+	phba->sli4_hba.intr_enable = 1;
 
 	if (!(phba->hba_flag & HBA_FCOE_MODE) &&
 	    (phba->hba_flag & LINK_DISABLED)) {

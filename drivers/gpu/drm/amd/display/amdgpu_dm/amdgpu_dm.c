@@ -3587,6 +3587,8 @@ static void dm_drm_plane_reset(struct drm_plane *plane)
 		plane->state = &amdgpu_state->base;
 		plane->state->plane = plane;
 		plane->state->rotation = DRM_MODE_ROTATE_0;
+		plane->state->alpha = DRM_BLEND_ALPHA_OPAQUE;
+		plane->state->pixel_blend_mode = DRM_MODE_BLEND_PREMULTI;
 	}
 }
 
@@ -4953,8 +4955,7 @@ cleanup:
 static void amdgpu_dm_crtc_copy_transient_flags(struct drm_crtc_state *crtc_state,
 						struct dc_stream_state *stream_state)
 {
-	stream_state->mode_changed =
-		crtc_state->mode_changed || crtc_state->active_changed;
+	stream_state->mode_changed = drm_atomic_crtc_needs_modeset(crtc_state);
 }
 
 static int amdgpu_dm_atomic_commit(struct drm_device *dev,
@@ -5661,6 +5662,9 @@ skip_modeset:
 		update_stream_scaling_settings(
 			&new_crtc_state->mode, dm_new_conn_state, dm_new_crtc_state->stream);
 
+	/* ABM settings */
+	dm_new_crtc_state->abm_level = dm_new_conn_state->abm_level;
+
 	/*
 	 * Color management settings. We also update color properties
 	 * when a modeset is needed, to ensure it gets reprogrammed.
@@ -5858,7 +5862,9 @@ dm_determine_update_type_for_commit(struct dc *dc,
 	}
 
 	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
-		struct dc_stream_update stream_update = { 0 };
+		struct dc_stream_update stream_update;
+
+		memset(&stream_update, 0, sizeof(stream_update));
 
 		new_dm_crtc_state = to_dm_crtc_state(new_crtc_state);
 		old_dm_crtc_state = to_dm_crtc_state(old_crtc_state);

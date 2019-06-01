@@ -667,8 +667,16 @@ static int fastrpc_get_args(u32 kernel, struct fastrpc_invoke_ctx *ctx)
 		pages[i].size = roundup(len, PAGE_SIZE);
 
 		if (ctx->maps[i]) {
+			struct vm_area_struct *vma = NULL;
+
 			rpra[i].pv = (u64) ctx->args[i].ptr;
 			pages[i].addr = ctx->maps[i]->phys;
+
+			vma = find_vma(current->mm, ctx->args[i].ptr);
+			if (vma)
+				pages[i].addr += ctx->args[i].ptr -
+						 vma->vm_start;
+
 		} else {
 			rlen -= ALIGN(args, FASTRPC_ALIGN) - args;
 			args = ALIGN(args, FASTRPC_ALIGN);
@@ -782,6 +790,9 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
 		if (err)
 			goto bail;
 	}
+
+	/* make sure that all CPU memory writes are seen by DSP */
+	dma_wmb();
 	/* Send invoke buffer to remote dsp */
 	err = fastrpc_invoke_send(fl->sctx, ctx, kernel, handle);
 	if (err)
@@ -798,6 +809,8 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,  u32 kernel,
 		goto bail;
 
 	if (ctx->nscalars) {
+		/* make sure that all memory writes by DSP are seen by CPU */
+		dma_rmb();
 		/* populate all the output buffers with results */
 		err = fastrpc_put_args(ctx, kernel);
 		if (err)
@@ -843,12 +856,12 @@ static int fastrpc_init_create_process(struct fastrpc_user *fl,
 
 	if (copy_from_user(&init, argp, sizeof(init))) {
 		err = -EFAULT;
-		goto bail;
+		goto err;
 	}
 
 	if (init.filelen > INIT_FILELEN_MAX) {
 		err = -EINVAL;
-		goto bail;
+		goto err;
 	}
 
 	inbuf.pgid = fl->tgid;
@@ -862,17 +875,15 @@ static int fastrpc_init_create_process(struct fastrpc_user *fl,
 	if (init.filelen && init.filefd) {
 		err = fastrpc_map_create(fl, init.filefd, init.filelen, &map);
 		if (err)
-			goto bail;
+			goto err;
 	}
 
 	memlen = ALIGN(max(INIT_FILELEN_MAX, (int)init.filelen * 4),
 		       1024 * 1024);
 	err = fastrpc_buf_alloc(fl, fl->sctx->dev, memlen,
 				&imem);
-	if (err) {
-		fastrpc_map_put(map);
-		goto bail;
-	}
+	if (err)
+		goto err_alloc;
 
 	fl->init_mem = imem;
 	args[0].ptr = (u64)(uintptr_t)&inbuf;
@@ -908,13 +919,24 @@ static int fastrpc_init_create_process(struct fastrpc_user *fl,
 
 	err = fastrpc_internal_invoke(fl, true, FASTRPC_INIT_HANDLE,
 				      sc, args);
+	if (err)
+		goto err_invoke;
 
-	if (err) {
+	kfree(args);
+
+	return 0;
+
+err_invoke:
+	fl->init_mem = NULL;
+	fastrpc_buf_free(imem);
+err_alloc:
+	if (map) {
+		spin_lock(&fl->lock);
+		list_del(&map->node);
+		spin_unlock(&fl->lock);
 		fastrpc_map_put(map);
-		fastrpc_buf_free(imem);
 	}
-
-bail:
+err:
 	kfree(args);
 
 	return err;

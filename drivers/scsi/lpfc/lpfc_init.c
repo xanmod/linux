@@ -3245,6 +3245,13 @@ void lpfc_destroy_multixri_pools(struct lpfc_hba *phba)
 	if (phba->cfg_enable_fc4_type & LPFC_ENABLE_NVME)
 		lpfc_destroy_expedite_pool(phba);
 
+	if (!(phba->pport->load_flag & FC_UNLOADING)) {
+		lpfc_sli_flush_fcp_rings(phba);
+
+		if (phba->cfg_enable_fc4_type & LPFC_ENABLE_NVME)
+			lpfc_sli_flush_nvme_rings(phba);
+	}
+
 	hwq_count = phba->cfg_hdw_queue;
 
 	for (i = 0; i < hwq_count; i++) {
@@ -3611,8 +3618,6 @@ lpfc_io_free(struct lpfc_hba *phba)
 	struct lpfc_sli4_hdw_queue *qp;
 	int idx;
 
-	spin_lock_irq(&phba->hbalock);
-
 	for (idx = 0; idx < phba->cfg_hdw_queue; idx++) {
 		qp = &phba->sli4_hba.hdwq[idx];
 		/* Release all the lpfc_nvme_bufs maintained by this host. */
@@ -3642,8 +3647,6 @@ lpfc_io_free(struct lpfc_hba *phba)
 		}
 		spin_unlock(&qp->io_buf_list_get_lock);
 	}
-
-	spin_unlock_irq(&phba->hbalock);
 }
 
 /**
