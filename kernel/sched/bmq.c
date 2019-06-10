@@ -145,7 +145,7 @@ DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 #endif
 
 #define WM_BITS	(bmq_BITS + 1)
-#define IDLE_WM	(1)
+#define IDLE_WM	(1ULL)
 
 static cpumask_t sched_rq_watermark[WM_BITS] ____cacheline_aligned_in_smp;
 
@@ -193,11 +193,11 @@ static inline void update_sched_rq_watermark(struct rq *rq)
 	if (!static_branch_likely(&sched_smt_present))
 		return;
 
-	if (1ULL == last_wm) {
+	if (IDLE_WM == last_wm) {
 		if (!cpumask_andnot(&sched_rq_watermark[0],
 				    &sched_rq_watermark[0], cpu_smt_mask(cpu)))
 			clear_bit(0, sched_rq_watermark_bitmap);
-	} else if (1ULL == watermark) {
+	} else if (IDLE_WM == watermark) {
 		cpumask_t tmp;
 
 		cpumask_and(&tmp, cpu_smt_mask(cpu), &sched_rq_watermark[IDLE_WM]);
@@ -5686,8 +5686,8 @@ void __init sched_init(void)
 	wait_bit_init();
 
 #ifdef CONFIG_SMP
-	cpumask_copy(&sched_rq_watermark[1], cpu_present_mask);
-	set_bit(1, sched_rq_watermark_bitmap);
+	cpumask_copy(&sched_rq_watermark[IDLE_WM], cpu_present_mask);
+	set_bit(IDLE_WM, sched_rq_watermark_bitmap);
 #endif
 
 #ifdef CONFIG_CGROUP_SCHED
