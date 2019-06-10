@@ -156,8 +156,11 @@ ____cacheline_aligned_in_smp;
 #define TASK_SCHED_WATERMARK(p) (SCHED_PRIO2WATERMARK((p)->bmq_idx))
 
 #if (bmq_BITS <= BITS_PER_LONG) && (WM_BITS <= BITS_PER_LONG)
-#define bmq_find_first_bit(bm, size)		__ffs((bm[0]))
-#define bmq_find_next_bit(bm, size, start)	__ffs((bm[0] & BITMAP_FIRST_WORD_MASK(start)))
+#define bmq_find_first_bit(bm, size)		((bm[0])? __ffs((bm[0])):(size))
+#define bmq_find_next_bit(bm, size, start)	({\
+	unsigned long tmp = (bm[0] & BITMAP_FIRST_WORD_MASK(start));\
+	(tmp)? __ffs(tmp):(size);\
+})
 #else
 #define bmq_find_first_bit(bm, size)		find_first_bit((bm), (size))
 #define bmq_find_next_bit(bm, size, start)	find_next_bit(bm, size, start)
