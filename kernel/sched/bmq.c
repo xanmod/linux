@@ -928,7 +928,7 @@ static void activate_task(struct task_struct *p, struct rq *rq)
 	if (task_contributes_to_load(p))
 		rq->nr_uninterruptible--;
 	enqueue_task(p, rq, ENQUEUE_WAKEUP);
-	p->on_rq = 1;
+	p->on_rq = TASK_ON_RQ_QUEUED;
 	cpufreq_update_util(rq, 0);
 }
 
