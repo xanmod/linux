@@ -626,7 +626,10 @@ static inline void tasklet_unlock(struct tasklet_struct *t)
 
 static inline void tasklet_unlock_wait(struct tasklet_struct *t)
 {
-	while (test_bit(TASKLET_STATE_RUN, &(t)->state)) { barrier(); }
+	while (test_bit(TASKLET_STATE_RUN, &(t)->state)) {
+		local_bh_disable();
+		local_bh_enable();
+	}
 }
 #else
 #define tasklet_trylock(t) 1
