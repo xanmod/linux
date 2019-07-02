@@ -155,20 +155,25 @@ ____cacheline_aligned_in_smp;
 #define SCHED_PRIO2WATERMARK(prio) (IDLE_TASK_SCHED_PRIO - (prio) + 1)
 #define TASK_SCHED_WATERMARK(p) (SCHED_PRIO2WATERMARK((p)->bmq_idx))
 
-#if (bmq_BITS <= BITS_PER_LONG) && (WM_BITS <= BITS_PER_LONG)
+#if (WM_BITS <= BITS_PER_LONG)
+#define __bmq_find_first_bit(bm, size)		__ffs((bm[0]))
 #define bmq_find_first_bit(bm, size)		((bm[0])? __ffs((bm[0])):(size))
+#define __bmq_find_next_bit(bm, size, start)	(__ffs(BITMAP_FIRST_WORD_MASK(start) &\
+						       bm[0]))
 #define bmq_find_next_bit(bm, size, start)	({\
 	unsigned long tmp = (bm[0] & BITMAP_FIRST_WORD_MASK(start));\
 	(tmp)? __ffs(tmp):(size);\
 })
 #else
+#define __bmq_find_first_bit(bm, size)		find_first_bit((bm), (size))
 #define bmq_find_first_bit(bm, size)		find_first_bit((bm), (size))
+#define __bmq_find_next_bit(bm, size, start)	find_next_bit(bm, size, start)
 #define bmq_find_next_bit(bm, size, start)	find_next_bit(bm, size, start)
 #endif
 
 static inline void update_sched_rq_watermark(struct rq *rq)
 {
-	unsigned long watermark = bmq_find_first_bit(rq->queue.bitmap, bmq_BITS);
+	unsigned long watermark = __bmq_find_first_bit(rq->queue.bitmap, bmq_BITS);
 	unsigned long last_wm = rq->watermark;
 	int cpu;
 
@@ -259,7 +264,7 @@ static inline void bmq_add_task(struct task_struct *p, struct bmq *q, int idx)
  */
 static inline struct task_struct *rq_first_bmq_task(struct rq *rq)
 {
-	unsigned long idx = bmq_find_first_bit(rq->queue.bitmap, bmq_BITS);
+	unsigned long idx = __bmq_find_first_bit(rq->queue.bitmap, bmq_BITS);
 	const struct list_head *head = &rq->queue.heads[idx];
 
 	BUG_ON(list_empty(head));
@@ -274,7 +279,7 @@ rq_next_bmq_task(struct task_struct *p, struct rq *rq)
 
 	BUG_ON(list_empty(head));
 	if (list_is_last(&p->bmq_node, head)) {
-		idx = bmq_find_next_bit(rq->queue.bitmap, bmq_BITS, idx + 1);
+		idx = __bmq_find_next_bit(rq->queue.bitmap, bmq_BITS, idx + 1);
 		head = &rq->queue.heads[idx];
 
 		BUG_ON(list_empty(head));
