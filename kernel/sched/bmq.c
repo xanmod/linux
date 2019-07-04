@@ -601,11 +601,7 @@ static inline void sched_update_tick_dependency(struct rq *rq) { }
 #endif
 
 /*
- * Removing from the runqueue. Deleting a task from the skip list is done
- * via the stored node reference in the task struct and does not require a full
- * look up. Thus it occurs in O(k) time where k is the "level" of the list the
- * task was stored at - usually < 4, max 16.
- *
+ * Removing from the runqueue.
  * Context: rq->lock
  */
 static inline void dequeue_task(struct task_struct *p, struct rq *rq, int flags)
@@ -634,7 +630,6 @@ static inline void dequeue_task(struct task_struct *p, struct rq *rq, int flags)
 
 /*
  * Adding task to the runqueue.
- *
  * Context: rq->lock
  */
 static inline void enqueue_task(struct task_struct *p, struct rq *rq, int flags)
