@@ -162,6 +162,7 @@ over:
 	}
 	return ERR_PTR(-ENFILE);
 }
+EXPORT_SYMBOL_GPL(alloc_empty_file);
 
 /*
  * Variant of alloc_empty_file() that doesn't check and modify nr_files.
@@ -327,6 +328,7 @@ void flush_delayed_fput(void)
 {
 	delayed_fput(NULL);
 }
+EXPORT_SYMBOL_GPL(flush_delayed_fput);
 
 static DECLARE_DELAYED_WORK(delayed_fput_work, delayed_fput);
 
@@ -374,6 +376,7 @@ void __fput_sync(struct file *file)
 }
 
 EXPORT_SYMBOL(fput);
+EXPORT_SYMBOL_GPL(__fput_sync);
 
 void __init files_init(void)
 {
