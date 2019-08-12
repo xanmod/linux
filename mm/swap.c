@@ -44,7 +44,11 @@
 /* How many pages do we try to swap or page in/out together? */
 int page_cluster;
 
+#ifdef CONFIG_PREEMPT_RT
+DEFINE_STATIC_KEY_TRUE(use_pvec_lock);
+#else
 DEFINE_STATIC_KEY_FALSE(use_pvec_lock);
+#endif
 
 struct swap_pagevec {
 	spinlock_t	lock;
