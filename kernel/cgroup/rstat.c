@@ -201,21 +201,6 @@ void cgroup_rstat_flush(struct cgroup *cgrp)
 }
 
 /**
- * cgroup_rstat_flush_irqsafe - irqsafe version of cgroup_rstat_flush()
- * @cgrp: target cgroup
- *
- * This function can be called from any context.
- */
-void cgroup_rstat_flush_irqsafe(struct cgroup *cgrp)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&cgroup_rstat_lock, flags);
-	cgroup_rstat_flush_locked(cgrp, false);
-	spin_unlock_irqrestore(&cgroup_rstat_lock, flags);
-}
-
-/**
  * cgroup_rstat_flush_begin - flush stats in @cgrp's subtree and hold
  * @cgrp: target cgroup
  *
@@ -224,7 +209,7 @@ void cgroup_rstat_flush_irqsafe(struct cgroup *cgrp)
  *
  * This function may block.
  */
-void cgroup_rstat_flush_hold(struct cgroup *cgrp)
+static void cgroup_rstat_flush_hold(struct cgroup *cgrp)
 	__acquires(&cgroup_rstat_lock)
 {
 	might_sleep();
@@ -235,7 +220,7 @@ void cgroup_rstat_flush_hold(struct cgroup *cgrp)
 /**
  * cgroup_rstat_flush_release - release cgroup_rstat_flush_hold()
  */
-void cgroup_rstat_flush_release(void)
+static void cgroup_rstat_flush_release(void)
 	__releases(&cgroup_rstat_lock)
 {
 	spin_unlock_irq(&cgroup_rstat_lock);
