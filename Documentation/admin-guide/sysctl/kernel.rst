@@ -105,6 +105,7 @@ show up in /proc/sys/kernel:
 - unknown_nmi_panic
 - watchdog
 - watchdog_thresh
+- yield_type
 - version
 
 
@@ -1175,3 +1176,13 @@ is 10 seconds.
 
 The softlockup threshold is (2 * watchdog_thresh). Setting this
 tunable to zero will disable lockup detection altogether.
+
+yield_type:
+===========
+
+BMQ CPU scheduler only. This determines what type of yield calls to
+sched_yield will perform.
+
+  0 - No yield.
+  1 - Yield only to better priority/deadline tasks. (default)
+  2 - Expire timeslice and recalculate deadline.
