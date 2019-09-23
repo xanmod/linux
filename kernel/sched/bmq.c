@@ -212,7 +212,7 @@ static inline void update_sched_rq_watermark(struct rq *rq)
 
 static inline int task_sched_prio(struct task_struct *p)
 {
-	return (p->prio < MAX_RT_PRIO)? 0:p->prio - MAX_RT_PRIO + p->boost_prio;
+	return (p->prio < MAX_RT_PRIO)? 0:p->prio - MAX_RT_PRIO + p->boost_prio + 1;
 }
 
 static inline void bmq_init(struct bmq *q)
