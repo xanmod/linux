@@ -713,14 +713,10 @@ static ssize_t devkmsg_read(struct file *file, char __user *buf,
 		goto out;
 	}
 
-	if (user->seq == 0) {
-		user->seq = seq;
-	} else {
-		user->seq++;
-		if (user->seq < seq) {
-			ret = -EPIPE;
-			goto restore_out;
-		}
+	user->seq++;
+	if (user->seq < seq) {
+		ret = -EPIPE;
+		goto restore_out;
 	}
 
 	msg = (struct printk_log *)&user->msgbuf[0];
