@@ -656,6 +656,15 @@ int open_shroot(unsigned int xid, struct cifs_tcon *tcon, struct cifs_fid *pfid)
 		return 0;
 	}
 
+	/*
+	 * We do not hold the lock for the open because in case
+	 * SMB2_open needs to reconnect, it will end up calling
+	 * cifs_mark_open_files_invalid() which takes the lock again
+	 * thus causing a deadlock
+	 */
+
+	mutex_unlock(&tcon->crfid.fid_mutex);
+
 	if (smb3_encryption_required(tcon))
 		flags |= CIFS_TRANSFORM_REQ;
 
@@ -677,7 +686,7 @@ int open_shroot(unsigned int xid, struct cifs_tcon *tcon, struct cifs_fid *pfid)
 
 	rc = SMB2_open_init(tcon, &rqst[0], &oplock, &oparms, &utf16_path);
 	if (rc)
-		goto oshr_exit;
+		goto oshr_free;
 	smb2_set_next_command(tcon, &rqst[0]);
 
 	memset(&qi_iov, 0, sizeof(qi_iov));
@@ -690,18 +699,10 @@ int open_shroot(unsigned int xid, struct cifs_tcon *tcon, struct cifs_fid *pfid)
 				  sizeof(struct smb2_file_all_info) +
 				  PATH_MAX * 2, 0, NULL);
 	if (rc)
-		goto oshr_exit;
+		goto oshr_free;
 
 	smb2_set_related(&rqst[1]);
 
-	/*
-	 * We do not hold the lock for the open because in case
-	 * SMB2_open needs to reconnect, it will end up calling
-	 * cifs_mark_open_files_invalid() which takes the lock again
-	 * thus causing a deadlock
-	 */
-
-	mutex_unlock(&tcon->crfid.fid_mutex);
 	rc = compound_send_recv(xid, ses, flags, 2, rqst,
 				resp_buftype, rsp_iov);
 	mutex_lock(&tcon->crfid.fid_mutex);
@@ -741,6 +742,8 @@ int open_shroot(unsigned int xid, struct cifs_tcon *tcon, struct cifs_fid *pfid)
 
 	if (rc)
 		goto oshr_exit;
+
+	atomic_inc(&tcon->num_remote_opens);
 
 	o_rsp = (struct smb2_create_rsp *)rsp_iov[0].iov_base;
 	oparms.fid->persistent_fid = o_rsp->PersistentFileId;
@@ -1167,6 +1170,7 @@ smb2_set_ea(const unsigned int xid, struct cifs_tcon *tcon,
 
 	rc = compound_send_recv(xid, ses, flags, 3, rqst,
 				resp_buftype, rsp_iov);
+	/* no need to bump num_remote_opens because handle immediately closed */
 
  sea_exit:
 	kfree(ea);
@@ -1488,6 +1492,8 @@ smb2_ioctl_query_info(const unsigned int xid,
 				resp_buftype, rsp_iov);
 	if (rc)
 		goto iqinf_exit;
+
+	/* No need to bump num_remote_opens since handle immediately closed */
 	if (qi.flags & PASSTHRU_FSCTL) {
 		pqi = (struct smb_query_info __user *)arg;
 		io_rsp = (struct smb2_ioctl_rsp *)rsp_iov[1].iov_base;
@@ -3294,6 +3300,11 @@ smb21_set_oplock_level(struct cifsInodeInfo *cinode, __u32 oplock,
 	oplock &= 0xFF;
 	if (oplock == SMB2_OPLOCK_LEVEL_NOCHANGE)
 		return;
+
+	/* Check if the server granted an oplock rather than a lease */
+	if (oplock & SMB2_OPLOCK_LEVEL_EXCLUSIVE)
+		return smb2_set_oplock_level(cinode, oplock, epoch,
+					     purge_cache);
 
 	if (oplock & SMB2_LEASE_READ_CACHING_HE) {
 		new_oplock |= CIFS_CACHE_READ_FLG;
