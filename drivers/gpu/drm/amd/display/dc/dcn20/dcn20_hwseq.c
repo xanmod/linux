@@ -585,6 +585,10 @@ static void dcn20_init_hw(struct dc *dc)
 		}
 	}
 
+	/* Power gate DSCs */
+	for (i = 0; i < res_pool->res_cap->num_dsc; i++)
+		dcn20_dsc_pg_control(hws, res_pool->dscs[i]->inst, false);
+
 	/* Blank pixel data with OPP DPG */
 	for (i = 0; i < dc->res_pool->timing_generator_count; i++) {
 		struct timing_generator *tg = dc->res_pool->timing_generators[i];
@@ -1106,6 +1110,9 @@ void dcn20_enable_plane(
 	/* enable DCFCLK current DCHUB */
 	pipe_ctx->plane_res.hubp->funcs->hubp_clk_cntl(pipe_ctx->plane_res.hubp, true);
 
+	/* initialize HUBP on power up */
+	pipe_ctx->plane_res.hubp->funcs->hubp_init(pipe_ctx->plane_res.hubp);
+
 	/* make sure OPP_PIPE_CLOCK_EN = 1 */
 	pipe_ctx->stream_res.opp->funcs->opp_pipe_clock_control(
 			pipe_ctx->stream_res.opp,
@@ -1314,6 +1321,18 @@ static void dcn20_apply_ctx_for_surface(
 
 	if (!top_pipe_to_program)
 		return;
+
+	/* Carry over GSL groups in case the context is changing. */
+	for (i = 0; i < dc->res_pool->pipe_count; i++) {
+		struct pipe_ctx *pipe_ctx = &context->res_ctx.pipe_ctx[i];
+		struct pipe_ctx *old_pipe_ctx =
+			&dc->current_state->res_ctx.pipe_ctx[i];
+
+		if (pipe_ctx->stream == stream &&
+		    pipe_ctx->stream == old_pipe_ctx->stream)
+			pipe_ctx->stream_res.gsl_group =
+				old_pipe_ctx->stream_res.gsl_group;
+	}
 
 	tg = top_pipe_to_program->stream_res.tg;
 
