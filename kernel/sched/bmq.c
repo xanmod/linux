@@ -124,7 +124,6 @@ enum {
 };
 
 DEFINE_PER_CPU(cpumask_t [NR_CPU_AFFINITY_CHK_LEVEL], sched_cpu_affinity_chk_masks);
-DEFINE_PER_CPU(cpumask_t *, sched_cpu_llc_start_mask);
 DEFINE_PER_CPU(cpumask_t *, sched_cpu_affinity_chk_end_masks);
 
 #ifdef CONFIG_SCHED_SMT
@@ -2809,7 +2808,7 @@ static inline int take_other_rq_tasks(struct rq *rq, int cpu)
 	if (cpumask_empty(&sched_rq_pending_mask))
 		return 0;
 
-	affinity_mask = per_cpu(sched_cpu_llc_start_mask, cpu);
+	affinity_mask = &(per_cpu(sched_cpu_affinity_chk_masks, cpu)[0]);
 	end_mask = per_cpu(sched_cpu_affinity_chk_end_masks, cpu);
 	do {
 		int i;
@@ -5526,8 +5525,6 @@ static void sched_init_topology_cpumask_early(void)
 			cpumask_copy(tmp, cpu_possible_mask);
 			cpumask_clear_cpu(cpu, tmp);
 		}
-		per_cpu(sched_cpu_llc_start_mask, cpu) =
-			&(per_cpu(sched_cpu_affinity_chk_masks, cpu)[0]);
 		per_cpu(sched_cpu_affinity_chk_end_masks, cpu) =
 			&(per_cpu(sched_cpu_affinity_chk_masks, cpu)[1]);
 	}
@@ -5548,15 +5545,14 @@ static void sched_init_topology_cpumask(void)
 			printk(KERN_INFO "bmq: cpu #%d affinity check mask - smt 0x%08lx",
 			       cpu, (chk++)->bits[0]);
 		}
+		cpumask_complement(chk, topology_sibling_cpumask(cpu));
+#else
+		cpumask_clear_cpu(cpu, chk);
 #endif
 #ifdef CONFIG_SCHED_MC
-		cpumask_setall(chk);
-		cpumask_clear_cpu(cpu, chk);
-		if (cpumask_and(chk, chk, cpu_coregroup_mask(cpu))) {
-			per_cpu(sched_cpu_llc_start_mask, cpu) = chk;
+		if (cpumask_and(chk, chk, cpu_coregroup_mask(cpu)))
 			printk(KERN_INFO "bmq: cpu #%d affinity check mask - coregroup 0x%08lx",
 			       cpu, (chk++)->bits[0]);
-		}
 		cpumask_complement(chk, cpu_coregroup_mask(cpu));
 
 		/**
@@ -5567,8 +5563,6 @@ static void sched_init_topology_cpumask(void)
 #else
 		per_cpu(sd_llc_id, cpu) =
 			cpumask_first(topology_core_cpumask(cpu));
-
-		per_cpu(sched_cpu_llc_start_mask, cpu) = chk;
 
 		cpumask_setall(chk);
 		cpumask_clear_cpu(cpu, chk);
