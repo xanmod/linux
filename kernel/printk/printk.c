@@ -1446,6 +1446,9 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 			break;
 		}
 
+		if (len + textlen > size)
+			break;
+
 		if (copy_to_user(buf + len, text, textlen))
 			len = -EFAULT;
 		else
@@ -3085,7 +3088,7 @@ retry:
 		ret = prb_iter_next(&iter, msgbuf, PRINTK_RECORD_MAX, &seq);
 		if (ret == 0) {
 			break;
-		} else if (ret < 0) {
+		} else if (ret < 0 || seq >= end_seq) {
 			prb_iter_init(&iter, &printk_rb, &seq);
 			goto retry;
 		}
