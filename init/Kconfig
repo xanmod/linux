@@ -1629,6 +1629,7 @@ config KALLSYMS_BASE_RELATIVE
 # syscall, maps, verifier
 config BPF_SYSCALL
 	bool "Enable bpf() system call"
+	depends on !PREEMPT_RT
 	select BPF
 	select IRQ_WORK
 	default n
