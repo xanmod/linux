@@ -172,7 +172,7 @@ static inline void update_sched_rq_watermark(struct rq *rq)
 {
 	unsigned long watermark = bmq_find_first_bit(rq->queue.bitmap);
 	unsigned long last_wm = rq->watermark;
-	unsigned long wm;
+	unsigned long i;
 	int cpu;
 
 	if (watermark == last_wm)
@@ -181,9 +181,9 @@ static inline void update_sched_rq_watermark(struct rq *rq)
 	rq->watermark = watermark;
 	cpu = cpu_of(rq);
 	if (watermark < last_wm) {
-		for (wm = watermark + 1; wm <= last_wm; wm++)
-			cpumask_andnot(&sched_rq_watermark[wm],
-				       &sched_rq_watermark[wm], cpumask_of(cpu));
+		for (i = watermark + 1; i <= last_wm; i++)
+			cpumask_andnot(&sched_rq_watermark[i],
+				       &sched_rq_watermark[i], cpumask_of(cpu));
 #ifdef CONFIG_SCHED_SMT
 		if (!static_branch_likely(&sched_smt_present))
 			return;
@@ -194,8 +194,8 @@ static inline void update_sched_rq_watermark(struct rq *rq)
 		return;
 	}
 	/* last_wm < watermark */
-	for (wm = last_wm + 1; wm <= watermark; wm++)
-		cpumask_set_cpu(cpu, &sched_rq_watermark[wm]);
+	for (i = last_wm + 1; i <= watermark; i++)
+		cpumask_set_cpu(cpu, &sched_rq_watermark[i]);
 #ifdef CONFIG_SCHED_SMT
 	if (!static_branch_likely(&sched_smt_present))
 		return;
