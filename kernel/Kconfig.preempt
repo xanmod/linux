@@ -8,7 +8,7 @@ config PREEMPT_LAZY
 
 choice
 	prompt "Preemption Model"
-	default PREEMPT_NONE
+	default PREEMPT_RT
 
 config PREEMPT_NONE
 	bool "No Forced Preemption (Server)"
