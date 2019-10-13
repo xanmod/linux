@@ -2775,16 +2775,13 @@ static inline void check_curr(struct task_struct *p, struct rq *rq)
 static inline int
 migrate_pending_tasks(struct rq *rq, struct rq *dest_rq, const int dest_cpu)
 {
-	struct task_struct *p, *next;
+	struct task_struct *p, *skip = rq->curr;
 	int nr_migrated = 0;
-	int nr_tries = min((rq->nr_running + 1) / 2, SCHED_RQ_NR_MIGRATION);
+	int nr_tries = min(rq->nr_running / 2, SCHED_RQ_NR_MIGRATION);
 
-	for (p = rq_first_bmq_task(rq);
-	     nr_tries && p != rq->idle;
-	     p = rq_next_bmq_task(p, rq)) {
-		if (task_running(p))
-			continue;
-		next = rq_next_bmq_task(p, rq);
+	while (skip != rq->idle && nr_tries &&
+	       (p = rq_next_bmq_task(skip, rq)) != rq->idle) {
+		skip = rq_next_bmq_task(p, rq);
 		if (cpumask_test_cpu(dest_cpu, p->cpus_ptr)) {
 			dequeue_task(p, rq, 0);
 			set_task_cpu(p, dest_cpu);
@@ -2792,10 +2789,6 @@ migrate_pending_tasks(struct rq *rq, struct rq *dest_rq, const int dest_cpu)
 			nr_migrated++;
 		}
 		nr_tries--;
-		/* make a jump */
-		if (next == rq->idle)
-			break;
-		p = next;
 	}
 
 	return nr_migrated;
