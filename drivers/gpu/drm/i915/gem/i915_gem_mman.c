@@ -317,7 +317,11 @@ vm_fault_t i915_gem_fault(struct vm_fault *vmf)
 				   msecs_to_jiffies_timeout(CONFIG_DRM_I915_USERFAULT_AUTOSUSPEND));
 	GEM_BUG_ON(!obj->userfault_count);
 
-	i915_vma_set_ggtt_write(vma);
+	if (write) {
+		GEM_BUG_ON(!i915_gem_object_has_pinned_pages(obj));
+		i915_vma_set_ggtt_write(vma);
+		obj->mm.dirty = true;
+	}
 
 err_fence:
 	i915_vma_unpin_fence(vma);
@@ -361,6 +365,7 @@ err:
 		return VM_FAULT_OOM;
 	case -ENOSPC:
 	case -EFAULT:
+	case -ENODEV: /* bad object, how did you get here! */
 		return VM_FAULT_SIGBUS;
 	default:
 		WARN_ONCE(ret, "unhandled error in %s: %i\n", __func__, ret);
@@ -471,10 +476,16 @@ i915_gem_mmap_gtt(struct drm_file *file,
 	if (!obj)
 		return -ENOENT;
 
+	if (i915_gem_object_never_bind_ggtt(obj)) {
+		ret = -ENODEV;
+		goto out;
+	}
+
 	ret = create_mmap_offset(obj);
 	if (ret == 0)
 		*offset = drm_vma_node_offset_addr(&obj->base.vma_node);
 
+out:
 	i915_gem_object_put(obj);
 	return ret;
 }
