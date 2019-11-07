@@ -83,7 +83,7 @@ int sched_yield_type __read_mostly = 1;
 #define boost_threshold(p)	(SCHED_TIMESLICE_NS >>\
 				 (10 - MAX_PRIORITY_ADJ -  (p)->boost_prio))
 
-static inline void boost_task(struct task_struct *p, struct rq *rq)
+static inline void boost_task(struct task_struct *p)
 {
 	int limit;
 
@@ -99,7 +99,7 @@ static inline void boost_task(struct task_struct *p, struct rq *rq)
 		return;
 	}
 
-	if (p->boost_prio > limit && rq_switch_time(rq) < boost_threshold(p))
+	if (p->boost_prio > limit)
 		p->boost_prio--;
 }
 
@@ -1661,6 +1661,9 @@ static int try_to_wake_up(struct task_struct *p, unsigned int state,
 		atomic_dec(&task_rq(p)->nr_iowait);
 	}
 
+	if(cpu_rq(smp_processor_id())->clock - p->last_ran > SCHED_TIMESLICE_NS)
+		boost_task(p);
+
 	cpu = select_task_rq(p);
 
 	if (cpu != task_cpu(p)) {
@@ -1764,7 +1767,8 @@ int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
 		p->sched_reset_on_fork = 0;
 	}
 
-	p->boost_prio = MAX_PRIORITY_ADJ;
+	p->boost_prio = (p->boost_prio < 0) ?
+		p->boost_prio + MAX_PRIORITY_ADJ : MAX_PRIORITY_ADJ;
 	/*
 	 * Share the timeslice between parent and child, thus the
 	 * total amount of pending timeslices in the system doesn't change,
@@ -2386,7 +2390,6 @@ static inline void update_curr(struct rq *rq, struct task_struct *p)
 	p->sched_time += ns;
 	account_group_exec_runtime(p, ns);
 
-	/* time_slice accounting is done in usecs to avoid overflow on 32bit */
 	p->time_slice -= ns;
 	p->last_ran = rq->clock_task;
 }
@@ -3062,7 +3065,8 @@ static void __sched notrace __schedule(bool preempt)
 		if (signal_pending_state(prev->state, prev)) {
 			prev->state = TASK_RUNNING;
 		} else {
-			boost_task(prev, rq);
+			if (rq_switch_time(rq) < boost_threshold(prev))
+				boost_task(prev);
 			deactivate_task(prev, rq);
 
 			if (prev->in_iowait) {
