@@ -1777,15 +1777,8 @@ static void call_console_drivers(u64 seq, const char *ext_text, size_t ext_len,
 			con->wrote_history = 1;
 			con->printk_seq = seq - 1;
 		}
-		if (con->write_atomic && level < emergency_console_loglevel &&
-		    facility == 0) {
-			/* skip emergency messages, already printed */
-			if (con->printk_seq < seq)
-				con->printk_seq = seq;
-			continue;
-		}
 		if (con->flags & CON_BOOT && facility == 0) {
-			/* skip emergency messages, already printed */
+			/* skip boot messages, already printed */
 			if (con->printk_seq < seq)
 				con->printk_seq = seq;
 			continue;
@@ -3171,7 +3164,7 @@ static bool console_can_emergency(int level)
 	for_each_console(con) {
 		if (!(con->flags & CON_ENABLED))
 			continue;
-		if (con->write_atomic && level < emergency_console_loglevel)
+		if (con->write_atomic && oops_in_progress)
 			return true;
 		if (con->write && (con->flags & CON_BOOT))
 			return true;
@@ -3187,7 +3180,7 @@ static void call_emergency_console_drivers(int level, const char *text,
 	for_each_console(con) {
 		if (!(con->flags & CON_ENABLED))
 			continue;
-		if (con->write_atomic && level < emergency_console_loglevel) {
+		if (con->write_atomic && oops_in_progress) {
 			con->write_atomic(con, text, text_len);
 			continue;
 		}
