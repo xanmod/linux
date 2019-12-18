@@ -19,6 +19,7 @@ obj-y +=	buffer.o block_dev.o direct-io.o mpage.o
 else
 obj-y +=	no-block.o
 endif
+obj-$(CONFIG_ZFS) += zfs/
 
 obj-$(CONFIG_PROC_FS) += proc_namespace.o
 
