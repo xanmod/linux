@@ -16,6 +16,7 @@ config VALIDATE_FS_PARSER
 	  filesystem when it is registered.
 
 if BLOCK
+source "fs/zfs/Kconfig"
 
 config FS_IOMAP
 	bool

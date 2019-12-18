@@ -1,0 +1,13 @@
+config ZFS
+	tristate "ZFS filesystem support"
+	depends on EFI_PARTITION
+	select ZLIB_INFLATE
+	select ZLIB_DEFLATE
+	help
+	  This is the ZFS filesystem from the ZFS On Linux project.
+
+	  See http://zfsonlinux.org/
+
+	  To compile this file system support as a module, choose M here.
+
+	  If unsure, say N.
