@@ -1,0 +1,17 @@
+ZFS_MODULE_CFLAGS  = -I$(srctree)/include/zfs
+ZFS_MODULE_CFLAGS += -I$(srctree)/include/zfs/spl
+ZFS_MODULE_CFLAGS += -include $(srctree)/include/zfs/zfs_config.h
+ZFS_MODULE_CFLAGS += -std=gnu99 -Wno-declaration-after-statement
+ZFS_MODULE_CPPFLAGS  = -D_KERNEL
+ZFS_MODULE_CPPFLAGS += -UDEBUG -DNDEBUG
+export ZFS_MODULE_CFLAGS ZFS_MODULE_CPPFLAGS
+
+obj-$(CONFIG_ZFS) :=
+obj-$(CONFIG_ZFS) +=  spl/
+obj-$(CONFIG_ZFS) +=  avl/
+obj-$(CONFIG_ZFS) +=  icp/
+obj-$(CONFIG_ZFS) +=  lua/
+obj-$(CONFIG_ZFS) +=  nvpair/
+obj-$(CONFIG_ZFS) +=  unicode/
+obj-$(CONFIG_ZFS) +=  zcommon/
+obj-$(CONFIG_ZFS) +=  zfs/
