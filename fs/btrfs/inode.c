@@ -2161,12 +2161,16 @@ again:
 		mapping_set_error(page->mapping, ret);
 		end_extent_writepage(page, ret, page_start, page_end);
 		ClearPageChecked(page);
-		goto out;
+		goto out_reserved;
 	}
 
 	ClearPageChecked(page);
 	set_page_dirty(page);
+out_reserved:
 	btrfs_delalloc_release_extents(BTRFS_I(inode), PAGE_SIZE);
+	if (ret)
+		btrfs_delalloc_release_space(inode, data_reserved, page_start,
+					     PAGE_SIZE, true);
 out:
 	unlock_extent_cached(&BTRFS_I(inode)->io_tree, page_start, page_end,
 			     &cached_state);
@@ -9506,6 +9510,9 @@ static int btrfs_rename_exchange(struct inode *old_dir,
 		goto out_notrans;
 	}
 
+	if (dest != root)
+		btrfs_record_root_in_trans(trans, dest);
+
 	/*
 	 * We need to find a free sequence number both in the source and
 	 * in the destination directory for the exchange.
@@ -9700,6 +9707,18 @@ out_fail:
 			commit_transaction = true;
 	}
 	if (commit_transaction) {
+		/*
+		 * We may have set commit_transaction when logging the new name
+		 * in the destination root, in which case we left the source
+		 * root context in the list of log contextes. So make sure we
+		 * remove it to avoid invalid memory accesses, since the context
+		 * was allocated in our stack frame.
+		 */
+		if (sync_log_root) {
+			mutex_lock(&root->log_mutex);
+			list_del_init(&ctx_root.list);
+			mutex_unlock(&root->log_mutex);
+		}
 		ret = btrfs_commit_transaction(trans);
 	} else {
 		int ret2;
@@ -9712,6 +9731,9 @@ out_notrans:
 		up_read(&fs_info->subvol_sem);
 	if (old_ino == BTRFS_FIRST_FREE_OBJECTID)
 		up_read(&fs_info->subvol_sem);
+
+	ASSERT(list_empty(&ctx_root.list));
+	ASSERT(list_empty(&ctx_dest.list));
 
 	return ret;
 }
