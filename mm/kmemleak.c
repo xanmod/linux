@@ -13,7 +13,7 @@
  *
  * The following locks and mutexes are used by kmemleak:
  *
- * - kmemleak_lock (raw spinlock): protects the object_list modifications and
+ * - kmemleak_lock (raw_spinlock_t): protects the object_list modifications and
  *   accesses to the object_tree_root. The object_list is the main list
  *   holding the metadata (struct kmemleak_object) for the allocated memory
  *   blocks. The object_tree_root is a red black tree used to look-up
@@ -22,13 +22,13 @@
  *   object_tree_root in the create_object() function called from the
  *   kmemleak_alloc() callback and removed in delete_object() called from the
  *   kmemleak_free() callback
- * - kmemleak_object.lock (spinlock): protects a kmemleak_object. Accesses to
- *   the metadata (e.g. count) are protected by this lock. Note that some
- *   members of this structure may be protected by other means (atomic or
- *   kmemleak_lock). This lock is also held when scanning the corresponding
- *   memory block to avoid the kernel freeing it via the kmemleak_free()
- *   callback. This is less heavyweight than holding a global lock like
- *   kmemleak_lock during scanning
+ * - kmemleak_object.lock (raw_spinlock_t): protects a kmemleak_object.
+ *   Accesses to the metadata (e.g. count) are protected by this lock. Note
+ *   that some members of this structure may be protected by other means
+ *   (atomic or kmemleak_lock). This lock is also held when scanning the
+ *   corresponding memory block to avoid the kernel freeing it via the
+ *   kmemleak_free() callback. This is less heavyweight than holding a global
+ *   lock like kmemleak_lock during scanning.
  * - scan_mutex (mutex): ensures that only one thread may scan the memory for
  *   unreferenced objects at a time. The gray_list contains the objects which
  *   are already referenced or marked as false positives and need to be
@@ -191,7 +191,7 @@ static int mem_pool_free_count = ARRAY_SIZE(mem_pool);
 static LIST_HEAD(mem_pool_free_list);
 /* search tree for object boundaries */
 static struct rb_root object_tree_root = RB_ROOT;
-/* rw_lock protecting the access to object_list and object_tree_root */
+/* protecting the access to object_list and object_tree_root */
 static DEFINE_RAW_SPINLOCK(kmemleak_lock);
 
 /* allocation caches for kmemleak internal data */
