@@ -73,26 +73,6 @@ config THREAD_INFO_IN_TASK
 
 menu "General setup"
 
-config SCHED_BMQ
-	bool "BMQ CPU scheduler"
-	help
-	  The BitMap Queue CPU scheduler for excellent interactivity and
-	  responsiveness on the desktop and solid scalability on normal
-	  hardware and commodity servers.
-
-	  Currently incompatible with the Group CPU scheduler, and RCU TORTURE
-          TEST so these options are disabled.
-
-          Say Y here.
-	default y
-
-config SCHED_TIMESLICE
-	int "Scheduler Task time slice"
-	depends on SCHED_BMQ
-	help
-	  Time slice in ms for BMQ CPU scheduler, default 4 ms.
-	default 4
-
 config BROKEN
 	bool
 
@@ -736,6 +716,23 @@ config GENERIC_SCHED_CLOCK
 	bool
 
 menu "Scheduler features"
+
+config SCHED_BMQ
+	bool "BMQ CPU scheduler"
+	help
+	  The BitMap Queue CPU scheduler for excellent interactivity and
+	  responsiveness on the desktop and solid scalability on normal
+	  hardware and commodity servers.
+
+          Say Y here.
+	default y
+
+config SCHED_TIMESLICE
+	int "Scheduler Task time slice"
+	depends on SCHED_BMQ
+	help
+	  Time slice in ms for BMQ CPU scheduler, default 4 ms.
+	default 4
 
 config UCLAMP_TASK
 	bool "Enable utilization clamping for RT/FAIR tasks"
