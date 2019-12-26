@@ -96,6 +96,10 @@ struct serial8250_config {
 #define SERIAL8250_SHARE_IRQS 0
 #endif
 
+void set_ier(struct uart_8250_port *up, unsigned char ier);
+void clear_ier(struct uart_8250_port *up);
+void restore_ier(struct uart_8250_port *up);
+
 #define SERIAL8250_PORT_FLAGS(_base, _irq, _flags)		\
 	{							\
 		.iobase		= _base,			\
@@ -139,12 +143,30 @@ static inline bool serial8250_set_THRI(struct uart_8250_port *up)
 	return true;
 }
 
+static inline bool serial8250_set_THRI_sier(struct uart_8250_port *up)
+{
+	if (up->ier & UART_IER_THRI)
+		return false;
+	up->ier |= UART_IER_THRI;
+	set_ier(up, up->ier);
+	return true;
+}
+
 static inline bool serial8250_clear_THRI(struct uart_8250_port *up)
 {
 	if (!(up->ier & UART_IER_THRI))
 		return false;
 	up->ier &= ~UART_IER_THRI;
 	serial_out(up, UART_IER, up->ier);
+	return true;
+}
+
+static inline bool serial8250_clear_THRI_sier(struct uart_8250_port *up)
+{
+	if (!(up->ier & UART_IER_THRI))
+		return false;
+	up->ier &= ~UART_IER_THRI;
+	set_ier(up, up->ier);
 	return true;
 }
 

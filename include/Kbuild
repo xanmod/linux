@@ -1158,8 +1158,15 @@ header-test-			+= xen/xenbus.h
 # Do not include directly
 header-test- += linux/compiler-clang.h
 header-test- += linux/compiler-gcc.h
+header-test- += linux/mutex_rt.h
 header-test- += linux/patchkey.h
 header-test- += linux/rwlock_api_smp.h
+header-test- += linux/rwlock_rt.h
+header-test- += linux/rwlock_types_rt.h
+header-test- += linux/rwsem-rt.h
+header-test- += linux/spinlock_rt.h
+header-test- += linux/spinlock_types_nort.h
+header-test- += linux/spinlock_types_rt.h
 header-test- += linux/spinlock_types_up.h
 header-test- += linux/spinlock_up.h
 header-test- += linux/wimax/debug.h

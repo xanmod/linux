@@ -1488,6 +1488,7 @@ static struct ctl_table vm_table[] = {
 		.extra1		= &min_extfrag_threshold,
 		.extra2		= &max_extfrag_threshold,
 	},
+#ifndef CONFIG_PREEMPT_RT
 	{
 		.procname	= "compact_unevictable_allowed",
 		.data		= &sysctl_compact_unevictable_allowed,
@@ -1497,7 +1498,7 @@ static struct ctl_table vm_table[] = {
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= SYSCTL_ONE,
 	},
-
+#endif
 #endif /* CONFIG_COMPACTION */
 	{
 		.procname	= "min_free_kbytes",

@@ -1590,7 +1590,11 @@ typedef enum {
  * Allow userspace to control policy on scanning the unevictable LRU for
  * compactable pages.
  */
+#ifdef CONFIG_PREEMPT_RT
+#define sysctl_compact_unevictable_allowed 0
+#else
 int sysctl_compact_unevictable_allowed __read_mostly = 1;
+#endif
 
 static inline void
 update_fast_start_pfn(struct compact_control *cc, unsigned long pfn)
@@ -2240,10 +2244,16 @@ check_drain:
 				block_start_pfn(cc->migrate_pfn, cc->order);
 
 			if (last_migrated_pfn < current_block_start) {
-				cpu = get_cpu();
-				lru_add_drain_cpu(cpu);
-				drain_local_pages(cc->zone);
-				put_cpu();
+				if (static_branch_likely(&use_pvec_lock)) {
+					cpu = raw_smp_processor_id();
+					lru_add_drain_cpu(cpu);
+					drain_cpu_pages(cpu, cc->zone);
+				} else {
+					cpu = get_cpu();
+					lru_add_drain_cpu(cpu);
+					drain_local_pages(cc->zone);
+					put_cpu();
+				}
 				/* No more flushing until we migrate again */
 				last_migrated_pfn = 0;
 			}
