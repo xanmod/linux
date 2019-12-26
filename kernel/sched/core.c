@@ -56,7 +56,7 @@ const_debug unsigned int sysctl_sched_features =
  * Number of tasks to iterate in a single balance run.
  * Limited because this is done with IRQs disabled.
  */
-const_debug unsigned int sysctl_sched_nr_migrate = 128;
+const_debug unsigned int sysctl_sched_nr_migrate = 32;
 
 /*
  * period over which we measure -rt task CPU usage in us.
@@ -68,9 +68,9 @@ __read_mostly int scheduler_running;
 
 /*
  * part of the period that we allow rt tasks to run in us.
- * XanMod default: 0.98s
+ * default: 0.95s
  */
-int sysctl_sched_rt_runtime = 980000;
+int sysctl_sched_rt_runtime = 950000;
 
 /*
  * __task_rq_lock - lock the rq @p resides on.
