@@ -824,3 +824,4 @@ int __devcgroup_check_permission(short type, u32 major, u32 minor,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(__devcgroup_check_permission);

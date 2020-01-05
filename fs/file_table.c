@@ -162,6 +162,7 @@ over:
 	}
 	return ERR_PTR(-ENFILE);
 }
+EXPORT_SYMBOL_GPL(alloc_empty_file);
 
 /*
  * Variant of alloc_empty_file() that doesn't check and modify nr_files.
@@ -375,6 +376,7 @@ void __fput_sync(struct file *file)
 }
 
 EXPORT_SYMBOL(fput);
+EXPORT_SYMBOL_GPL(__fput_sync);
 
 void __init files_init(void)
 {
