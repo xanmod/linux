@@ -757,7 +757,7 @@ static void serial8250_set_sleep(struct uart_8250_port *p, int sleep)
 			serial_out(p, UART_EFR, UART_EFR_ECB);
 			serial_out(p, UART_LCR, 0);
 		}
-		set_ier(p, sleep ? UART_IERX_SLEEP : 0);
+		serial8250_set_IER(p, sleep ? UART_IERX_SLEEP : 0);
 		if (p->capabilities & UART_CAP_EFR) {
 			serial_out(p, UART_LCR, UART_LCR_CONF_MODE_B);
 			serial_out(p, UART_EFR, efr);
@@ -1429,7 +1429,7 @@ static void serial8250_stop_rx(struct uart_port *port)
 
 	up->ier &= ~(UART_IER_RLSI | UART_IER_RDI);
 	up->port.read_status_mask &= ~UART_LSR_DR;
-	set_ier(up, up->ier);
+	serial8250_set_IER(up, up->ier);
 
 	serial8250_rpm_put(up);
 }
@@ -1459,7 +1459,7 @@ void serial8250_em485_stop_tx(struct uart_8250_port *p)
 		serial8250_clear_and_reinit_fifos(p);
 
 		p->ier |= UART_IER_RLSI | UART_IER_RDI;
-		set_ier(p, p->ier);
+		serial8250_set_IER(p, p->ier);
 	}
 }
 EXPORT_SYMBOL_GPL(serial8250_em485_stop_tx);
@@ -1515,7 +1515,7 @@ static void __stop_tx_rs485(struct uart_8250_port *p)
 
 static inline void __do_stop_tx(struct uart_8250_port *p)
 {
-	if (serial8250_clear_THRI_sier(p))
+	if (serial8250_clear_THRI(p))
 		serial8250_rpm_put_tx(p);
 }
 
@@ -1563,7 +1563,7 @@ static inline void __start_tx(struct uart_port *port)
 	if (up->dma && !up->dma->tx_dma(up))
 		return;
 
-	if (serial8250_set_THRI_sier(up)) {
+	if (serial8250_set_THRI(up)) {
 		if (up->bugs & UART_BUG_TXEN) {
 			unsigned char lsr;
 
@@ -1687,7 +1687,7 @@ static void serial8250_disable_ms(struct uart_port *port)
 	mctrl_gpio_disable_ms(up->gpios);
 
 	up->ier &= ~UART_IER_MSI;
-	set_ier(up, up->ier);
+	serial8250_set_IER(up, up->ier);
 }
 
 static void serial8250_enable_ms(struct uart_port *port)
@@ -1703,7 +1703,7 @@ static void serial8250_enable_ms(struct uart_port *port)
 	up->ier |= UART_IER_MSI;
 
 	serial8250_rpm_get(up);
-	set_ier(up, up->ier);
+	serial8250_set_IER(up, up->ier);
 	serial8250_rpm_put(up);
 }
 
@@ -2083,54 +2083,6 @@ static void wait_for_xmitr(struct uart_8250_port *up, int bits)
 	}
 }
 
-static atomic_t ier_counter = ATOMIC_INIT(0);
-static atomic_t ier_value = ATOMIC_INIT(0);
-
-void set_ier(struct uart_8250_port *up, unsigned char ier)
-{
-	struct uart_port *port = &up->port;
-	unsigned int flags;
-
-	console_atomic_lock(&flags);
-	if (atomic_read(&ier_counter) > 0)
-		atomic_set(&ier_value, ier);
-	else
-		serial_port_out(port, UART_IER, ier);
-	console_atomic_unlock(flags);
-}
-
-void clear_ier(struct uart_8250_port *up)
-{
-	struct uart_port *port = &up->port;
-	unsigned int ier_cleared = 0;
-	unsigned int flags;
-	unsigned int ier;
-
-	console_atomic_lock(&flags);
-	atomic_inc(&ier_counter);
-	ier = serial_port_in(port, UART_IER);
-	if (up->capabilities & UART_CAP_UUE)
-		ier_cleared = UART_IER_UUE;
-	if (ier != ier_cleared) {
-		serial_port_out(port, UART_IER, ier_cleared);
-		atomic_set(&ier_value, ier);
-	}
-	console_atomic_unlock(flags);
-}
-EXPORT_SYMBOL_GPL(clear_ier);
-
-void restore_ier(struct uart_8250_port *up)
-{
-	struct uart_port *port = &up->port;
-	unsigned int flags;
-
-	console_atomic_lock(&flags);
-	if (atomic_fetch_dec(&ier_counter) == 1)
-		serial_port_out(port, UART_IER, atomic_read(&ier_value));
-	console_atomic_unlock(flags);
-}
-EXPORT_SYMBOL_GPL(restore_ier);
-
 #ifdef CONFIG_CONSOLE_POLL
 /*
  * Console polling routines for writing and reading from the uart while
@@ -2162,10 +2114,11 @@ out:
 static void serial8250_put_poll_char(struct uart_port *port,
 			 unsigned char c)
 {
+	unsigned int ier;
 	struct uart_8250_port *up = up_to_u8250p(port);
 
 	serial8250_rpm_get(up);
-	clear_ier(up);
+	ier = serial8250_clear_IER(up);
 
 	wait_for_xmitr(up, BOTH_EMPTY);
 	/*
@@ -2178,7 +2131,7 @@ static void serial8250_put_poll_char(struct uart_port *port,
 	 *	and restore the IER
 	 */
 	wait_for_xmitr(up, BOTH_EMPTY);
-	restore_ier(up);
+	serial8250_set_IER(up, ier);
 	serial8250_rpm_put(up);
 }
 
@@ -2478,7 +2431,7 @@ void serial8250_do_shutdown(struct uart_port *port)
 	 */
 	spin_lock_irqsave(&port->lock, flags);
 	up->ier = 0;
-	set_ier(up, 0);
+	serial8250_set_IER(up, 0);
 	spin_unlock_irqrestore(&port->lock, flags);
 
 	synchronize_irq(port->irq);
@@ -2805,7 +2758,7 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (up->capabilities & UART_CAP_RTOIE)
 		up->ier |= UART_IER_RTOIE;
 
-	set_ier(up, up->ier);
+	serial8250_set_IER(up, up->ier);
 
 	if (up->capabilities & UART_CAP_EFR) {
 		unsigned char efr = 0;
@@ -3317,12 +3270,13 @@ void serial8250_console_write_atomic(struct uart_8250_port *up,
 {
 	struct uart_port *port = &up->port;
 	unsigned int flags;
+	unsigned int ier;
 
 	console_atomic_lock(&flags);
 
 	touch_nmi_watchdog();
 
-	clear_ier(up);
+	ier = serial8250_clear_IER(up);
 
 	if (atomic_fetch_inc(&up->console_printing)) {
 		uart_console_write(port, "\n", 1,
@@ -3332,7 +3286,7 @@ void serial8250_console_write_atomic(struct uart_8250_port *up,
 	atomic_dec(&up->console_printing);
 
 	wait_for_xmitr(up, BOTH_EMPTY);
-	restore_ier(up);
+	serial8250_set_IER(up, ier);
 
 	console_atomic_unlock(flags);
 }
@@ -3352,12 +3306,13 @@ void serial8250_console_write(struct uart_8250_port *up, const char *s,
 	struct uart_8250_em485 *em485 = up->em485;
 	struct uart_port *port = &up->port;
 	unsigned long flags;
+	unsigned int ier;
 
 	touch_nmi_watchdog();
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	clear_ier(up);
+	ier = serial8250_clear_IER(up);
 
 	/* check scratch reg to see if port powered off during system sleep */
 	if (up->canary && (up->canary != serial_port_in(port, UART_SCR))) {
@@ -3386,8 +3341,7 @@ void serial8250_console_write(struct uart_8250_port *up, const char *s,
 		if (em485->tx_stopped)
 			up->rs485_stop_tx(up);
 	}
-
-	restore_ier(up);
+	serial8250_set_IER(up, ier);
 
 	/*
 	 *	The receive handling will happen properly because the

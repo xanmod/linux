@@ -265,7 +265,7 @@ static void serial8250_timeout(struct timer_list *t)
 static void serial8250_backup_timeout(struct timer_list *t)
 {
 	struct uart_8250_port *up = from_timer(up, t, timer);
-	unsigned int iir, lsr;
+	unsigned int iir, ier = 0, lsr;
 	unsigned long flags;
 
 	spin_lock_irqsave(&up->port.lock, flags);
@@ -275,7 +275,7 @@ static void serial8250_backup_timeout(struct timer_list *t)
 	 * based handler.
 	 */
 	if (up->port.irq)
-		clear_ier(up);
+		ier = serial8250_clear_IER(up);
 
 	iir = serial_in(up, UART_IIR);
 
@@ -298,7 +298,7 @@ static void serial8250_backup_timeout(struct timer_list *t)
 		serial8250_tx_chars(up);
 
 	if (up->port.irq)
-		restore_ier(up);
+		serial8250_set_IER(up, ier);
 
 	spin_unlock_irqrestore(&up->port.lock, flags);
 
