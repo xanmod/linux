@@ -2380,7 +2380,7 @@ static void flush_all(struct kmem_cache *s)
 	LIST_HEAD(tofree);
 	int cpu;
 
-	on_each_cpu_cond(has_cpu_slab, flush_cpu_slab, s, 1, GFP_ATOMIC);
+	on_each_cpu_cond(has_cpu_slab, flush_cpu_slab, s, 1);
 	for_each_online_cpu(cpu) {
 		struct slub_free_list *f;
 
