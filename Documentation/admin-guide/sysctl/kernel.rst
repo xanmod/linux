@@ -1184,5 +1184,5 @@ BMQ CPU scheduler only. This determines what type of yield calls to
 sched_yield will perform.
 
   0 - No yield.
-  1 - Yield only to better priority/deadline tasks. (default)
-  2 - Expire timeslice and recalculate deadline.
+  1 - Deboost and requeue task. (default)
+  2 - Set run queue skip task.
