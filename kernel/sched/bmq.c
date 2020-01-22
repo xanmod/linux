@@ -5606,42 +5606,33 @@ static void sched_init_topology_cpumask(void)
 	for_each_online_cpu(cpu) {
 		chk = &(per_cpu(sched_cpu_affinity_masks, cpu)[0]);
 
+		cpumask_complement(chk, cpumask_of(cpu));
 #ifdef CONFIG_SCHED_SMT
-		cpumask_setall(chk);
-		cpumask_clear_cpu(cpu, chk);
-		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu))) {
-			printk(KERN_INFO "bmq: cpu #%d affinity check mask - smt 0x%08lx",
+		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu)))
+			printk(KERN_INFO "bmq: cpu #%d affinity mask - smt 0x%08lx",
 			       cpu, (chk++)->bits[0]);
-		}
 		cpumask_complement(chk, topology_sibling_cpumask(cpu));
-#else
-		cpumask_clear_cpu(cpu, chk);
 #endif
+		/* Set up sd_llc_id per CPU */
+		per_cpu(sd_llc_id, cpu) =
 #ifdef CONFIG_SCHED_MC
+			cpumask_first(cpu_coregroup_mask(cpu));
+
 		if (cpumask_and(chk, chk, cpu_coregroup_mask(cpu)))
-			printk(KERN_INFO "bmq: cpu #%d affinity check mask - coregroup 0x%08lx",
+			printk(KERN_INFO "bmq: cpu #%d affinity mask - coregroup 0x%08lx",
 			       cpu, (chk++)->bits[0]);
 		cpumask_complement(chk, cpu_coregroup_mask(cpu));
-
-		/**
-		 * Set up sd_llc_id per CPU
-		 */
-		per_cpu(sd_llc_id, cpu) =
-			cpumask_first(cpu_coregroup_mask(cpu));
 #else
-		per_cpu(sd_llc_id, cpu) =
 			cpumask_first(topology_core_cpumask(cpu));
+#endif
 
-		cpumask_setall(chk);
-		cpumask_clear_cpu(cpu, chk);
-#endif /* NOT CONFIG_SCHED_MC */
 		if (cpumask_and(chk, chk, topology_core_cpumask(cpu)))
-			printk(KERN_INFO "bmq: cpu #%d affinity check mask - core 0x%08lx",
+			printk(KERN_INFO "bmq: cpu #%d affinity mask - core 0x%08lx",
 			       cpu, (chk++)->bits[0]);
 		cpumask_complement(chk, topology_core_cpumask(cpu));
 
 		if (cpumask_and(chk, chk, cpu_online_mask))
-			printk(KERN_INFO "bmq: cpu #%d affinity check mask - others 0x%08lx",
+			printk(KERN_INFO "bmq: cpu #%d affinity mask - others 0x%08lx",
 			       cpu, (chk++)->bits[0]);
 
 		per_cpu(sched_cpu_affinity_end_mask, cpu) = chk;
