@@ -708,14 +708,6 @@ config SCHED_BMQ
           Say Y here.
 	default y
 
-config SCHED_TIMESLICE
-	int "Scheduler Task time slice"
-	depends on SCHED_BMQ
-	help
-	  Time slice in ms for BMQ CPU scheduler, default 4 ms.
-	default 2 if PREEMPT
-	default 4 if !PREEMPT
-
 config UCLAMP_TASK
 	bool "Enable utilization clamping for RT/FAIR tasks"
 	depends on CPU_FREQ_GOV_SCHEDUTIL
