@@ -28,8 +28,6 @@
 #include <linux/rwsem.h>
 #include <linux/atomic.h>
 
-#include "rwsem.h"
-
 #ifndef CONFIG_PREEMPT_RT
 #include "lock_events.h"
 
@@ -661,8 +659,6 @@ static inline bool rwsem_can_spin_on_owner(struct rw_semaphore *sem,
 	struct task_struct *owner;
 	unsigned long flags;
 	bool ret = true;
-
-	BUILD_BUG_ON(!(RWSEM_OWNER_UNKNOWN & RWSEM_NONSPINNABLE));
 
 	if (need_resched()) {
 		lockevent_inc(rwsem_opt_fail);
@@ -1341,7 +1337,7 @@ static struct rw_semaphore *rwsem_downgrade_wake(struct rw_semaphore *sem)
 /*
  * lock for reading
  */
-inline void __down_read(struct rw_semaphore *sem)
+static inline void __down_read(struct rw_semaphore *sem)
 {
 	if (!rwsem_read_trylock(sem)) {
 		rwsem_down_read_slowpath(sem, TASK_UNINTERRUPTIBLE);
@@ -1429,7 +1425,7 @@ static inline int __down_write_trylock(struct rw_semaphore *sem)
 /*
  * unlock after reading
  */
-inline void __up_read(struct rw_semaphore *sem)
+static inline void __up_read(struct rw_semaphore *sem)
 {
 	long tmp;
 
