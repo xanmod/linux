@@ -9,7 +9,6 @@ config DCACHE_WORD_ACCESS
        bool
 
 if BLOCK
-source "fs/zfs/Kconfig"
 
 config FS_IOMAP
 	bool
