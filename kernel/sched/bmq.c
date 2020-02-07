@@ -68,18 +68,6 @@ early_param("bmq.timeslice", sched_timeslice);
 /* Reschedule if less than this many μs left */
 #define RESCHED_NS		(100 * 1000)
 
-/*
- * This allows printing both to /proc/sched_debug and
- * to the console
- */
-#define SEQ_printf(m, x...)			\
- do {						\
-	if (m)					\
-		seq_printf(m, x);		\
-	else					\
-		pr_cont(x);			\
- } while (0)
-
 static inline void print_scheduler_version(void)
 {
 	printk(KERN_INFO "bmq: BMQ CPU Scheduler 5.5-r1 by Alfred Chen.\n");
@@ -5291,29 +5279,6 @@ static void set_rq_online(struct rq *rq)
 		rq->online = true;
 }
 
-#ifdef CONFIG_SCHED_DEBUG
-
-static __read_mostly int sched_debug_enabled;
-
-static int __init sched_debug_setup(char *str)
-{
-	sched_debug_enabled = 1;
-
-	return 0;
-}
-early_param("sched_debug", sched_debug_setup);
-
-static inline bool sched_debug(void)
-{
-	return sched_debug_enabled;
-}
-#else /* !CONFIG_SCHED_DEBUG */
-static inline bool sched_debug(void)
-{
-	return false;
-}
-#endif /* CONFIG_SCHED_DEBUG */
-
 #ifdef CONFIG_SMP
 void scheduler_ipi(void)
 {
@@ -5958,18 +5923,6 @@ void ia64_set_curr_task(int cpu, struct task_struct *p)
 	cpu_curr(cpu) = p;
 }
 
-#endif
-
-#ifdef CONFIG_SCHED_DEBUG
-void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
-			  struct seq_file *m)
-{
-	SEQ_printf(m, "%s (%d, #threads: %d)\n", p->comm, task_pid_nr_ns(p, ns),
-						get_nr_threads(p));
-}
-
-void proc_sched_set_task(struct task_struct *p)
-{}
 #endif
 
 #ifdef CONFIG_CGROUP_SCHED

@@ -17,7 +17,7 @@ CFLAGS_core.o := $(PROFILING) -fno-omit-frame-pointer
 endif
 
 ifdef CONFIG_SCHED_BMQ
-obj-y += bmq.o
+obj-y += bmq.o bmq_debug.o
 else
 obj-y += core.o
 obj-y += fair.o rt.o deadline.o
