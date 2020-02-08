@@ -2544,7 +2544,7 @@ static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
 			size_t *retlen, u_char *buf)
 {
 	struct spi_nor *nor = mtd_to_spi_nor(mtd);
-	int ret;
+	ssize_t ret;
 
 	dev_dbg(nor->dev, "from 0x%08x, len %zd\n", (u32)from, len);
 
@@ -2865,7 +2865,7 @@ static int spi_nor_hwcaps_pp2cmd(u32 hwcaps)
  */
 static int spi_nor_read_raw(struct spi_nor *nor, u32 addr, size_t len, u8 *buf)
 {
-	int ret;
+	ssize_t ret;
 
 	while (len) {
 		ret = spi_nor_read_data(nor, addr, len, buf);
@@ -4544,9 +4544,7 @@ static void spi_nor_info_init_params(struct spi_nor *nor)
 
 static void spansion_post_sfdp_fixups(struct spi_nor *nor)
 {
-	struct mtd_info *mtd = &nor->mtd;
-
-	if (mtd->size <= SZ_16M)
+	if (nor->params.size <= SZ_16M)
 		return;
 
 	nor->flags |= SNOR_F_4B_OPCODES;

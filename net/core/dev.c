@@ -5284,9 +5284,29 @@ static void flush_all_backlogs(void)
 	put_online_cpus();
 }
 
+/* Pass the currently batched GRO_NORMAL SKBs up to the stack. */
+static void gro_normal_list(struct napi_struct *napi)
+{
+	if (!napi->rx_count)
+		return;
+	netif_receive_skb_list_internal(&napi->rx_list);
+	INIT_LIST_HEAD(&napi->rx_list);
+	napi->rx_count = 0;
+}
+
+/* Queue one GRO_NORMAL SKB up for list processing. If batch size exceeded,
+ * pass the whole batch up to the stack.
+ */
+static void gro_normal_one(struct napi_struct *napi, struct sk_buff *skb)
+{
+	list_add_tail(&skb->list, &napi->rx_list);
+	if (++napi->rx_count >= gro_normal_batch)
+		gro_normal_list(napi);
+}
+
 INDIRECT_CALLABLE_DECLARE(int inet_gro_complete(struct sk_buff *, int));
 INDIRECT_CALLABLE_DECLARE(int ipv6_gro_complete(struct sk_buff *, int));
-static int napi_gro_complete(struct sk_buff *skb)
+static int napi_gro_complete(struct napi_struct *napi, struct sk_buff *skb)
 {
 	struct packet_offload *ptype;
 	__be16 type = skb->protocol;
@@ -5319,7 +5339,8 @@ static int napi_gro_complete(struct sk_buff *skb)
 	}
 
 out:
-	return netif_receive_skb_internal(skb);
+	gro_normal_one(napi, skb);
+	return NET_RX_SUCCESS;
 }
 
 static void __napi_gro_flush_chain(struct napi_struct *napi, u32 index,
@@ -5332,7 +5353,7 @@ static void __napi_gro_flush_chain(struct napi_struct *napi, u32 index,
 		if (flush_old && NAPI_GRO_CB(skb)->age == jiffies)
 			return;
 		skb_list_del_init(skb);
-		napi_gro_complete(skb);
+		napi_gro_complete(napi, skb);
 		napi->gro_hash[index].count--;
 	}
 
@@ -5435,7 +5456,7 @@ static void gro_pull_from_frag0(struct sk_buff *skb, int grow)
 	}
 }
 
-static void gro_flush_oldest(struct list_head *head)
+static void gro_flush_oldest(struct napi_struct *napi, struct list_head *head)
 {
 	struct sk_buff *oldest;
 
@@ -5451,7 +5472,7 @@ static void gro_flush_oldest(struct list_head *head)
 	 * SKB to the chain.
 	 */
 	skb_list_del_init(oldest);
-	napi_gro_complete(oldest);
+	napi_gro_complete(napi, oldest);
 }
 
 INDIRECT_CALLABLE_DECLARE(struct sk_buff *inet_gro_receive(struct list_head *,
@@ -5527,7 +5548,7 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 
 	if (pp) {
 		skb_list_del_init(pp);
-		napi_gro_complete(pp);
+		napi_gro_complete(napi, pp);
 		napi->gro_hash[hash].count--;
 	}
 
@@ -5538,7 +5559,7 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 		goto normal;
 
 	if (unlikely(napi->gro_hash[hash].count >= MAX_GRO_SKBS)) {
-		gro_flush_oldest(gro_head);
+		gro_flush_oldest(napi, gro_head);
 	} else {
 		napi->gro_hash[hash].count++;
 	}
@@ -5685,26 +5706,6 @@ struct sk_buff *napi_get_frags(struct napi_struct *napi)
 	return skb;
 }
 EXPORT_SYMBOL(napi_get_frags);
-
-/* Pass the currently batched GRO_NORMAL SKBs up to the stack. */
-static void gro_normal_list(struct napi_struct *napi)
-{
-	if (!napi->rx_count)
-		return;
-	netif_receive_skb_list_internal(&napi->rx_list);
-	INIT_LIST_HEAD(&napi->rx_list);
-	napi->rx_count = 0;
-}
-
-/* Queue one GRO_NORMAL SKB up for list processing.  If batch size exceeded,
- * pass the whole batch up to the stack.
- */
-static void gro_normal_one(struct napi_struct *napi, struct sk_buff *skb)
-{
-	list_add_tail(&skb->list, &napi->rx_list);
-	if (++napi->rx_count >= gro_normal_batch)
-		gro_normal_list(napi);
-}
 
 static gro_result_t napi_frags_finish(struct napi_struct *napi,
 				      struct sk_buff *skb,
@@ -5998,8 +5999,6 @@ bool napi_complete_done(struct napi_struct *n, int work_done)
 				 NAPIF_STATE_IN_BUSY_POLL)))
 		return false;
 
-	gro_normal_list(n);
-
 	if (n->gro_bitmask) {
 		unsigned long timeout = 0;
 
@@ -6015,6 +6014,9 @@ bool napi_complete_done(struct napi_struct *n, int work_done)
 			hrtimer_start(&n->timer, ns_to_ktime(timeout),
 				      HRTIMER_MODE_REL_PINNED);
 	}
+
+	gro_normal_list(n);
+
 	if (unlikely(!list_empty(&n->poll_list))) {
 		/* If n->poll_list is not empty, we need to mask irqs */
 		local_irq_save(flags);
@@ -6346,14 +6348,14 @@ static int napi_poll(struct napi_struct *n, struct list_head *repoll)
 		goto out_unlock;
 	}
 
-	gro_normal_list(n);
-
 	if (n->gro_bitmask) {
 		/* flush too old packets
 		 * If HZ < 1000, flush all packets.
 		 */
 		napi_gro_flush(n, HZ >= 1000);
 	}
+
+	gro_normal_list(n);
 
 	/* Some drivers may have called napi_schedule
 	 * prior to exhausting their budget.
@@ -8000,6 +8002,22 @@ int __dev_set_mtu(struct net_device *dev, int new_mtu)
 }
 EXPORT_SYMBOL(__dev_set_mtu);
 
+int dev_validate_mtu(struct net_device *dev, int new_mtu,
+		     struct netlink_ext_ack *extack)
+{
+	/* MTU must be positive, and in range */
+	if (new_mtu < 0 || new_mtu < dev->min_mtu) {
+		NL_SET_ERR_MSG(extack, "mtu less than device minimum");
+		return -EINVAL;
+	}
+
+	if (dev->max_mtu > 0 && new_mtu > dev->max_mtu) {
+		NL_SET_ERR_MSG(extack, "mtu greater than device maximum");
+		return -EINVAL;
+	}
+	return 0;
+}
+
 /**
  *	dev_set_mtu_ext - Change maximum transfer unit
  *	@dev: device
@@ -8016,16 +8034,9 @@ int dev_set_mtu_ext(struct net_device *dev, int new_mtu,
 	if (new_mtu == dev->mtu)
 		return 0;
 
-	/* MTU must be positive, and in range */
-	if (new_mtu < 0 || new_mtu < dev->min_mtu) {
-		NL_SET_ERR_MSG(extack, "mtu less than device minimum");
-		return -EINVAL;
-	}
-
-	if (dev->max_mtu > 0 && new_mtu > dev->max_mtu) {
-		NL_SET_ERR_MSG(extack, "mtu greater than device maximum");
-		return -EINVAL;
-	}
+	err = dev_validate_mtu(dev, new_mtu, extack);
+	if (err)
+		return err;
 
 	if (!netif_device_present(dev))
 		return -ENODEV;
@@ -8980,22 +8991,10 @@ static void netdev_unregister_lockdep_key(struct net_device *dev)
 
 void netdev_update_lockdep_key(struct net_device *dev)
 {
-	struct netdev_queue *queue;
-	int i;
-
-	lockdep_unregister_key(&dev->qdisc_xmit_lock_key);
 	lockdep_unregister_key(&dev->addr_list_lock_key);
-
-	lockdep_register_key(&dev->qdisc_xmit_lock_key);
 	lockdep_register_key(&dev->addr_list_lock_key);
 
 	lockdep_set_class(&dev->addr_list_lock, &dev->addr_list_lock_key);
-	for (i = 0; i < dev->num_tx_queues; i++) {
-		queue = netdev_get_tx_queue(dev, i);
-
-		lockdep_set_class(&queue->_xmit_lock,
-				  &dev->qdisc_xmit_lock_key);
-	}
 }
 EXPORT_SYMBOL(netdev_update_lockdep_key);
 
@@ -9112,8 +9111,10 @@ int register_netdevice(struct net_device *dev)
 		goto err_uninit;
 
 	ret = netdev_register_kobject(dev);
-	if (ret)
+	if (ret) {
+		dev->reg_state = NETREG_UNREGISTERED;
 		goto err_uninit;
+	}
 	dev->reg_state = NETREG_REGISTERED;
 
 	__netdev_update_features(dev);

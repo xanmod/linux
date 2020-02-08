@@ -4824,9 +4824,16 @@ static int adjust_scalar_min_max_vals(struct bpf_verifier_env *env,
 		/* Upon reaching here, src_known is true and
 		 * umax_val is equal to umin_val.
 		 */
-		dst_reg->smin_value >>= umin_val;
-		dst_reg->smax_value >>= umin_val;
-		dst_reg->var_off = tnum_arshift(dst_reg->var_off, umin_val);
+		if (insn_bitness == 32) {
+			dst_reg->smin_value = (u32)(((s32)dst_reg->smin_value) >> umin_val);
+			dst_reg->smax_value = (u32)(((s32)dst_reg->smax_value) >> umin_val);
+		} else {
+			dst_reg->smin_value >>= umin_val;
+			dst_reg->smax_value >>= umin_val;
+		}
+
+		dst_reg->var_off = tnum_arshift(dst_reg->var_off, umin_val,
+						insn_bitness);
 
 		/* blow away the dst_reg umin_value/umax_value and rely on
 		 * dst_reg var_off to refine the result.
@@ -6039,6 +6046,7 @@ static bool may_access_skb(enum bpf_prog_type type)
 static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 {
 	struct bpf_reg_state *regs = cur_regs(env);
+	static const int ctx_reg = BPF_REG_6;
 	u8 mode = BPF_MODE(insn->code);
 	int i, err;
 
@@ -6072,7 +6080,7 @@ static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 	}
 
 	/* check whether implicit source operand (register R6) is readable */
-	err = check_reg_arg(env, BPF_REG_6, SRC_OP);
+	err = check_reg_arg(env, ctx_reg, SRC_OP);
 	if (err)
 		return err;
 
@@ -6091,7 +6099,7 @@ static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 		return -EINVAL;
 	}
 
-	if (regs[BPF_REG_6].type != PTR_TO_CTX) {
+	if (regs[ctx_reg].type != PTR_TO_CTX) {
 		verbose(env,
 			"at the time of BPF_LD_ABS|IND R6 != pointer to skb\n");
 		return -EINVAL;
@@ -6103,6 +6111,10 @@ static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 		if (err)
 			return err;
 	}
+
+	err = check_ctx_reg(env, &regs[ctx_reg], ctx_reg);
+	if (err < 0)
+		return err;
 
 	/* reset caller saved regs to unreadable */
 	for (i = 0; i < CALLER_SAVED_REGS; i++) {
