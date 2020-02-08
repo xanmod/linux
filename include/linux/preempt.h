@@ -238,8 +238,30 @@ static inline int __migrate_disabled(struct task_struct *p)
 }
 
 #else
-#define migrate_disable()		preempt_disable()
-#define migrate_enable()		preempt_enable()
+/**
+ * migrate_disable - Prevent migration of the current task
+ *
+ * Maps to preempt_disable() which also disables preemption. Use
+ * migrate_disable() to annotate that the intent is to prevent migration
+ * but not necessarily preemption.
+ *
+ * Can be invoked nested like preempt_disable() and needs the corresponding
+ * number of migrate_enable() invocations.
+ */
+#define migrate_disable()	preempt_disable()
+
+/**
+ * migrate_enable - Allow migration of the current task
+ *
+ * Counterpart to migrate_disable().
+ *
+ * As migrate_disable() can be invoked nested only the uttermost invocation
+ * reenables migration.
+ *
+ * Currently mapped to preempt_enable().
+ */
+#define migrate_enable()	preempt_enable()
+
 static inline int __migrate_disabled(struct task_struct *p)
 {
 	return 0;
