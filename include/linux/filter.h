@@ -570,6 +570,24 @@ DECLARE_STATIC_KEY_FALSE(bpf_stats_enabled_key);
 	}							\
 	ret; })
 
+/*
+ * Use in preemptible and therefore /migratable context to make sure that
+ * the execution of the BPF program runs on one CPU.
+ *
+ * This uses migrate_disable/enable() explicitely to document that the
+ * invocation of a BPF program does not require reentrancy protection
+ * against a BPF program which is invoked from a preempting task.
+ *
+ * For non enabled RT kernels migrate_disable/enable() maps to
+ * preempt_disable/enable(), i.e. it disables also preemption.
+ */
+#define BPF_PROG_RUN_PIN_ON_CPU(prog, ctx) ({				\
+	u32 ret;							\
+	migrate_disable();						\
+	ret = BPF_PROG_RUN(prog, ctx);					\
+	migrate_enable();						\
+	ret; })
+
 #define BPF_SKB_CB_LEN QDISC_CB_PRIV_LEN
 
 struct bpf_skb_data_end {
