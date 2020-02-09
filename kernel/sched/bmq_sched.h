@@ -192,6 +192,35 @@ static inline void unregister_sched_domain_sysctl(void)
 {
 }
 #endif
+
+extern bool sched_smp_initialized;
+
+enum {
+	BASE_CPU_AFFINITY_CHK_LEVEL = 1,
+#ifdef CONFIG_SCHED_SMT
+	SMT_CPU_AFFINITY_CHK_LEVEL_SPACE_HOLDER,
+#endif
+#ifdef CONFIG_SCHED_MC
+	MC_CPU_AFFINITY_CHK_LEVEL_SPACE_HOLDER,
+#endif
+	NR_CPU_AFFINITY_CHK_LEVEL
+};
+
+DECLARE_PER_CPU(cpumask_t [NR_CPU_AFFINITY_CHK_LEVEL], sched_cpu_affinity_masks);
+
+static inline int __best_mask_cpu(int cpu, const cpumask_t *cpumask)
+{
+	cpumask_t *mask = &(per_cpu(sched_cpu_affinity_masks, cpu)[0]);
+	while ((cpu = cpumask_any_and(cpumask, mask)) >= nr_cpu_ids)
+		mask++;
+	return cpu;
+}
+
+static inline int best_mask_cpu(int cpu, const cpumask_t *cpumask)
+{
+	return cpumask_test_cpu(cpu, cpumask)? cpu:__best_mask_cpu(cpu, cpumask);
+}
+
 #endif /* CONFIG_SMP */
 
 #ifndef arch_scale_freq_capacity

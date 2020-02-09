@@ -114,17 +114,6 @@ static inline void deboost_task(struct task_struct *p)
 #ifdef CONFIG_SMP
 static cpumask_t sched_rq_pending_mask ____cacheline_aligned_in_smp;
 
-enum {
-	BASE_CPU_AFFINITY_CHK_LEVEL = 1,
-#ifdef CONFIG_SCHED_SMT
-	SMT_CPU_AFFINITY_CHK_LEVEL_SPACE_HOLDER,
-#endif
-#ifdef CONFIG_SCHED_MC
-	MC_CPU_AFFINITY_CHK_LEVEL_SPACE_HOLDER,
-#endif
-	NR_CPU_AFFINITY_CHK_LEVEL
-};
-
 DEFINE_PER_CPU(cpumask_t [NR_CPU_AFFINITY_CHK_LEVEL], sched_cpu_affinity_masks);
 DEFINE_PER_CPU(cpumask_t *, sched_cpu_affinity_end_mask);
 
@@ -1326,19 +1315,6 @@ out:
 	}
 
 	return dest_cpu;
-}
-
-static inline int __best_mask_cpu(int cpu, const cpumask_t *cpumask)
-{
-	cpumask_t *mask = &(per_cpu(sched_cpu_affinity_masks, cpu)[0]);
-	while ((cpu = cpumask_any_and(cpumask, mask)) >= nr_cpu_ids)
-		mask++;
-	return cpu;
-}
-
-static inline int best_mask_cpu(int cpu, const cpumask_t *cpumask)
-{
-	return cpumask_test_cpu(cpu, cpumask)? cpu:__best_mask_cpu(cpu, cpumask);
 }
 
 static inline int select_task_rq(struct task_struct *p)
@@ -5106,7 +5082,7 @@ int task_can_attach(struct task_struct *p,
 	return ret;
 }
 
-static bool sched_smp_initialized __read_mostly;
+bool sched_smp_initialized __read_mostly;
 
 #ifdef CONFIG_NO_HZ_COMMON
 void nohz_balance_enter_idle(int cpu)
@@ -5327,95 +5303,9 @@ bool cpus_share_cache(int this_cpu, int that_cpu)
 #endif /* CONFIG_SMP */
 
 /*
- * Topology list, bottom-up.
- */
-static struct sched_domain_topology_level default_topology[] = {
-#ifdef CONFIG_SCHED_SMT
-	{ cpu_smt_mask, cpu_smt_flags, SD_INIT_NAME(SMT) },
-#endif
-#ifdef CONFIG_SCHED_MC
-	{ cpu_coregroup_mask, cpu_core_flags, SD_INIT_NAME(MC) },
-#endif
-	{ cpu_cpu_mask, SD_INIT_NAME(DIE) },
-	{ NULL, },
-};
-
-static struct sched_domain_topology_level *sched_domain_topology =
-	default_topology;
-
-#define for_each_sd_topology(tl)			\
-	for (tl = sched_domain_topology; tl->mask; tl++)
-
-void set_sched_topology(struct sched_domain_topology_level *tl)
-{
-	if (WARN_ON_ONCE(sched_smp_initialized))
-		return;
-
-	sched_domain_topology = tl;
-}
-
-/*
- * Initializers for schedule domains
- * Non-inlined to reduce accumulated stack pressure in build_sched_domains()
- */
-
-int sched_domain_level_max;
-
-/*
- * Partition sched domains as specified by the 'ndoms_new'
- * cpumasks in the array doms_new[] of cpumasks. This compares
- * doms_new[] to the current sched domain partitioning, doms_cur[].
- * It destroys each deleted domain and builds each new domain.
- *
- * 'doms_new' is an array of cpumask_var_t's of length 'ndoms_new'.
- * The masks don't intersect (don't overlap.) We should setup one
- * sched domain for each mask. CPUs not in any of the cpumasks will
- * not be load balanced. If the same cpumask appears both in the
- * current 'doms_cur' domains and in the new 'doms_new', we can leave
- * it as it is.
- *
- * The passed in 'doms_new' should be allocated using
- * alloc_sched_domains.  This routine takes ownership of it and will
- * free_sched_domains it when done with it. If the caller failed the
- * alloc call, then it can pass in doms_new == NULL && ndoms_new == 1,
- * and partition_sched_domains() will fallback to the single partition
- * 'fallback_doms', it also forces the domains to be rebuilt.
- *
- * If doms_new == NULL it will be replaced with cpu_online_mask.
- * ndoms_new == 0 is a special case for destroying existing domains,
- * and it will not create the default domain.
- *
- * Call with hotplug lock held
- */
-void partition_sched_domains(int ndoms_new, cpumask_var_t doms_new[],
-			     struct sched_domain_attr *dattr_new)
-{
-	/**
-	 * BMQ doesn't depend on sched domains, but just keep this api
-	 */
-}
-
-/*
  * used to mark begin/end of suspend/resume:
  */
 static int num_cpus_frozen;
-
-#ifdef CONFIG_NUMA
-int __read_mostly		node_reclaim_distance = RECLAIM_DISTANCE;
-
-/*
- * sched_numa_find_closest() - given the NUMA topology, find the cpu
- *                             closest to @cpu from @cpumask.
- * cpumask: cpumask to find a cpu from
- * cpu: cpu to be close to
- *
- * returns: cpu, or nr_cpu_ids when nothing found.
- */
-int sched_numa_find_closest(const struct cpumask *cpus, int cpu)
-{
-	return best_mask_cpu(cpu, cpus);
-}
-#endif /* CONFIG_NUMA */
 
 /*
  * Update cpusets according to cpu_active mask.  If cpusets are

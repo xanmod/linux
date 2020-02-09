@@ -21,14 +21,14 @@ obj-y += bmq.o bmq_debug.o
 else
 obj-y += core.o
 obj-y += fair.o rt.o deadline.o
-obj-$(CONFIG_SMP) += cpudeadline.o topology.o stop_task.o
+obj-$(CONFIG_SMP) += cpudeadline.o stop_task.o
 obj-$(CONFIG_SCHED_AUTOGROUP) += autogroup.o
 obj-$(CONFIG_SCHED_DEBUG) += debug.o
 endif
 obj-y += loadavg.o clock.o cputime.o
 obj-y += idle.o
 obj-y += wait.o wait_bit.o swait.o completion.o
-obj-$(CONFIG_SMP) += cpupri.o pelt.o
+obj-$(CONFIG_SMP) += cpupri.o pelt.o topology.o
 obj-$(CONFIG_SCHEDSTATS) += stats.o
 obj-$(CONFIG_CGROUP_CPUACCT) += cpuacct.o
 obj-$(CONFIG_CPU_FREQ) += cpufreq.o
