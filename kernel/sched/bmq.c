@@ -128,11 +128,6 @@ EXPORT_SYMBOL_GPL(sched_smt_present);
  * domain, see cpus_share_cache().
  */
 DEFINE_PER_CPU(int, sd_llc_id);
-
-int __weak arch_sd_sibling_asym_packing(void)
-{
-       return 0*SD_ASYM_PACKING;
-}
 #endif /* CONFIG_SMP */
 
 static DEFINE_MUTEX(sched_hotcpu_mutex);
@@ -476,75 +471,6 @@ static inline void update_rq_clock(struct rq *rq)
 	update_rq_clock_task(rq, delta);
 }
 
-/*
- * cmpxchg based fetch_or, macro so it works for different integer types
- */
-#define fetch_or(ptr, mask)						\
-	({								\
-		typeof(ptr) _ptr = (ptr);				\
-		typeof(mask) _mask = (mask);				\
-		typeof(*_ptr) _old, _val = *_ptr;			\
-									\
-		for (;;) {						\
-			_old = cmpxchg(_ptr, _val, _val | _mask);	\
-			if (_old == _val)				\
-				break;					\
-			_val = _old;					\
-		}							\
-	_old;								\
-})
-
-#if defined(CONFIG_SMP) && defined(TIF_POLLING_NRFLAG)
-/*
- * Atomically set TIF_NEED_RESCHED and test for TIF_POLLING_NRFLAG,
- * this avoids any races wrt polling state changes and thereby avoids
- * spurious IPIs.
- */
-static bool set_nr_and_not_polling(struct task_struct *p)
-{
-	struct thread_info *ti = task_thread_info(p);
-	return !(fetch_or(&ti->flags, _TIF_NEED_RESCHED) & _TIF_POLLING_NRFLAG);
-}
-
-/*
- * Atomically set TIF_NEED_RESCHED if TIF_POLLING_NRFLAG is set.
- *
- * If this returns true, then the idle task promises to call
- * sched_ttwu_pending() and reschedule soon.
- */
-static bool set_nr_if_polling(struct task_struct *p)
-{
-	struct thread_info *ti = task_thread_info(p);
-	typeof(ti->flags) old, val = READ_ONCE(ti->flags);
-
-	for (;;) {
-		if (!(val & _TIF_POLLING_NRFLAG))
-			return false;
-		if (val & _TIF_NEED_RESCHED)
-			return true;
-		old = cmpxchg(&ti->flags, val, val | _TIF_NEED_RESCHED);
-		if (old == val)
-			break;
-		val = old;
-	}
-	return true;
-}
-
-#else
-static bool set_nr_and_not_polling(struct task_struct *p)
-{
-	set_tsk_need_resched(p);
-	return true;
-}
-
-#ifdef CONFIG_SMP
-static bool set_nr_if_polling(struct task_struct *p)
-{
-	return false;
-}
-#endif
-#endif
-
 #ifdef CONFIG_NO_HZ_FULL
 /*
  * Tick may be needed by tasks in the runqueue depending on their policy and
@@ -651,6 +577,162 @@ static inline void requeue_task(struct task_struct *p, struct rq *rq)
 }
 
 /*
+ * cmpxchg based fetch_or, macro so it works for different integer types
+ */
+#define fetch_or(ptr, mask)						\
+	({								\
+		typeof(ptr) _ptr = (ptr);				\
+		typeof(mask) _mask = (mask);				\
+		typeof(*_ptr) _old, _val = *_ptr;			\
+									\
+		for (;;) {						\
+			_old = cmpxchg(_ptr, _val, _val | _mask);	\
+			if (_old == _val)				\
+				break;					\
+			_val = _old;					\
+		}							\
+	_old;								\
+})
+
+#if defined(CONFIG_SMP) && defined(TIF_POLLING_NRFLAG)
+/*
+ * Atomically set TIF_NEED_RESCHED and test for TIF_POLLING_NRFLAG,
+ * this avoids any races wrt polling state changes and thereby avoids
+ * spurious IPIs.
+ */
+static bool set_nr_and_not_polling(struct task_struct *p)
+{
+	struct thread_info *ti = task_thread_info(p);
+	return !(fetch_or(&ti->flags, _TIF_NEED_RESCHED) & _TIF_POLLING_NRFLAG);
+}
+
+/*
+ * Atomically set TIF_NEED_RESCHED if TIF_POLLING_NRFLAG is set.
+ *
+ * If this returns true, then the idle task promises to call
+ * sched_ttwu_pending() and reschedule soon.
+ */
+static bool set_nr_if_polling(struct task_struct *p)
+{
+	struct thread_info *ti = task_thread_info(p);
+	typeof(ti->flags) old, val = READ_ONCE(ti->flags);
+
+	for (;;) {
+		if (!(val & _TIF_POLLING_NRFLAG))
+			return false;
+		if (val & _TIF_NEED_RESCHED)
+			return true;
+		old = cmpxchg(&ti->flags, val, val | _TIF_NEED_RESCHED);
+		if (old == val)
+			break;
+		val = old;
+	}
+	return true;
+}
+
+#else
+static bool set_nr_and_not_polling(struct task_struct *p)
+{
+	set_tsk_need_resched(p);
+	return true;
+}
+
+#ifdef CONFIG_SMP
+static bool set_nr_if_polling(struct task_struct *p)
+{
+	return false;
+}
+#endif
+#endif
+
+static bool __wake_q_add(struct wake_q_head *head, struct task_struct *task)
+{
+	struct wake_q_node *node = &task->wake_q;
+
+	/*
+	 * Atomically grab the task, if ->wake_q is !nil already it means
+	 * its already queued (either by us or someone else) and will get the
+	 * wakeup due to that.
+	 *
+	 * In order to ensure that a pending wakeup will observe our pending
+	 * state, even in the failed case, an explicit smp_mb() must be used.
+	 */
+	smp_mb__before_atomic();
+	if (unlikely(cmpxchg_relaxed(&node->next, NULL, WAKE_Q_TAIL)))
+		return false;
+
+	/*
+	 * The head is context local, there can be no concurrency.
+	 */
+	*head->lastp = node;
+	head->lastp = &node->next;
+	return true;
+}
+
+/**
+ * wake_q_add() - queue a wakeup for 'later' waking.
+ * @head: the wake_q_head to add @task to
+ * @task: the task to queue for 'later' wakeup
+ *
+ * Queue a task for later wakeup, most likely by the wake_up_q() call in the
+ * same context, _HOWEVER_ this is not guaranteed, the wakeup can come
+ * instantly.
+ *
+ * This function must be used as-if it were wake_up_process(); IOW the task
+ * must be ready to be woken at this location.
+ */
+void wake_q_add(struct wake_q_head *head, struct task_struct *task)
+{
+	if (__wake_q_add(head, task))
+		get_task_struct(task);
+}
+
+/**
+ * wake_q_add_safe() - safely queue a wakeup for 'later' waking.
+ * @head: the wake_q_head to add @task to
+ * @task: the task to queue for 'later' wakeup
+ *
+ * Queue a task for later wakeup, most likely by the wake_up_q() call in the
+ * same context, _HOWEVER_ this is not guaranteed, the wakeup can come
+ * instantly.
+ *
+ * This function must be used as-if it were wake_up_process(); IOW the task
+ * must be ready to be woken at this location.
+ *
+ * This function is essentially a task-safe equivalent to wake_q_add(). Callers
+ * that already hold reference to @task can call the 'safe' version and trust
+ * wake_q to do the right thing depending whether or not the @task is already
+ * queued for wakeup.
+ */
+void wake_q_add_safe(struct wake_q_head *head, struct task_struct *task)
+{
+	if (!__wake_q_add(head, task))
+		put_task_struct(task);
+}
+
+void wake_up_q(struct wake_q_head *head)
+{
+	struct wake_q_node *node = head->first;
+
+	while (node != WAKE_Q_TAIL) {
+		struct task_struct *task;
+
+		task = container_of(node, struct task_struct, wake_q);
+		BUG_ON(!task);
+		/* task can safely be re-inserted now: */
+		node = node->next;
+		task->wake_q.next = NULL;
+
+		/*
+		 * wake_up_process() executes a full barrier, which pairs with
+		 * the queueing in wake_q_add() so as not to miss wakeups.
+		 */
+		wake_up_process(task);
+		put_task_struct(task);
+	}
+}
+
+/*
  * resched_curr - mark rq's current task 'to be rescheduled now'.
  *
  * On UP this means the setting of the need_resched flag, on SMP it
@@ -690,6 +772,72 @@ void resched_cpu(int cpu)
 		resched_curr(cpu_rq(cpu));
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
+
+#ifdef CONFIG_SMP
+#ifdef CONFIG_NO_HZ_COMMON
+void nohz_balance_enter_idle(int cpu)
+{
+}
+
+void select_nohz_load_balancer(int stop_tick)
+{
+}
+
+void set_cpu_sd_state_idle(void) {}
+
+/*
+ * In the semi idle case, use the nearest busy CPU for migrating timers
+ * from an idle CPU.  This is good for power-savings.
+ *
+ * We don't do similar optimization for completely idle system, as
+ * selecting an idle CPU will add more delays to the timers than intended
+ * (as that CPU's timer base may not be uptodate wrt jiffies etc).
+ */
+int get_nohz_timer_target(void)
+{
+	int i, cpu = smp_processor_id();
+	struct cpumask *mask;
+
+	if (!idle_cpu(cpu) && housekeeping_cpu(cpu, HK_FLAG_TIMER))
+		return cpu;
+
+	for (mask = &(per_cpu(sched_cpu_affinity_masks, cpu)[0]);
+	     mask < per_cpu(sched_cpu_affinity_end_mask, cpu); mask++)
+		for_each_cpu(i, mask)
+			if (!idle_cpu(i) && housekeeping_cpu(i, HK_FLAG_TIMER))
+				return i;
+
+	if (!housekeeping_cpu(cpu, HK_FLAG_TIMER))
+		cpu = housekeeping_any_cpu(HK_FLAG_TIMER);
+
+	return cpu;
+}
+
+/*
+ * When add_timer_on() enqueues a timer into the timer wheel of an
+ * idle CPU then this timer might expire before the next timer event
+ * which is scheduled to wake up that CPU. In case of a completely
+ * idle system the next event might even be infinite time into the
+ * future. wake_up_idle_cpu() ensures that the CPU is woken up and
+ * leaves the inner idle loop so the newly added timer is taken into
+ * account when the CPU goes back to idle and evaluates the timer
+ * wheel for the next timer event.
+ */
+void wake_up_idle_cpu(int cpu)
+{
+	if (cpu == smp_processor_id())
+		return;
+
+	set_tsk_need_resched(cpu_rq(cpu)->idle);
+	smp_send_reschedule(cpu);
+}
+
+void wake_up_nohz_cpu(int cpu)
+{
+	wake_up_idle_cpu(cpu);
+}
+#endif /* CONFIG_NO_HZ_COMMON */
+#endif /* CONFIG_SMP */
 
 static inline void check_preempt_curr(struct rq *rq)
 {
@@ -1080,13 +1228,6 @@ void do_set_cpus_allowed(struct task_struct *p, const struct cpumask *new_mask)
 }
 #endif
 
-/* Enter with rq lock held. We know p is on the local CPU */
-static inline void __set_tsk_resched(struct task_struct *p)
-{
-	set_tsk_need_resched(p);
-	set_preempt_need_resched();
-}
-
 /**
  * task_curr - is this task currently executing on a CPU?
  * @p: the task in question.
@@ -1335,11 +1476,145 @@ static inline int select_task_rq(struct task_struct *p)
 
 	return best_mask_cpu(task_cpu(p), &chk_mask);
 }
+
+void sched_set_stop_task(int cpu, struct task_struct *stop)
+{
+	struct sched_param stop_param = { .sched_priority = STOP_PRIO };
+	struct sched_param start_param = { .sched_priority = 0 };
+	struct task_struct *old_stop = cpu_rq(cpu)->stop;
+
+	if (stop) {
+		/*
+		 * Make it appear like a SCHED_FIFO task, its something
+		 * userspace knows about and won't get confused about.
+		 *
+		 * Also, it will make PI more or less work without too
+		 * much confusion -- but then, stop work should not
+		 * rely on PI working anyway.
+		 */
+		sched_setscheduler_nocheck(stop, SCHED_FIFO, &stop_param);
+	}
+
+	cpu_rq(cpu)->stop = stop;
+
+	if (old_stop) {
+		/*
+		 * Reset it back to a normal scheduling policy so that
+		 * it can die in pieces.
+		 */
+		sched_setscheduler_nocheck(old_stop, SCHED_NORMAL, &start_param);
+	}
+}
+
+/*
+ * Change a given task's CPU affinity. Migrate the thread to a
+ * proper CPU and schedule it away if the CPU it's executing on
+ * is removed from the allowed bitmask.
+ *
+ * NOTE: the caller must have a valid reference to the task, the
+ * task must not exit() & deallocate itself prematurely. The
+ * call is not atomic; no spinlocks may be held.
+ */
+static int __set_cpus_allowed_ptr(struct task_struct *p,
+				  const struct cpumask *new_mask, bool check)
+{
+	const struct cpumask *cpu_valid_mask = cpu_active_mask;
+	int dest_cpu;
+	unsigned long flags;
+	struct rq *rq;
+	raw_spinlock_t *lock;
+	int ret = 0;
+
+	raw_spin_lock_irqsave(&p->pi_lock, flags);
+	rq = __task_access_lock(p, &lock);
+
+	if (p->flags & PF_KTHREAD) {
+		/*
+		 * Kernel threads are allowed on online && !active CPUs
+		 */
+		cpu_valid_mask = cpu_online_mask;
+	}
+
+	/*
+	 * Must re-check here, to close a race against __kthread_bind(),
+	 * sched_setaffinity() is not guaranteed to observe the flag.
+	 */
+	if (check && (p->flags & PF_NO_SETAFFINITY)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (cpumask_equal(p->cpus_ptr, new_mask))
+		goto out;
+
+	dest_cpu = cpumask_any_and(cpu_valid_mask, new_mask);
+	if (dest_cpu >= nr_cpu_ids) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	do_set_cpus_allowed(p, new_mask);
+
+	if (p->flags & PF_KTHREAD) {
+		/*
+		 * For kernel threads that do indeed end up on online &&
+		 * !active we want to ensure they are strict per-CPU threads.
+		 */
+		WARN_ON(cpumask_intersects(new_mask, cpu_online_mask) &&
+			!cpumask_intersects(new_mask, cpu_active_mask) &&
+			p->nr_cpus_allowed != 1);
+	}
+
+	/* Can the task run on the task's current CPU? If so, we're done */
+	if (cpumask_test_cpu(task_cpu(p), new_mask))
+		goto out;
+
+	if (task_running(p) || p->state == TASK_WAKING) {
+		struct migration_arg arg = { p, dest_cpu };
+
+		/* Need help from migration thread: drop lock and wait. */
+		__task_access_unlock(p, lock);
+		raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+		stop_one_cpu(cpu_of(rq), migration_cpu_stop, &arg);
+		return 0;
+	}
+	if (task_on_rq_queued(p)) {
+		/*
+		 * OK, since we're going to drop the lock immediately
+		 * afterwards anyway.
+		 */
+		update_rq_clock(rq);
+		rq = move_queued_task(rq, p, dest_cpu);
+		lock = &rq->lock;
+	}
+
+out:
+	__task_access_unlock(p, lock);
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+
+	return ret;
+}
+
+int set_cpus_allowed_ptr(struct task_struct *p, const struct cpumask *new_mask)
+{
+	return __set_cpus_allowed_ptr(p, new_mask, false);
+}
+EXPORT_SYMBOL_GPL(set_cpus_allowed_ptr);
+
 #else /* CONFIG_SMP */
+
 static inline int select_task_rq(struct task_struct *p)
 {
 	return 0;
 }
+
+static inline int
+__set_cpus_allowed_ptr(struct task_struct *p,
+		       const struct cpumask *new_mask, bool check)
+{
+	return set_cpus_allowed_ptr(p, new_mask);
+}
+
 #endif /* CONFIG_SMP */
 
 static void
@@ -1387,17 +1662,6 @@ ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags)
 	ttwu_do_wakeup(rq, p, 0);
 }
 
-static inline void ttwu_queue(struct task_struct *p, int cpu, int wake_flags)
-{
-	struct rq *rq = cpu_rq(cpu);
-
-	raw_spin_lock(&rq->lock);
-	update_rq_clock(rq);
-	ttwu_do_activate(rq, p, wake_flags);
-	check_preempt_curr(rq);
-	raw_spin_unlock(&rq->lock);
-}
-
 static int ttwu_remote(struct task_struct *p, int wake_flags)
 {
 	struct rq *rq;
@@ -1412,6 +1676,64 @@ static int ttwu_remote(struct task_struct *p, int wake_flags)
 	__task_access_unlock(p, lock);
 
 	return ret;
+}
+
+#ifdef CONFIG_SMP
+void scheduler_ipi(void)
+{
+	/*
+	 * Fold TIF_NEED_RESCHED into the preempt_count; anybody setting
+	 * TIF_NEED_RESCHED remotely (for the first time) will also send
+	 * this IPI.
+	 */
+	preempt_fold_need_resched();
+
+	if (!idle_cpu(smp_processor_id()) || need_resched())
+		return;
+
+	irq_enter();
+	irq_exit();
+}
+
+void wake_up_if_idle(int cpu)
+{
+	struct rq *rq = cpu_rq(cpu);
+	unsigned long flags;
+
+	rcu_read_lock();
+
+	if (!is_idle_task(rcu_dereference(rq->curr)))
+		goto out;
+
+	if (set_nr_if_polling(rq->idle)) {
+		trace_sched_wake_idle_without_ipi(cpu);
+	} else {
+		raw_spin_lock_irqsave(&rq->lock, flags);
+		if (is_idle_task(rq->curr))
+			smp_send_reschedule(cpu);
+		/* Else CPU is not idle, do nothing here */
+		raw_spin_unlock_irqrestore(&rq->lock, flags);
+	}
+
+out:
+	rcu_read_unlock();
+}
+
+bool cpus_share_cache(int this_cpu, int that_cpu)
+{
+	return per_cpu(sd_llc_id, this_cpu) == per_cpu(sd_llc_id, that_cpu);
+}
+#endif /* CONFIG_SMP */
+
+static inline void ttwu_queue(struct task_struct *p, int cpu, int wake_flags)
+{
+	struct rq *rq = cpu_rq(cpu);
+
+	raw_spin_lock(&rq->lock);
+	update_rq_clock(rq);
+	ttwu_do_activate(rq, p, wake_flags);
+	check_preempt_curr(rq);
+	raw_spin_unlock(&rq->lock);
 }
 
 /*
@@ -2426,7 +2748,32 @@ static inline void scheduler_task_tick(struct rq *rq)
 	 */
 	if (p->time_slice >= RESCHED_NS)
 		return;
-	__set_tsk_resched(p);
+	set_tsk_need_resched(p);
+	set_preempt_need_resched();
+}
+
+/*
+ * This function gets called by the timer code, with HZ frequency.
+ * We call it with interrupts disabled.
+ */
+void scheduler_tick(void)
+{
+	int cpu __maybe_unused = smp_processor_id();
+	struct rq *rq = cpu_rq(cpu);
+
+	sched_clock_tick();
+
+	raw_spin_lock(&rq->lock);
+	update_rq_clock(rq);
+
+	scheduler_task_tick(rq);
+	calc_global_load_tick(rq);
+	psi_task_tick(rq);
+
+	rq->last_tick = rq->clock;
+	raw_spin_unlock(&rq->lock);
+
+	perf_event_task_tick();
 }
 
 #ifdef CONFIG_SCHED_SMT
@@ -2529,31 +2876,8 @@ static inline void sg_balance_check(struct rq *rq)
 }
 #endif /* CONFIG_SCHED_SMT */
 
-/*
- * This function gets called by the timer code, with HZ frequency.
- * We call it with interrupts disabled.
- */
-void scheduler_tick(void)
-{
-	int cpu __maybe_unused = smp_processor_id();
-	struct rq *rq = cpu_rq(cpu);
-
-	sched_clock_tick();
-
-	raw_spin_lock(&rq->lock);
-	update_rq_clock(rq);
-
-	scheduler_task_tick(rq);
-	calc_global_load_tick(rq);
-	psi_task_tick(rq);
-
-	rq->last_tick = rq->clock;
-	raw_spin_unlock(&rq->lock);
-
-	perf_event_task_tick();
-}
-
 #ifdef CONFIG_NO_HZ_FULL
+
 struct tick_work {
 	int			cpu;
 	atomic_t		state;
@@ -2765,25 +3089,74 @@ static inline void preempt_latency_start(int val) { }
 static inline void preempt_latency_stop(int val) { }
 #endif
 
-/*
- * Timeslices below RESCHED_NS are considered as good as expired as there's no
- * point rescheduling when there's so little time left.
- */
-static inline void check_curr(struct task_struct *p, struct rq *rq)
+static inline unsigned long get_preempt_disable_ip(struct task_struct *p)
 {
-	if (rq->idle == p)
+#ifdef CONFIG_DEBUG_PREEMPT
+	return p->preempt_disable_ip;
+#else
+	return 0;
+#endif
+}
+
+/*
+ * Print scheduling while atomic bug:
+ */
+static noinline void __schedule_bug(struct task_struct *prev)
+{
+	/* Save this before calling printk(), since that will clobber it */
+	unsigned long preempt_disable_ip = get_preempt_disable_ip(current);
+
+	if (oops_in_progress)
 		return;
 
-	update_curr(rq, p);
+	printk(KERN_ERR "BUG: scheduling while atomic: %s/%d/0x%08x\n",
+		prev->comm, prev->pid, preempt_count());
 
-	if (p->time_slice < RESCHED_NS) {
-		p->time_slice = sched_timeslice_ns;
-		if (SCHED_FIFO != p->policy && task_on_rq_queued(p)) {
-			if (SCHED_RR != p->policy)
-				deboost_task(p);
-			requeue_task(p, rq);
-		}
+	debug_show_held_locks(prev);
+	print_modules();
+	if (irqs_disabled())
+		print_irqtrace_events(prev);
+	if (IS_ENABLED(CONFIG_DEBUG_PREEMPT)
+	    && in_atomic_preempt_off()) {
+		pr_err("Preemption disabled at:");
+		print_ip_sym(preempt_disable_ip);
+		pr_cont("\n");
 	}
+	if (panic_on_warn)
+		panic("scheduling while atomic\n");
+
+	dump_stack();
+	add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
+}
+
+/*
+ * Various schedule()-time debugging checks and statistics:
+ */
+static inline void schedule_debug(struct task_struct *prev, bool preempt)
+{
+#ifdef CONFIG_SCHED_STACK_END_CHECK
+	if (task_stack_end_corrupted(prev))
+		panic("corrupted stack end detected inside scheduler\n");
+#endif
+
+#ifdef CONFIG_DEBUG_ATOMIC_SLEEP
+	if (!preempt && prev->state && prev->non_block_count) {
+		printk(KERN_ERR "BUG: scheduling in a non-blocking section: %s/%d/%i\n",
+			prev->comm, prev->pid, prev->non_block_count);
+		dump_stack();
+		add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
+	}
+#endif
+
+	if (unlikely(in_atomic_preempt_off())) {
+		__schedule_bug(prev);
+		preempt_count_set(PREEMPT_DISABLED);
+	}
+	rcu_sleep_check();
+
+	profile_hit(SCHED_PROFILING, __builtin_return_address(0));
+
+	schedstat_inc(this_rq()->sched_count);
 }
 
 #ifdef	CONFIG_SMP
@@ -2853,6 +3226,27 @@ static inline int take_other_rq_tasks(struct rq *rq, int cpu)
 }
 #endif
 
+/*
+ * Timeslices below RESCHED_NS are considered as good as expired as there's no
+ * point rescheduling when there's so little time left.
+ */
+static inline void check_curr(struct task_struct *p, struct rq *rq)
+{
+	if (rq->idle == p)
+		return;
+
+	update_curr(rq, p);
+
+	if (p->time_slice < RESCHED_NS) {
+		p->time_slice = sched_timeslice_ns;
+		if (SCHED_FIFO != p->policy && task_on_rq_queued(p)) {
+			if (SCHED_RR != p->policy)
+				deboost_task(p);
+			requeue_task(p, rq);
+		}
+	}
+}
+
 static inline struct task_struct *
 choose_next_task(struct rq *rq, int cpu, struct task_struct *prev)
 {
@@ -2876,76 +3270,6 @@ choose_next_task(struct rq *rq, int cpu, struct task_struct *prev)
 			return rq_first_bmq_task(rq);
 #endif
 	return next;
-}
-
-static inline unsigned long get_preempt_disable_ip(struct task_struct *p)
-{
-#ifdef CONFIG_DEBUG_PREEMPT
-	return p->preempt_disable_ip;
-#else
-	return 0;
-#endif
-}
-
-/*
- * Print scheduling while atomic bug:
- */
-static noinline void __schedule_bug(struct task_struct *prev)
-{
-	/* Save this before calling printk(), since that will clobber it */
-	unsigned long preempt_disable_ip = get_preempt_disable_ip(current);
-
-	if (oops_in_progress)
-		return;
-
-	printk(KERN_ERR "BUG: scheduling while atomic: %s/%d/0x%08x\n",
-		prev->comm, prev->pid, preempt_count());
-
-	debug_show_held_locks(prev);
-	print_modules();
-	if (irqs_disabled())
-		print_irqtrace_events(prev);
-	if (IS_ENABLED(CONFIG_DEBUG_PREEMPT)
-	    && in_atomic_preempt_off()) {
-		pr_err("Preemption disabled at:");
-		print_ip_sym(preempt_disable_ip);
-		pr_cont("\n");
-	}
-	if (panic_on_warn)
-		panic("scheduling while atomic\n");
-
-	dump_stack();
-	add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
-}
-
-/*
- * Various schedule()-time debugging checks and statistics:
- */
-static inline void schedule_debug(struct task_struct *prev, bool preempt)
-{
-#ifdef CONFIG_SCHED_STACK_END_CHECK
-	if (task_stack_end_corrupted(prev))
-		panic("corrupted stack end detected inside scheduler\n");
-#endif
-
-#ifdef CONFIG_DEBUG_ATOMIC_SLEEP
-	if (!preempt && prev->state && prev->non_block_count) {
-		printk(KERN_ERR "BUG: scheduling in a non-blocking section: %s/%d/%i\n",
-			prev->comm, prev->pid, prev->non_block_count);
-		dump_stack();
-		add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
-	}
-#endif
-
-	if (unlikely(in_atomic_preempt_off())) {
-		__schedule_bug(prev);
-		preempt_count_set(PREEMPT_DISABLED);
-	}
-	rcu_sleep_check();
-
-	profile_hit(SCHED_PROFILING, __builtin_return_address(0));
-
-	schedstat_inc(this_rq()->sched_count);
 }
 
 static inline void set_rq_task(struct rq *rq, struct task_struct *p)
@@ -3102,8 +3426,8 @@ void __noreturn do_task_dead(void)
 
 	/* Tell freezer to ignore us: */
 	current->flags |= PF_NOFREEZE;
-	__schedule(false);
 
+	__schedule(false);
 	BUG();
 
 	/* Avoid "noreturn function does return" - but don't continue if BUG() is a NOP: */
@@ -3592,140 +3916,6 @@ static inline struct task_struct *find_process_by_pid(pid_t pid)
 {
 	return pid ? find_task_by_vpid(pid) : current;
 }
-
-#ifdef CONFIG_SMP
-void sched_set_stop_task(int cpu, struct task_struct *stop)
-{
-	struct sched_param stop_param = { .sched_priority = STOP_PRIO };
-	struct sched_param start_param = { .sched_priority = 0 };
-	struct task_struct *old_stop = cpu_rq(cpu)->stop;
-
-	if (stop) {
-		/*
-		 * Make it appear like a SCHED_FIFO task, its something
-		 * userspace knows about and won't get confused about.
-		 *
-		 * Also, it will make PI more or less work without too
-		 * much confusion -- but then, stop work should not
-		 * rely on PI working anyway.
-		 */
-		sched_setscheduler_nocheck(stop, SCHED_FIFO, &stop_param);
-	}
-
-	cpu_rq(cpu)->stop = stop;
-
-	if (old_stop) {
-		/*
-		 * Reset it back to a normal scheduling policy so that
-		 * it can die in pieces.
-		 */
-		sched_setscheduler_nocheck(old_stop, SCHED_NORMAL, &start_param);
-	}
-}
-
-/*
- * Change a given task's CPU affinity. Migrate the thread to a
- * proper CPU and schedule it away if the CPU it's executing on
- * is removed from the allowed bitmask.
- *
- * NOTE: the caller must have a valid reference to the task, the
- * task must not exit() & deallocate itself prematurely. The
- * call is not atomic; no spinlocks may be held.
- */
-static int __set_cpus_allowed_ptr(struct task_struct *p,
-				  const struct cpumask *new_mask, bool check)
-{
-	const struct cpumask *cpu_valid_mask = cpu_active_mask;
-	int dest_cpu;
-	unsigned long flags;
-	struct rq *rq;
-	raw_spinlock_t *lock;
-	int ret = 0;
-
-	raw_spin_lock_irqsave(&p->pi_lock, flags);
-	rq = __task_access_lock(p, &lock);
-
-	if (p->flags & PF_KTHREAD) {
-		/*
-		 * Kernel threads are allowed on online && !active CPUs
-		 */
-		cpu_valid_mask = cpu_online_mask;
-	}
-
-	/*
-	 * Must re-check here, to close a race against __kthread_bind(),
-	 * sched_setaffinity() is not guaranteed to observe the flag.
-	 */
-	if (check && (p->flags & PF_NO_SETAFFINITY)) {
-		ret = -EINVAL;
-		goto out;
-	}
-
-	if (cpumask_equal(p->cpus_ptr, new_mask))
-		goto out;
-
-	dest_cpu = cpumask_any_and(cpu_valid_mask, new_mask);
-	if (dest_cpu >= nr_cpu_ids) {
-		ret = -EINVAL;
-		goto out;
-	}
-
-	do_set_cpus_allowed(p, new_mask);
-
-	if (p->flags & PF_KTHREAD) {
-		/*
-		 * For kernel threads that do indeed end up on online &&
-		 * !active we want to ensure they are strict per-CPU threads.
-		 */
-		WARN_ON(cpumask_intersects(new_mask, cpu_online_mask) &&
-			!cpumask_intersects(new_mask, cpu_active_mask) &&
-			p->nr_cpus_allowed != 1);
-	}
-
-	/* Can the task run on the task's current CPU? If so, we're done */
-	if (cpumask_test_cpu(task_cpu(p), new_mask))
-		goto out;
-
-	if (task_running(p) || p->state == TASK_WAKING) {
-		struct migration_arg arg = { p, dest_cpu };
-
-		/* Need help from migration thread: drop lock and wait. */
-		__task_access_unlock(p, lock);
-		raw_spin_unlock_irqrestore(&p->pi_lock, flags);
-		stop_one_cpu(cpu_of(rq), migration_cpu_stop, &arg);
-		return 0;
-	}
-	if (task_on_rq_queued(p)) {
-		/*
-		 * OK, since we're going to drop the lock immediately
-		 * afterwards anyway.
-		 */
-		update_rq_clock(rq);
-		rq = move_queued_task(rq, p, dest_cpu);
-		lock = &rq->lock;
-	}
-
-out:
-	__task_access_unlock(p, lock);
-	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
-
-	return ret;
-}
-
-int set_cpus_allowed_ptr(struct task_struct *p, const struct cpumask *new_mask)
-{
-	return __set_cpus_allowed_ptr(p, new_mask, false);
-}
-EXPORT_SYMBOL_GPL(set_cpus_allowed_ptr);
-
-#else
-static inline int
-__set_cpus_allowed_ptr(struct task_struct *p,
-		       const struct cpumask *new_mask, bool check)
-{
-	return set_cpus_allowed_ptr(p, new_mask);
-}
-#endif
 
 /*
  * sched_setparam() passes in -1 for its policy, to let the functions
@@ -4910,7 +5100,7 @@ void dump_cpu_task(int cpu)
 /**
  * init_idle - set up an idle thread for a given CPU
  * @idle: task in question
- * @cpu: cpu the idle task belongs to
+ * @cpu: CPU the idle task belongs to
  *
  * NOTE: this function does not set the idle thread's NEED_RESCHED
  * flag, to make booting more robust.
@@ -4967,93 +5157,6 @@ void init_idle(struct task_struct *idle, int cpu)
 #endif
 }
 
-static bool __wake_q_add(struct wake_q_head *head, struct task_struct *task)
-{
-	struct wake_q_node *node = &task->wake_q;
-
-	/*
-	 * Atomically grab the task, if ->wake_q is !nil already it means
-	 * its already queued (either by us or someone else) and will get the
-	 * wakeup due to that.
-	 *
-	 * In order to ensure that a pending wakeup will observe our pending
-	 * state, even in the failed case, an explicit smp_mb() must be used.
-	 */
-	smp_mb__before_atomic();
-	if (unlikely(cmpxchg_relaxed(&node->next, NULL, WAKE_Q_TAIL)))
-		return false;
-
-	/*
-	 * The head is context local, there can be no concurrency.
-	 */
-	*head->lastp = node;
-	head->lastp = &node->next;
-	return true;
-}
-
-/**
- * wake_q_add() - queue a wakeup for 'later' waking.
- * @head: the wake_q_head to add @task to
- * @task: the task to queue for 'later' wakeup
- *
- * Queue a task for later wakeup, most likely by the wake_up_q() call in the
- * same context, _HOWEVER_ this is not guaranteed, the wakeup can come
- * instantly.
- *
- * This function must be used as-if it were wake_up_process(); IOW the task
- * must be ready to be woken at this location.
- */
-void wake_q_add(struct wake_q_head *head, struct task_struct *task)
-{
-	if (__wake_q_add(head, task))
-		get_task_struct(task);
-}
-
-/**
- * wake_q_add_safe() - safely queue a wakeup for 'later' waking.
- * @head: the wake_q_head to add @task to
- * @task: the task to queue for 'later' wakeup
- *
- * Queue a task for later wakeup, most likely by the wake_up_q() call in the
- * same context, _HOWEVER_ this is not guaranteed, the wakeup can come
- * instantly.
- *
- * This function must be used as-if it were wake_up_process(); IOW the task
- * must be ready to be woken at this location.
- *
- * This function is essentially a task-safe equivalent to wake_q_add(). Callers
- * that already hold reference to @task can call the 'safe' version and trust
- * wake_q to do the right thing depending whether or not the @task is already
- * queued for wakeup.
- */
-void wake_q_add_safe(struct wake_q_head *head, struct task_struct *task)
-{
-	if (!__wake_q_add(head, task))
-		put_task_struct(task);
-}
-
-void wake_up_q(struct wake_q_head *head)
-{
-	struct wake_q_node *node = head->first;
-
-	while (node != WAKE_Q_TAIL) {
-		struct task_struct *task;
-
-		task = container_of(node, struct task_struct, wake_q);
-		BUG_ON(!task);
-		/* task can safely be re-inserted now: */
-		node = node->next;
-		task->wake_q.next = NULL;
-
-		/*
-		 * wake_up_process() executes a full barrier, which pairs with
-		 * the queueing in wake_q_add() so as not to miss wakeups.
-		 */
-		wake_up_process(task);
-		put_task_struct(task);
-	}
-}
-
 #ifdef CONFIG_SMP
 
 int cpuset_cpumask_can_shrink(const struct cpumask __maybe_unused *cur,
@@ -5083,70 +5186,6 @@ int task_can_attach(struct task_struct *p,
 }
 
 bool sched_smp_initialized __read_mostly;
-
-#ifdef CONFIG_NO_HZ_COMMON
-void nohz_balance_enter_idle(int cpu)
-{
-}
-
-void select_nohz_load_balancer(int stop_tick)
-{
-}
-
-void set_cpu_sd_state_idle(void) {}
-
-/*
- * In the semi idle case, use the nearest busy CPU for migrating timers
- * from an idle CPU.  This is good for power-savings.
- *
- * We don't do similar optimization for completely idle system, as
- * selecting an idle CPU will add more delays to the timers than intended
- * (as that CPU's timer base may not be uptodate wrt jiffies etc).
- */
-int get_nohz_timer_target(void)
-{
-	int i, cpu = smp_processor_id();
-	struct cpumask *mask;
-
-	if (!idle_cpu(cpu) && housekeeping_cpu(cpu, HK_FLAG_TIMER))
-		return cpu;
-
-	for (mask = &(per_cpu(sched_cpu_affinity_masks, cpu)[0]);
-	     mask < per_cpu(sched_cpu_affinity_end_mask, cpu); mask++)
-		for_each_cpu(i, mask)
-			if (!idle_cpu(i) && housekeeping_cpu(i, HK_FLAG_TIMER))
-				return i;
-
-	if (!housekeeping_cpu(cpu, HK_FLAG_TIMER))
-		cpu = housekeeping_any_cpu(HK_FLAG_TIMER);
-
-	return cpu;
-}
-
-/*
- * When add_timer_on() enqueues a timer into the timer wheel of an
- * idle CPU then this timer might expire before the next timer event
- * which is scheduled to wake up that CPU. In case of a completely
- * idle system the next event might even be infinite time into the
- * future. wake_up_idle_cpu() ensures that the CPU is woken up and
- * leaves the inner idle loop so the newly added timer is taken into
- * account when the CPU goes back to idle and evaluates the timer
- * wheel for the next timer event.
- */
-void wake_up_idle_cpu(int cpu)
-{
-	if (cpu == smp_processor_id())
-		return;
-
-	set_tsk_need_resched(cpu_rq(cpu)->idle);
-	smp_send_reschedule(cpu);
-}
-
-void wake_up_nohz_cpu(int cpu)
-{
-	wake_up_idle_cpu(cpu);
-}
-#endif /* CONFIG_NO_HZ_COMMON */
 
 #ifdef CONFIG_HOTPLUG_CPU
 /*
@@ -5254,53 +5293,6 @@ static void set_rq_online(struct rq *rq)
 	if (!rq->online)
 		rq->online = true;
 }
-
-#ifdef CONFIG_SMP
-void scheduler_ipi(void)
-{
-	/*
-	 * Fold TIF_NEED_RESCHED into the preempt_count; anybody setting
-	 * TIF_NEED_RESCHED remotely (for the first time) will also send
-	 * this IPI.
-	 */
-	preempt_fold_need_resched();
-
-	if (!idle_cpu(smp_processor_id()) || need_resched())
-		return;
-
-	irq_enter();
-	irq_exit();
-}
-
-void wake_up_if_idle(int cpu)
-{
-	struct rq *rq = cpu_rq(cpu);
-	unsigned long flags;
-
-	rcu_read_lock();
-
-	if (!is_idle_task(rcu_dereference(rq->curr)))
-		goto out;
-
-	if (set_nr_if_polling(rq->idle)) {
-		trace_sched_wake_idle_without_ipi(cpu);
-	} else {
-		raw_spin_lock_irqsave(&rq->lock, flags);
-		if (is_idle_task(rq->curr))
-			smp_send_reschedule(cpu);
-		/* Else CPU is not idle, do nothing here */
-		raw_spin_unlock_irqrestore(&rq->lock, flags);
-	}
-
-out:
-	rcu_read_unlock();
-}
-
-bool cpus_share_cache(int this_cpu, int that_cpu)
-{
-	return per_cpu(sd_llc_id, this_cpu) == per_cpu(sd_llc_id, that_cpu);
-}
-#endif /* CONFIG_SMP */
 
 /*
  * used to mark begin/end of suspend/resume:
