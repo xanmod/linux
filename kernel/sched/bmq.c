@@ -2007,27 +2007,36 @@ int wake_up_state(struct task_struct *p, unsigned int state)
 /*
  * Perform scheduler related setup for a newly forked process p.
  * p is forked by current.
+ *
+ * __sched_fork() is basic setup used by init_idle() too:
  */
-int sched_fork(unsigned long __maybe_unused clone_flags, struct task_struct *p)
+static inline void __sched_fork(unsigned long clone_flags, struct task_struct *p)
+{
+	p->on_rq			= 0;
+	p->on_cpu			= 0;
+	p->utime			= 0;
+	p->stime			= 0;
+	p->sched_time			= 0;
+
+#ifdef CONFIG_PREEMPT_NOTIFIERS
+	INIT_HLIST_HEAD(&p->preempt_notifiers);
+#endif
+
+#ifdef CONFIG_COMPACTION
+	p->capture_control = NULL;
+#endif
+}
+
+/*
+ * fork()/clone()-time setup:
+ */
+int sched_fork(unsigned long clone_flags, struct task_struct *p)
 {
 	unsigned long flags;
 	int cpu = get_cpu();
 	struct rq *rq = this_rq();
 
-#ifdef CONFIG_PREEMPT_NOTIFIERS
-	INIT_HLIST_HEAD(&p->preempt_notifiers);
-#endif
-	/* Should be reset in fork.c but done here for ease of BMQ patching */
-	p->on_cpu =
-	p->on_rq =
-	p->utime =
-	p->stime =
-	p->sched_time = 0;
-
-#ifdef CONFIG_COMPACTION
-	p->capture_control = NULL;
-#endif
-
+	__sched_fork(clone_flags, p);
 	/*
 	 * We mark the process as NEW here. This guarantees that
 	 * nobody will actually run it, and a signal or other external
@@ -5110,6 +5119,8 @@ void init_idle(struct task_struct *idle, int cpu)
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long flags;
 
+	__sched_fork(0, idle);
+
 	raw_spin_lock_irqsave(&idle->pi_lock, flags);
 	raw_spin_lock(&rq->lock);
 	update_rq_clock(rq);
@@ -5117,9 +5128,8 @@ void init_idle(struct task_struct *idle, int cpu)
 	idle->last_ran = rq->clock_task;
 	idle->state = TASK_RUNNING;
 	idle->flags |= PF_IDLE;
-	/* Setting prio to illegal value shouldn't matter when never queued */
+	/* Setting prio to illegal value shouldn't matter as it will never be de/enqueued */
 	idle->prio = MAX_PRIO;
-
 	idle->bmq_idx = IDLE_TASK_SCHED_PRIO;
 	bmq_init_idle(&rq->queue, idle);
 
