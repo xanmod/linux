@@ -555,7 +555,7 @@ DECLARE_STATIC_KEY_FALSE(bpf_stats_enabled_key);
 
 #define BPF_PROG_RUN(prog, ctx)	({				\
 	u32 ret;						\
-	cant_sleep();						\
+	cant_migrate();						\
 	if (static_branch_unlikely(&bpf_stats_enabled_key)) {	\
 		struct bpf_prog_stats *stats;			\
 		u64 start = sched_clock();			\
