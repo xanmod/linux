@@ -89,7 +89,6 @@
 struct atmel_aes_caps {
 	bool			has_dualbuff;
 	bool			has_cfb64;
-	bool			has_ctr32;
 	bool			has_gcm;
 	bool			has_xts;
 	bool			has_authenc;
@@ -122,6 +121,7 @@ struct atmel_aes_ctr_ctx {
 	size_t			offset;
 	struct scatterlist	src[2];
 	struct scatterlist	dst[2];
+	u32			blocks;
 };
 
 struct atmel_aes_gcm_ctx {
@@ -514,8 +514,37 @@ static void atmel_aes_set_iv_as_last_ciphertext_block(struct atmel_aes_dev *dd)
 	}
 }
 
+static inline struct atmel_aes_ctr_ctx *
+atmel_aes_ctr_ctx_cast(struct atmel_aes_base_ctx *ctx)
+{
+	return container_of(ctx, struct atmel_aes_ctr_ctx, base);
+}
+
+static void atmel_aes_ctr_update_req_iv(struct atmel_aes_dev *dd)
+{
+	struct atmel_aes_ctr_ctx *ctx = atmel_aes_ctr_ctx_cast(dd->ctx);
+	struct skcipher_request *req = skcipher_request_cast(dd->areq);
+	struct crypto_skcipher *skcipher = crypto_skcipher_reqtfm(req);
+	unsigned int ivsize = crypto_skcipher_ivsize(skcipher);
+	int i;
+
+	/*
+	 * The CTR transfer works in fragments of data of maximum 1 MByte
+	 * because of the 16 bit CTR counter embedded in the IP. When reaching
+	 * here, ctx->blocks contains the number of blocks of the last fragment
+	 * processed, there is no need to explicit cast it to u16.
+	 */
+	for (i = 0; i < ctx->blocks; i++)
+		crypto_inc((u8 *)ctx->iv, AES_BLOCK_SIZE);
+
+	memcpy(req->iv, ctx->iv, ivsize);
+}
+
 static inline int atmel_aes_complete(struct atmel_aes_dev *dd, int err)
 {
+	struct skcipher_request *req = skcipher_request_cast(dd->areq);
+	struct atmel_aes_reqctx *rctx = skcipher_request_ctx(req);
+
 #if IS_ENABLED(CONFIG_CRYPTO_DEV_ATMEL_AUTHENC)
 	if (dd->ctx->is_aead)
 		atmel_aes_authenc_complete(dd, err);
@@ -524,8 +553,13 @@ static inline int atmel_aes_complete(struct atmel_aes_dev *dd, int err)
 	clk_disable(dd->iclk);
 	dd->flags &= ~AES_FLAGS_BUSY;
 
-	if (!dd->ctx->is_aead)
-		atmel_aes_set_iv_as_last_ciphertext_block(dd);
+	if (!dd->ctx->is_aead &&
+	    (rctx->mode & AES_FLAGS_OPMODE_MASK) != AES_FLAGS_ECB) {
+		if ((rctx->mode & AES_FLAGS_OPMODE_MASK) != AES_FLAGS_CTR)
+			atmel_aes_set_iv_as_last_ciphertext_block(dd);
+		else
+			atmel_aes_ctr_update_req_iv(dd);
+	}
 
 	if (dd->is_async)
 		dd->areq->complete(dd->areq, err);
@@ -1004,19 +1038,14 @@ static int atmel_aes_start(struct atmel_aes_dev *dd)
 				   atmel_aes_transfer_complete);
 }
 
-static inline struct atmel_aes_ctr_ctx *
-atmel_aes_ctr_ctx_cast(struct atmel_aes_base_ctx *ctx)
-{
-	return container_of(ctx, struct atmel_aes_ctr_ctx, base);
-}
-
 static int atmel_aes_ctr_transfer(struct atmel_aes_dev *dd)
 {
 	struct atmel_aes_ctr_ctx *ctx = atmel_aes_ctr_ctx_cast(dd->ctx);
 	struct skcipher_request *req = skcipher_request_cast(dd->areq);
 	struct scatterlist *src, *dst;
-	u32 ctr, blocks;
 	size_t datalen;
+	u32 ctr;
+	u16 start, end;
 	bool use_dma, fragmented = false;
 
 	/* Check for transfer completion. */
@@ -1026,29 +1055,19 @@ static int atmel_aes_ctr_transfer(struct atmel_aes_dev *dd)
 
 	/* Compute data length. */
 	datalen = req->cryptlen - ctx->offset;
-	blocks = DIV_ROUND_UP(datalen, AES_BLOCK_SIZE);
+	ctx->blocks = DIV_ROUND_UP(datalen, AES_BLOCK_SIZE);
 	ctr = be32_to_cpu(ctx->iv[3]);
-	if (dd->caps.has_ctr32) {
-		/* Check 32bit counter overflow. */
-		u32 start = ctr;
-		u32 end = start + blocks - 1;
 
-		if (end < start) {
-			ctr |= 0xffffffff;
-			datalen = AES_BLOCK_SIZE * -start;
-			fragmented = true;
-		}
-	} else {
-		/* Check 16bit counter overflow. */
-		u16 start = ctr & 0xffff;
-		u16 end = start + (u16)blocks - 1;
+	/* Check 16bit counter overflow. */
+	start = ctr & 0xffff;
+	end = start + ctx->blocks - 1;
 
-		if (blocks >> 16 || end < start) {
-			ctr |= 0xffff;
-			datalen = AES_BLOCK_SIZE * (0x10000-start);
-			fragmented = true;
-		}
+	if (ctx->blocks >> 16 || end < start) {
+		ctr |= 0xffff;
+		datalen = AES_BLOCK_SIZE * (0x10000 - start);
+		fragmented = true;
 	}
+
 	use_dma = (datalen >= ATMEL_AES_DMA_THRESHOLD);
 
 	/* Jump to offset. */
@@ -1131,7 +1150,8 @@ static int atmel_aes_crypt(struct skcipher_request *req, unsigned long mode)
 	rctx = skcipher_request_ctx(req);
 	rctx->mode = mode;
 
-	if (!(mode & AES_FLAGS_ENCRYPT) && (req->src == req->dst)) {
+	if ((mode & AES_FLAGS_OPMODE_MASK) != AES_FLAGS_ECB &&
+	    !(mode & AES_FLAGS_ENCRYPT) && req->src == req->dst) {
 		unsigned int ivsize = crypto_skcipher_ivsize(skcipher);
 
 		if (req->cryptlen >= ivsize)
@@ -2533,7 +2553,6 @@ static void atmel_aes_get_cap(struct atmel_aes_dev *dd)
 {
 	dd->caps.has_dualbuff = 0;
 	dd->caps.has_cfb64 = 0;
-	dd->caps.has_ctr32 = 0;
 	dd->caps.has_gcm = 0;
 	dd->caps.has_xts = 0;
 	dd->caps.has_authenc = 0;
@@ -2544,7 +2563,6 @@ static void atmel_aes_get_cap(struct atmel_aes_dev *dd)
 	case 0x500:
 		dd->caps.has_dualbuff = 1;
 		dd->caps.has_cfb64 = 1;
-		dd->caps.has_ctr32 = 1;
 		dd->caps.has_gcm = 1;
 		dd->caps.has_xts = 1;
 		dd->caps.has_authenc = 1;
@@ -2553,7 +2571,6 @@ static void atmel_aes_get_cap(struct atmel_aes_dev *dd)
 	case 0x200:
 		dd->caps.has_dualbuff = 1;
 		dd->caps.has_cfb64 = 1;
-		dd->caps.has_ctr32 = 1;
 		dd->caps.has_gcm = 1;
 		dd->caps.max_burst_size = 4;
 		break;

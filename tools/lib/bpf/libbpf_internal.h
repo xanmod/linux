@@ -76,7 +76,7 @@ static inline bool libbpf_validate_opts(const char *opts,
 
 		for (i = opts_sz; i < user_sz; i++) {
 			if (opts[i]) {
-				pr_warn("%s has non-zero extra bytes",
+				pr_warn("%s has non-zero extra bytes\n",
 					type_name);
 				return false;
 			}
@@ -95,6 +95,8 @@ static inline bool libbpf_validate_opts(const char *opts,
 #define OPTS_GET(opts, field, fallback_value) \
 	(OPTS_HAS(opts, field) ? (opts)->field : fallback_value)
 
+int parse_cpu_mask_str(const char *s, bool **mask, int *mask_sz);
+int parse_cpu_mask_file(const char *fcpu, bool **mask, int *mask_sz);
 int libbpf__load_raw_btf(const char *raw_types, size_t types_len,
 			 const char *str_sec, size_t str_len);
 

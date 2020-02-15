@@ -188,6 +188,7 @@ struct io_ring_ctx {
 		bool			account_mem;
 		bool			cq_overflow_flushed;
 		bool			drain_next;
+		bool			eventfd_async;
 
 		/*
 		 * Ring buffer of indices into array of io_uring_sqe, which is
@@ -735,14 +736,28 @@ static struct io_uring_cqe *io_get_cqring(struct io_ring_ctx *ctx)
 	return &rings->cqes[tail & ctx->cq_mask];
 }
 
-static void io_cqring_ev_posted(struct io_ring_ctx *ctx)
+static inline bool io_should_trigger_evfd(struct io_ring_ctx *ctx)
+{
+	if (!ctx->cq_ev_fd)
+		return false;
+	if (!ctx->eventfd_async)
+		return true;
+	return io_wq_current_is_worker() || in_interrupt();
+}
+
+static void __io_cqring_ev_posted(struct io_ring_ctx *ctx, bool trigger_ev)
 {
 	if (waitqueue_active(&ctx->wait))
 		wake_up(&ctx->wait);
 	if (waitqueue_active(&ctx->sqo_wait))
 		wake_up(&ctx->sqo_wait);
-	if (ctx->cq_ev_fd)
+	if (trigger_ev)
 		eventfd_signal(ctx->cq_ev_fd, 1);
+}
+
+static void io_cqring_ev_posted(struct io_ring_ctx *ctx)
+{
+	__io_cqring_ev_posted(ctx, io_should_trigger_evfd(ctx));
 }
 
 /* Returns true if there are no backlogged entries after the flush */
@@ -1789,10 +1804,12 @@ static int io_setup_async_rw(struct io_kiocb *req, ssize_t io_size,
 	if (req->opcode == IORING_OP_READ_FIXED ||
 	    req->opcode == IORING_OP_WRITE_FIXED)
 		return 0;
-	if (!req->io && io_alloc_async_ctx(req))
-		return -ENOMEM;
+	if (!req->io) {
+		if (io_alloc_async_ctx(req))
+			return -ENOMEM;
 
-	io_req_map_rw(req, io_size, iovec, fast_iov, iter);
+		io_req_map_rw(req, io_size, iovec, fast_iov, iter);
+	}
 	req->work.func = io_rw_async;
 	return 0;
 }
@@ -2635,6 +2652,14 @@ static void io_poll_complete_work(struct io_wq_work **workptr)
 		io_wq_assign_next(workptr, nxt);
 }
 
+static void io_poll_trigger_evfd(struct io_wq_work **workptr)
+{
+	struct io_kiocb *req = container_of(*workptr, struct io_kiocb, work);
+
+	eventfd_signal(req->ctx->cq_ev_fd, 1);
+	io_put_req(req);
+}
+
 static int io_poll_wake(struct wait_queue_entry *wait, unsigned mode, int sync,
 			void *key)
 {
@@ -2657,13 +2682,21 @@ static int io_poll_wake(struct wait_queue_entry *wait, unsigned mode, int sync,
 	 * for finalizing the request, mark us as having grabbed that already.
 	 */
 	if (mask && spin_trylock_irqsave(&ctx->completion_lock, flags)) {
+		bool trigger_ev;
+
 		hash_del(&req->hash_node);
 		io_poll_complete(req, mask, 0);
-		req->flags |= REQ_F_COMP_LOCKED;
-		io_put_req(req);
+		trigger_ev = io_should_trigger_evfd(ctx);
+		if (trigger_ev && eventfd_signal_count()) {
+			trigger_ev = false;
+			req->work.func = io_poll_trigger_evfd;
+		} else {
+			req->flags |= REQ_F_COMP_LOCKED;
+			io_put_req(req);
+			req = NULL;
+		}
 		spin_unlock_irqrestore(&ctx->completion_lock, flags);
-
-		io_cqring_ev_posted(ctx);
+		__io_cqring_ev_posted(ctx, trigger_ev);
 	} else {
 		io_queue_async_work(req);
 	}
@@ -3900,7 +3933,8 @@ static int io_sq_thread(void *data)
 			 * reap events and wake us up.
 			 */
 			if (inflight ||
-			    (!time_after(jiffies, timeout) && ret != -EBUSY)) {
+			    (!time_after(jiffies, timeout) && ret != -EBUSY &&
+			    !percpu_ref_is_dying(&ctx->refs))) {
 				cond_resched();
 				continue;
 			}
@@ -4981,6 +5015,16 @@ static void io_ring_ctx_wait_and_kill(struct io_ring_ctx *ctx)
 	percpu_ref_kill(&ctx->refs);
 	mutex_unlock(&ctx->uring_lock);
 
+	/*
+	 * Wait for sq thread to idle, if we have one. It won't spin on new
+	 * work after we've killed the ctx ref above. This is important to do
+	 * before we cancel existing commands, as the thread could otherwise
+	 * be queueing new work post that. If that's work we need to cancel,
+	 * it could cause shutdown to hang.
+	 */
+	while (ctx->sqo_thread && !wq_has_sleeper(&ctx->sqo_wait))
+		cpu_relax();
+
 	io_kill_timeouts(ctx);
 	io_poll_remove_all(ctx);
 
@@ -5473,10 +5517,17 @@ static int __io_uring_register(struct io_ring_ctx *ctx, unsigned opcode,
 		ret = io_sqe_files_update(ctx, arg, nr_args);
 		break;
 	case IORING_REGISTER_EVENTFD:
+	case IORING_REGISTER_EVENTFD_ASYNC:
 		ret = -EINVAL;
 		if (nr_args != 1)
 			break;
 		ret = io_eventfd_register(ctx, arg);
+		if (ret)
+			break;
+		if (opcode == IORING_REGISTER_EVENTFD_ASYNC)
+			ctx->eventfd_async = 1;
+		else
+			ctx->eventfd_async = 0;
 		break;
 	case IORING_UNREGISTER_EVENTFD:
 		ret = -EINVAL;

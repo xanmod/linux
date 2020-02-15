@@ -350,9 +350,14 @@ smb2_reconnect(__le16 smb2_command, struct cifs_tcon *tcon)
 	}
 
 	rc = cifs_negotiate_protocol(0, tcon->ses);
-	if (!rc && tcon->ses->need_reconnect)
+	if (!rc && tcon->ses->need_reconnect) {
 		rc = cifs_setup_session(0, tcon->ses, nls_codepage);
-
+		if ((rc == -EACCES) && !tcon->retry) {
+			rc = -EHOSTDOWN;
+			mutex_unlock(&tcon->ses->session_mutex);
+			goto failed;
+		}
+	}
 	if (rc || !tcon->need_reconnect) {
 		mutex_unlock(&tcon->ses->session_mutex);
 		goto out;
@@ -397,6 +402,7 @@ out:
 	case SMB2_SET_INFO:
 		rc = -EAGAIN;
 	}
+failed:
 	unload_nls(nls_codepage);
 	return rc;
 }
@@ -2199,13 +2205,14 @@ create_sd_buf(umode_t mode, unsigned int *len)
 	struct cifs_ace *pace;
 	unsigned int sdlen, acelen;
 
-	*len = roundup(sizeof(struct crt_sd_ctxt) + sizeof(struct cifs_ace), 8);
+	*len = roundup(sizeof(struct crt_sd_ctxt) + sizeof(struct cifs_ace) * 2,
+			8);
 	buf = kzalloc(*len, GFP_KERNEL);
 	if (buf == NULL)
 		return buf;
 
 	sdlen = sizeof(struct smb3_sd) + sizeof(struct smb3_acl) +
-		 sizeof(struct cifs_ace);
+		 2 * sizeof(struct cifs_ace);
 
 	buf->ccontext.DataOffset = cpu_to_le16(offsetof
 					(struct crt_sd_ctxt, sd));
@@ -2232,8 +2239,12 @@ create_sd_buf(umode_t mode, unsigned int *len)
 	/* create one ACE to hold the mode embedded in reserved special SID */
 	pace = (struct cifs_ace *)(sizeof(struct crt_sd_ctxt) + (char *)buf);
 	acelen = setup_special_mode_ACE(pace, (__u64)mode);
+	/* and one more ACE to allow access for authenticated users */
+	pace = (struct cifs_ace *)(acelen + (sizeof(struct crt_sd_ctxt) +
+		(char *)buf));
+	acelen += setup_authusers_ACE(pace);
 	buf->acl.AclSize = cpu_to_le16(sizeof(struct cifs_acl) + acelen);
-	buf->acl.AceCount = cpu_to_le16(1);
+	buf->acl.AceCount = cpu_to_le16(2);
 	return buf;
 }
 
