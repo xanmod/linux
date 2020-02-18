@@ -2699,6 +2699,39 @@ unsigned long nr_iowait(void)
 	return sum;
 }
 
+#ifdef CONFIG_SMP
+
+/*
+ * sched_exec - execve() is a valuable balancing opportunity, because at
+ * this point the task has the smallest effective memory and cache
+ * footprint.
+ */
+void sched_exec(void)
+{
+	struct task_struct *p = current;
+	int dest_cpu;
+
+	if (task_rq(p)->nr_running < 2)
+		return;
+
+	dest_cpu = cpumask_any_and(p->cpus_ptr, &sched_rq_watermark[IDLE_WM]);
+	if ( dest_cpu < nr_cpu_ids) {
+#ifdef CONFIG_SCHED_SMT
+		int smt = cpumask_any_and(p->cpus_ptr, &sched_sg_idle_mask);
+		if (smt < nr_cpu_ids)
+			dest_cpu = smt;
+#endif
+		if (likely(cpu_active(dest_cpu))) {
+			struct migration_arg arg = { p, dest_cpu };
+
+			stop_one_cpu(task_cpu(p), migration_cpu_stop, &arg);
+			return;
+		}
+	}
+}
+
+#endif
+
 DEFINE_PER_CPU(struct kernel_stat, kstat);
 DEFINE_PER_CPU(struct kernel_cpustat, kernel_cpustat);
 
