@@ -517,8 +517,10 @@ drm_dp_decode_sideband_req(const struct drm_dp_sideband_msg_tx *raw,
 			}
 
 			if (failed) {
-				for (i = 0; i < r->num_transactions; i++)
+				for (i = 0; i < r->num_transactions; i++) {
+					tx = &r->transactions[i];
 					kfree(tx->bytes);
+				}
 				return -ENOMEM;
 			}
 
@@ -3772,7 +3774,8 @@ drm_dp_mst_process_up_req(struct drm_dp_mst_topology_mgr *mgr,
 		else if (msg->req_type == DP_RESOURCE_STATUS_NOTIFY)
 			guid = msg->u.resource_stat.guid;
 
-		mstb = drm_dp_get_mst_branch_device_by_guid(mgr, guid);
+		if (guid)
+			mstb = drm_dp_get_mst_branch_device_by_guid(mgr, guid);
 	} else {
 		mstb = drm_dp_get_mst_branch_device(mgr, hdr->lct, hdr->rad);
 	}
