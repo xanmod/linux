@@ -637,7 +637,7 @@ int sk_psock_msg_verdict(struct sock *sk, struct sk_psock *psock,
 
 	sk_msg_compute_data_pointers(msg);
 	msg->sk = sk;
-	ret = BPF_PROG_RUN_PIN_ON_CPU(prog, msg);
+	ret = bpf_prog_run_pin_on_cpu(prog, msg);
 	ret = sk_psock_map_verd(ret, msg->sk_redir);
 	psock->apply_bytes = msg->apply_bytes;
 	if (ret == __SK_REDIRECT) {
@@ -663,7 +663,7 @@ static int sk_psock_bpf_run(struct sk_psock *psock, struct bpf_prog *prog,
 
 	skb->sk = psock->sk;
 	bpf_compute_data_end_sk_skb(skb);
-	ret = BPF_PROG_RUN_PIN_ON_CPU(prog, skb);
+	ret = bpf_prog_run_pin_on_cpu(prog, skb);
 	/* strparser clones the skb before handing it to a upper layer,
 	 * meaning skb_orphan has been called. We NULL sk on the way out
 	 * to ensure we don't trigger a BUG_ON() in skb/sk operations

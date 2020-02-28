@@ -380,7 +380,7 @@ static int kcm_parse_func_strparser(struct strparser *strp, struct sk_buff *skb)
 	struct bpf_prog *prog = psock->bpf_prog;
 	int res;
 
-	res = BPF_PROG_RUN_PIN_ON_CPU(prog, skb);
+	res = bpf_prog_run_pin_on_cpu(prog, skb);
 	return res;
 }
 
