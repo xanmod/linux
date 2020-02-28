@@ -2866,8 +2866,9 @@ static inline int active_load_balance_cpu_stop(void *data)
 }
 
 /* sg_balance_trigger - trigger slibing group balance for @cpu */
-static inline int sg_balance_trigger(const int cpu, struct rq *rq)
+static inline int sg_balance_trigger(const int cpu)
 {
+	struct rq *rq= cpu_rq(cpu);
 	unsigned long flags;
 	struct task_struct *curr;
 	int res;
@@ -2903,38 +2904,25 @@ static inline void sg_balance_check(struct rq *rq)
 		return;
 
 	cpu = cpu_of(rq);
-	/* Only cpu in slibing idle group will do the checking */
-	if (cpumask_test_cpu(cpu, &sched_sg_idle_mask)) {
-		/* Find potential cpus which can migrate the currently running task */
-		if (cpumask_andnot(&chk, cpu_online_mask, &sched_rq_pending_mask) &&
-		    cpumask_andnot(&chk, &chk, &sched_rq_watermark[IDLE_WM])) {
-			int i, tried = 0;
+	/*
+	 * Only cpu in slibing idle group will do the checking and then
+	 * find potential cpus which can migrate the current running task
+	 */
+	if (cpumask_test_cpu(cpu, &sched_sg_idle_mask) &&
+	    cpumask_andnot(&chk, cpu_online_mask, &sched_rq_pending_mask) &&
+	    cpumask_andnot(&chk, &chk, &sched_rq_watermark[IDLE_WM])) {
+		int i, tried = 0;
 
-			for_each_cpu_wrap(i, &chk, cpu) {
-				/* skip the cpu which has idle slibing cpu */
-				if (cpumask_intersects(cpu_smt_mask(i),
-						       &sched_rq_watermark[IDLE_WM]))
-					continue;
-				if (cpumask_intersects(cpu_smt_mask(i),
-						       &sched_rq_pending_mask))
-					continue;
-				if (sg_balance_trigger(i, cpu_rq(i)))
+		for_each_cpu_wrap(i, &chk, cpu) {
+			if (cpumask_subset(cpu_smt_mask(i), &chk)) {
+				if (sg_balance_trigger(i))
 					return;
 				if (tried)
 					return;
 				tried++;
 			}
 		}
-		return;
 	}
-
-	if (1 != rq->nr_running)
-		return;
-
-	if (cpumask_andnot(&chk, cpu_smt_mask(cpu), &sched_rq_pending_mask) &&
-	    cpumask_andnot(&chk, &chk, &sched_rq_watermark[IDLE_WM]) &&
-	    cpumask_equal(&chk, cpu_smt_mask(cpu)))
-		sg_balance_trigger(cpu, rq);
 }
 #endif /* CONFIG_SCHED_SMT */
 
