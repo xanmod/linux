@@ -116,6 +116,7 @@ static cpumask_t sched_rq_pending_mask ____cacheline_aligned_in_smp;
 
 DEFINE_PER_CPU(cpumask_t [NR_CPU_AFFINITY_CHK_LEVEL], sched_cpu_affinity_masks);
 DEFINE_PER_CPU(cpumask_t *, sched_cpu_affinity_end_mask);
+DEFINE_PER_CPU(cpumask_t *, sched_cpu_llc_mask);
 
 #ifdef CONFIG_SCHED_SMT
 DEFINE_STATIC_KEY_FALSE(sched_smt_present);
@@ -2854,8 +2855,12 @@ static inline int active_load_balance_cpu_stop(void *data)
 	rq->active_balance = 0;
 	/* _something_ may have changed the task, double check again */
 	if (task_on_rq_queued(p) && task_rq(p) == rq &&
-	    cpumask_and(&tmp, p->cpus_ptr, &sched_sg_idle_mask))
-		rq = move_queued_task(rq, p, __best_mask_cpu(cpu_of(rq), &tmp));
+	    cpumask_and(&tmp, p->cpus_ptr, &sched_sg_idle_mask)) {
+		int cpu = cpu_of(rq);
+		int dcpu = __best_mask_cpu(cpu, &tmp,
+					   per_cpu(sched_cpu_llc_mask, cpu));
+		rq = move_queued_task(rq, p, dcpu);
+	}
 
 	raw_spin_unlock(&rq->lock);
 	raw_spin_unlock(&p->pi_lock);
@@ -5504,10 +5509,22 @@ static void sched_init_topology_cpumask_early(void)
 			cpumask_copy(tmp, cpu_possible_mask);
 			cpumask_clear_cpu(cpu, tmp);
 		}
+		per_cpu(sched_cpu_llc_mask, cpu) =
+			&(per_cpu(sched_cpu_affinity_masks, cpu)[0]);
 		per_cpu(sched_cpu_affinity_end_mask, cpu) =
 			&(per_cpu(sched_cpu_affinity_masks, cpu)[1]);
+		per_cpu(sd_llc_id, cpu) = cpu;
 	}
 }
+
+#define TOPOLOGY_CPUMASK(name, func) \
+	if (cpumask_and(chk, chk, func(cpu))) {					\
+		per_cpu(sched_cpu_llc_mask, cpu) = chk;				\
+		per_cpu(sd_llc_id, cpu) = cpumask_first(func(cpu));		\
+		printk(KERN_INFO "bmq: cpu#%d affinity mask - "#name" 0x%08lx",	\
+		       cpu, (chk++)->bits[0]);					\
+	}									\
+	cpumask_complement(chk, func(cpu))
 
 static void sched_init_topology_cpumask(void)
 {
@@ -5519,34 +5536,23 @@ static void sched_init_topology_cpumask(void)
 
 		cpumask_complement(chk, cpumask_of(cpu));
 #ifdef CONFIG_SCHED_SMT
-		if (cpumask_and(chk, chk, topology_sibling_cpumask(cpu)))
-			printk(KERN_INFO "bmq: cpu #%d affinity mask - smt 0x%08lx",
-			       cpu, (chk++)->bits[0]);
-		cpumask_complement(chk, topology_sibling_cpumask(cpu));
+		TOPOLOGY_CPUMASK(smt, topology_sibling_cpumask);
 #endif
-		/* Set up sd_llc_id per CPU */
-		per_cpu(sd_llc_id, cpu) =
 #ifdef CONFIG_SCHED_MC
-			cpumask_first(cpu_coregroup_mask(cpu));
-
-		if (cpumask_and(chk, chk, cpu_coregroup_mask(cpu)))
-			printk(KERN_INFO "bmq: cpu #%d affinity mask - coregroup 0x%08lx",
-			       cpu, (chk++)->bits[0]);
-		cpumask_complement(chk, cpu_coregroup_mask(cpu));
-#else
-			cpumask_first(topology_core_cpumask(cpu));
+		TOPOLOGY_CPUMASK(coregroup, cpu_coregroup_mask);
 #endif
 
-		if (cpumask_and(chk, chk, topology_core_cpumask(cpu)))
-			printk(KERN_INFO "bmq: cpu #%d affinity mask - core 0x%08lx",
-			       cpu, (chk++)->bits[0]);
-		cpumask_complement(chk, topology_core_cpumask(cpu));
+		TOPOLOGY_CPUMASK(core, topology_core_cpumask);
 
 		if (cpumask_and(chk, chk, cpu_online_mask))
-			printk(KERN_INFO "bmq: cpu #%d affinity mask - others 0x%08lx",
+			printk(KERN_INFO "bmq: cpu#%d affinity mask - others 0x%08lx",
 			       cpu, (chk++)->bits[0]);
 
 		per_cpu(sched_cpu_affinity_end_mask, cpu) = chk;
+		printk(KERN_INFO "bmq: cpu#%d llc_id = %d, llc_mask idx = %ld\n",
+		       cpu, per_cpu(sd_llc_id, cpu),
+		       per_cpu(sched_cpu_llc_mask, cpu) -
+		       &(per_cpu(sched_cpu_affinity_masks, cpu)[0]));
 	}
 }
 #endif
