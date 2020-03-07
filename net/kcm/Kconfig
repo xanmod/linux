@@ -3,7 +3,6 @@
 config AF_KCM
 	tristate "KCM sockets"
 	depends on INET
-	depends on !PREEMPT_RT
 	select BPF_SYSCALL
 	select STREAM_PARSER
 	---help---
