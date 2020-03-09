@@ -32,12 +32,6 @@
 /* Do not use these with a slab allocator */
 #define GFP_SLAB_BUG_MASK (__GFP_DMA32|__GFP_HIGHMEM|~__GFP_BITS_MASK)
 
-#ifdef CONFIG_PREEMPT_RT
-extern struct static_key_true use_pvec_lock;
-#else
-extern struct static_key_false use_pvec_lock;
-#endif
-
 void page_writeback_init(void);
 
 vm_fault_t do_swap_page(struct vm_fault *vmf);

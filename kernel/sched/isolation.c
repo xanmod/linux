@@ -8,7 +8,6 @@
  *
  */
 #include "sched.h"
-#include "../../mm/internal.h"
 
 DEFINE_STATIC_KEY_FALSE(housekeeping_overridden);
 EXPORT_SYMBOL_GPL(housekeeping_overridden);
@@ -140,21 +139,10 @@ static int __init housekeeping_setup(char *str, enum hk_flags flags)
 static int __init housekeeping_nohz_full_setup(char *str)
 {
 	unsigned int flags;
-	int ret;
 
 	flags = HK_FLAG_TICK | HK_FLAG_WQ | HK_FLAG_TIMER | HK_FLAG_RCU | HK_FLAG_MISC;
 
-	ret = housekeeping_setup(str, flags);
-
-	/*
-	 * Protect struct pagevec with a lock instead using preemption disable;
-	 * with lock protection, remote handling of events instead of queue
-	 * work on remote cpu is default behavior.
-	 */
-	if (ret)
-		static_branch_enable(&use_pvec_lock);
-
-	return ret;
+	return housekeeping_setup(str, flags);
 }
 __setup("nohz_full=", housekeeping_nohz_full_setup);
 

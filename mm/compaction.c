@@ -2244,16 +2244,12 @@ check_drain:
 				block_start_pfn(cc->migrate_pfn, cc->order);
 
 			if (last_migrated_pfn < current_block_start) {
-				if (static_branch_likely(&use_pvec_lock)) {
-					cpu = raw_smp_processor_id();
-					lru_add_drain_cpu(cpu);
-					drain_cpu_pages(cpu, cc->zone);
-				} else {
-					cpu = get_cpu();
-					lru_add_drain_cpu(cpu);
-					drain_local_pages(cc->zone);
-					put_cpu();
-				}
+				cpu = get_cpu_light();
+				local_lock_irq(swapvec_lock);
+				lru_add_drain_cpu(cpu);
+				local_unlock_irq(swapvec_lock);
+				drain_local_pages(cc->zone);
+				put_cpu_light();
 				/* No more flushing until we migrate again */
 				last_migrated_pfn = 0;
 			}
