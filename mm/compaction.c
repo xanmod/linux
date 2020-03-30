@@ -1591,7 +1591,7 @@ typedef enum {
  * compactable pages.
  */
 #ifdef CONFIG_PREEMPT_RT
-#define sysctl_compact_unevictable_allowed 0
+int sysctl_compact_unevictable_allowed __read_mostly = 0;
 #else
 int sysctl_compact_unevictable_allowed __read_mostly = 1;
 #endif
