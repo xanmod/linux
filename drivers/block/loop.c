@@ -750,6 +750,24 @@ out_err:
 	return error;
 }
 
+/*
+ * for AUFS
+ * no get/put for file.
+ */
+struct file *loop_backing_file(struct super_block *sb)
+{
+	struct file *ret;
+	struct loop_device *l;
+
+	ret = NULL;
+	if (MAJOR(sb->s_dev) == LOOP_MAJOR) {
+		l = sb->s_bdev->bd_disk->private_data;
+		ret = l->lo_backing_file;
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(loop_backing_file);
+
 /* loop sysfs attributes */
 
 static ssize_t loop_attr_show(struct device *dev, char *page,

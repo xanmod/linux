@@ -266,6 +266,7 @@ source "fs/sysv/Kconfig"
 source "fs/ufs/Kconfig"
 source "fs/erofs/Kconfig"
 source "fs/vboxsf/Kconfig"
+source "fs/aufs/Kconfig"
 
 endif # MISC_FILESYSTEMS
 
