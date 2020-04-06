@@ -3101,6 +3101,7 @@ static int printk_kthread_func(void *data)
 			    &len, printk_time);
 
 		console_lock();
+		console_may_schedule = 0;
 		if (len > 0 || ext_len > 0) {
 			call_console_drivers(ext_text, ext_len, text, len);
 			boot_delay_msec(msg->level);
