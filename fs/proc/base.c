@@ -96,6 +96,7 @@
 #include <linux/posix-timers.h>
 #include <linux/time_namespace.h>
 #include <linux/resctrl.h>
+#include <linux/swait.h>
 #include <trace/events/oom.h>
 #include "internal.h"
 #include "fd.h"
