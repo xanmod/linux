@@ -689,10 +689,6 @@ static int load_image_and_restore(void)
 	return error;
 }
 
-#ifndef CONFIG_SUSPEND
-bool pm_in_action;
-#endif
-
 /**
  * hibernate - Carry out system hibernation, including saving the image.
  */
@@ -705,8 +701,6 @@ int hibernate(void)
 		pm_pr_dbg("Hibernation not available.\n");
 		return -EPERM;
 	}
-
-	pm_in_action = true;
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
@@ -784,7 +778,6 @@ int hibernate(void)
 	atomic_inc(&snapshot_device_available);
  Unlock:
 	unlock_system_sleep();
-	pm_in_action = false;
 	pr_info("hibernation exit\n");
 
 	return error;
