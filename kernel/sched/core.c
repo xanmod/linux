@@ -5,6 +5,9 @@
  *  Core kernel scheduler code and related syscalls
  *
  *  Copyright (C) 1991-2002  Linus Torvalds
+ *
+ *  Core kernel scheduler tunes by Alexandre Frade
+ *  (C) 2019 XanMod Kernel <kernel@xanmod.org>
  */
 #include "sched.h"
 
@@ -58,9 +61,9 @@ const_debug unsigned int sysctl_sched_features =
  * Limited because this is done with IRQs disabled.
  */
 #ifdef CONFIG_PREEMPT_RT
-const_debug unsigned int sysctl_sched_nr_migrate = 8;
+const_debug unsigned int sysctl_sched_nr_migrate = 128;
 #else
-const_debug unsigned int sysctl_sched_nr_migrate = 32;
+const_debug unsigned int sysctl_sched_nr_migrate = 256;
 #endif
 
 /*
@@ -73,9 +76,9 @@ __read_mostly int scheduler_running;
 
 /*
  * part of the period that we allow rt tasks to run in us.
- * default: 0.95s
+ * XanMod default: 0.98s
  */
-int sysctl_sched_rt_runtime = 950000;
+int sysctl_sched_rt_runtime = 980000;
 
 /*
  * __task_rq_lock - lock the rq @p resides on.
