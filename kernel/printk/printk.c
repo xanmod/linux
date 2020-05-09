@@ -392,6 +392,20 @@ static u64 clear_seq;
 #define LOG_LEVEL(v)		((v) & 0x07)
 #define LOG_FACILITY(v)		((v) >> 3 & 0xff)
 
+#if 0
+/*
+ * We cannot access per-CPU data (e.g. per-CPU flush irq_work) before
+ * per_cpu_areas are initialised. This variable is set to true when
+ * it's safe to access per-CPU data.
+ */
+static bool __printk_percpu_data_ready __read_mostly;
+
+bool printk_percpu_data_ready(void)
+{
+	return __printk_percpu_data_ready;
+}
+#endif
+
 /* Return log buffer address */
 char *log_buf_addr_get(void)
 {
@@ -1011,6 +1025,15 @@ static inline void log_buf_add_cpu(void) {}
 #endif /* CONFIG_SMP */
 #endif /* 0 */
 
+#if 0
+static void __init set_percpu_data_ready(void)
+{
+	/* Make sure we set this flag only after printk_safe() init is done */
+	barrier();
+	__printk_percpu_data_ready = true;
+}
+#endif
+
 void __init setup_log_buf(int early)
 {
 /* FIXME: no support for buffer resizing */
@@ -1018,6 +1041,14 @@ void __init setup_log_buf(int early)
 	unsigned long flags;
 	char *new_log_buf;
 	unsigned int free;
+
+	/*
+	 * Some archs call setup_log_buf() multiple times - first is very
+	 * early, e.g. from setup_arch(), and second - when percpu_areas
+	 * are initialised.
+	 */
+	if (!early)
+		set_percpu_data_ready();
 
 	if (log_buf != __log_buf)
 		return;
