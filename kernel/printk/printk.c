@@ -1902,6 +1902,7 @@ static void cont_add(int ctx, int cpu, u32 caller_id, int facility, int level,
 	// but later continuations can add a newline.
 	if (flags & LOG_NEWLINE) {
 		c->flags |= LOG_NEWLINE;
+		cont_flush(ctx);
 	}
 }
 
