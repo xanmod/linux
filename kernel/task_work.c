@@ -126,3 +126,4 @@ void task_work_run(void)
 		} while (work);
 	}
 }
+EXPORT_SYMBOL_GPL(task_work_run);
