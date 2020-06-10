@@ -13,7 +13,6 @@
 #endif
 
 #include <linux/mutex.h>
-#include <linux/rwlock.h>
 #include <linux/spinlock.h>
 #include <linux/ww_mutex.h>
 
