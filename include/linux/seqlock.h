@@ -479,6 +479,10 @@ static inline void write_seqcount_t_invalidate(seqcount_t *s)
  * See Documentation/locking/seqlock.rst
  */
 
+#if defined(CONFIG_LOCKDEP) || defined(CONFIG_PREEMPT_RT)
+#define SEQCOUNT_ASSOC_LOCK
+#endif
+
 /**
  * typedef seqcount_spinlock_t - sequence count with spinlock associated
  * @seqcount:		The real sequence counter
@@ -491,12 +495,12 @@ static inline void write_seqcount_t_invalidate(seqcount_t *s)
  */
 typedef struct seqcount_spinlock {
 	seqcount_t      seqcount;
-#ifdef CONFIG_LOCKDEP
+#ifdef SEQCOUNT_ASSOC_LOCK
 	spinlock_t	*lock;
 #endif
 } seqcount_spinlock_t;
 
-#ifdef CONFIG_LOCKDEP
+#ifdef SEQCOUNT_ASSOC_LOCK
 
 #define SEQCOUNT_LOCKTYPE_ZERO(seq_name, assoc_lock) {		\
 	.seqcount	= SEQCNT_ZERO(seq_name.seqcount),	\
@@ -510,7 +514,7 @@ do {								\
 	(s)->lock = (assoc_lock);				\
 } while (0)
 
-#else /* !CONFIG_LOCKDEP */
+#else /* !SEQCOUNT_ASSOC_LOCK */
 
 #define SEQCOUNT_LOCKTYPE_ZERO(seq_name, assoc_lock) {		\
 	.seqcount	= SEQCNT_ZERO(seq_name.seqcount),	\
@@ -521,7 +525,7 @@ do {								\
 	seqcount_init(&(s)->seqcount);				\
 } while (0)
 
-#endif
+#endif /* SEQCOUNT_ASSOC_LOCK */
 
 /**
  * SEQCNT_SPINLOCK_ZERO - static initializer for seqcount_spinlock_t
@@ -551,7 +555,7 @@ do {								\
  */
 typedef struct seqcount_raw_spinlock {
 	seqcount_t      seqcount;
-#ifdef CONFIG_LOCKDEP
+#ifdef SEQCOUNT_ASSOC_LOCK
 	raw_spinlock_t	*lock;
 #endif
 } seqcount_raw_spinlock_t;
@@ -584,7 +588,7 @@ typedef struct seqcount_raw_spinlock {
  */
 typedef struct seqcount_rwlock {
 	seqcount_t      seqcount;
-#ifdef CONFIG_LOCKDEP
+#ifdef SEQCOUNT_ASSOC_LOCK
 	rwlock_t	*lock;
 #endif
 } seqcount_rwlock_t;
@@ -620,7 +624,7 @@ typedef struct seqcount_rwlock {
  */
 typedef struct seqcount_mutex {
 	seqcount_t      seqcount;
-#ifdef CONFIG_LOCKDEP
+#ifdef SEQCOUNT_ASSOC_LOCK
 	struct mutex	*lock;
 #endif
 } seqcount_mutex_t;
@@ -656,7 +660,7 @@ typedef struct seqcount_mutex {
  */
 typedef struct seqcount_ww_mutex {
 	seqcount_t      seqcount;
-#ifdef CONFIG_LOCKDEP
+#ifdef SEQCOUNT_ASSOC_LOCK
 	struct ww_mutex	*lock;
 #endif
 } seqcount_ww_mutex_t;
@@ -727,10 +731,69 @@ typedef struct {
  *
  * Return: count to be passed to read_seqretry()
  */
+
+/*
+ * For PREEMPT_RT, preemption cannot be disabled upon entering the write
+ * side critical section. With disabled preemption:
+ *
+ *   - The writer cannot be preempted by a task with higher priority
+ *
+ *   - The writer cannot acquire a spinlock_t since it's a sleeping
+ *     lock.  This would invalidate the existing, and non-PREEMPT_RT
+ *     valid, code pattern of acquiring a spinlock_t inside the seqcount
+ *     write side critical section.
+ *
+ * To remain preemptible, while avoiding a livelock caused by the reader
+ * preempting the writer, use a different technique:
+ *
+ *   - If the sequence counter is even upon entering a read side
+ *     section, then no writer is in progress, and the reader did not
+ *     preempt any write side sections. It can continue.
+ *
+ *   - If the counter is odd, a writer is in progress and the reader may
+ *     have preempted a write side section. Let the reader acquire the
+ *     lock used for seqcount writer serialization, which is already
+ *     held by the writer.
+ *
+ *     The higher-priority reader will block on the lock, and the
+ *     lower-priority preempted writer will make progress until it
+ *     finishes its write serialization lock critical section.
+ *
+ *     Once the reader has the writer serialization lock acquired, the
+ *     writer is finished and the counter is even. Drop the writer
+ *     serialization lock and re-read the sequence counter.
+ *
+ * This technique must be implemented for all PREEMPT_RT sleeping locks.
+ */
+#ifdef CONFIG_PREEMPT_RT
+
+static inline unsigned read_seqbegin(const seqlock_t *sl)
+{
+	unsigned seq;
+
+	seqcount_lockdep_reader_access(&sl->seqcount);
+
+	do {
+		seq = READ_ONCE(sl->seqcount.sequence);
+		if (unlikely(seq & 1)) {
+			seqlock_t *msl = (seqlock_t *)sl;
+			spin_lock(&msl->lock);
+			spin_unlock(&msl->lock);
+		}
+	} while (unlikely(seq & 1));
+
+	smp_rmb();
+	return seq;
+}
+
+#else /* !CONFIG_PREEMPT_RT */
+
 static inline unsigned read_seqbegin(const seqlock_t *sl)
 {
 	return read_seqcount_t_begin(&sl->seqcount);
 }
+
+#endif
 
 /**
  * read_seqretry() - end and validate a seqlock_t read side section

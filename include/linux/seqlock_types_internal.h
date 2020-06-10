@@ -51,6 +51,16 @@
  * Never use lockdep for the raw write variants.
  */
 
+#ifdef CONFIG_PREEMPT_RT
+
+/*
+ * Do not disable preemption for PREEMPT_RT. Check comment on top of
+ * seqlock.h read_seqbegin() for rationale.
+ */
+#define __enforce_preemption_protection(s)			(false)
+
+#else
+
 #define __associated_lock_is_preemptible(s)				\
 ({									\
 	bool ret;							\
@@ -68,6 +78,11 @@
 									\
 	ret;								\
 })
+
+#define __enforce_preemption_protection(s)				\
+	__associated_lock_is_preemptible(s)
+
+#endif /* CONFIG_PREEMPT_RT */
 
 #ifdef CONFIG_LOCKDEP
 
@@ -101,7 +116,7 @@ do {									\
 
 #define do_raw_write_seqcount_begin(s)					\
 do {									\
-	if (__associated_lock_is_preemptible(s))			\
+	if (__enforce_preemption_protection(s))				\
 		preempt_disable();					\
 									\
 	raw_write_seqcount_t_begin(__to_seqcount_t(s));			\
@@ -111,7 +126,7 @@ do {									\
 do {									\
 	raw_write_seqcount_t_end(__to_seqcount_t(s));			\
 									\
-	if (__associated_lock_is_preemptible(s))			\
+	if (__enforce_preemption_protection(s))				\
 		preempt_enable();					\
 } while (0)
 
@@ -119,7 +134,7 @@ do {									\
 do {									\
 	__assert_associated_lock_held(s);				\
 									\
-	if (__associated_lock_is_preemptible(s))			\
+	if (__enforce_preemption_protection(s))				\
 		preempt_disable();					\
 									\
 	write_seqcount_t_begin_nested(__to_seqcount_t(s), subclass);	\
@@ -129,7 +144,7 @@ do {									\
 do {									\
 	__assert_associated_lock_held(s);				\
 									\
-	if (__associated_lock_is_preemptible(s))			\
+	if (__enforce_preemption_protection(s))				\
 		preempt_disable();					\
 									\
 	write_seqcount_t_begin(__to_seqcount_t(s));			\
@@ -139,7 +154,7 @@ do {									\
 do {									\
 	write_seqcount_t_end(__to_seqcount_t(s));			\
 									\
-	if (__associated_lock_is_preemptible(s))			\
+	if (__enforce_preemption_protection(s))				\
 		preempt_enable();					\
 } while (0)
 
@@ -160,6 +175,108 @@ do {									\
  *	seqcount_LOCKTYPE_t -- read APIs
  */
 
+#ifdef CONFIG_PREEMPT_RT
+
+/*
+ * Check comment on top of read_seqbegin() for rationale.
+ *
+ * @s: pointer to seqcount_t or any of the seqcount_locktype_t variants
+ */
+#define __rt_lock_unlock_associated_sleeping_lock(s)			\
+do {									\
+	if (__same_type(*(s), seqcount_t)  ||				\
+	    __same_type(*(s), seqcount_raw_spinlock_t))	{		\
+		break;	/* NOP */					\
+	}								\
+									\
+	if (__same_type(*(s), seqcount_spinlock_t)) {			\
+		spin_lock(((seqcount_spinlock_t *) s)->lock);		\
+		spin_unlock(((seqcount_spinlock_t *) s)->lock);		\
+	} else if (__same_type(*(s), seqcount_rwlock_t)) {		\
+		read_lock(((seqcount_rwlock_t *) s)->lock);		\
+		read_unlock(((seqcount_rwlock_t *) s)->lock);		\
+	} else if (__same_type(*(s), seqcount_mutex_t)) {		\
+		mutex_lock(((seqcount_mutex_t *) s)->lock);		\
+		mutex_unlock(((seqcount_mutex_t *) s)->lock);		\
+	} else if (__same_type(*(s), seqcount_ww_mutex_t)) {		\
+		ww_mutex_lock(((seqcount_ww_mutex_t *) s)->lock, NULL); \
+		ww_mutex_unlock(((seqcount_ww_mutex_t *) s)->lock);	\
+	} else								\
+		BUILD_BUG_ON_MSG(1, "Unknown seqcount type");		\
+} while (0)
+
+/*
+ * @s: pointer to seqcount_t or any of the seqcount_locktype_t variants
+ *
+ * After the lock-unlock operation, re-read the sequence counter since
+ * the writer made progress.
+ *
+ * Do not lock-unlock the seqcount associated sleeping lock again if the
+ * second counter read value is odd. If the first counter read was odd
+ * because the reader preempted the write-side critical section, the
+ * second odd value read must've been the result of a writer running on
+ * a parallel core instead.
+ */
+#define __raw_read_seqcount(s)						\
+({									\
+	unsigned seq = READ_ONCE(__to_seqcount_t(s)->sequence);		\
+									\
+	if (unlikely(seq & 1))						\
+		__rt_lock_unlock_associated_sleeping_lock(s);		\
+									\
+	/* no read barrier, no counter stabilization, no lockdep */	\
+	READ_ONCE(__to_seqcount_t(s)->sequence);			\
+})
+
+#define do___read_seqcount_begin(s)					\
+({									\
+	unsigned seq;							\
+									\
+	do {								\
+		seq = __raw_read_seqcount(s);				\
+		cpu_relax();						\
+	} while (unlikely(seq & 1));					\
+									\
+	/* no read barrier, with stabilized counter, no lockdep */	\
+	seq;								\
+})
+
+#define do_raw_read_seqcount(s)						\
+({									\
+	unsigned seq = __raw_read_seqcount(s);				\
+									\
+	smp_rmb();							\
+									\
+	/* with read barrier, no counter stabilization, no lockdep */	\
+	seq;								\
+})
+
+#define do_raw_seqcount_begin(s)					\
+({									\
+	/* with read barrier, no counter stabilization, no lockdep */	\
+	(do_raw_read_seqcount(s) & ~1);					\
+})
+
+#define do_raw_read_seqcount_begin(s)					\
+({									\
+	unsigned seq = do___read_seqcount_begin(s);			\
+									\
+	smp_rmb();							\
+									\
+	/* with read barrier, with stabilized counter, no lockdep */	\
+	seq;								\
+})
+
+#define do_read_seqcount_begin(s)					\
+({									\
+	seqcount_lockdep_reader_access(__to_seqcount_t(s));		\
+									\
+	/* with read barrier, stabilized counter, and lockdep */	\
+	do_raw_read_seqcount_begin(s);					\
+})
+
+#else /* !CONFIG_PREEMPT_RT */
+
 #define do___read_seqcount_begin(s)					\
 	__read_seqcount_t_begin(__to_seqcount_t(s))
 
@@ -175,6 +292,12 @@ do {									\
 #define do_read_seqcount_begin(s)					\
 	read_seqcount_t_begin(__to_seqcount_t(s))
 
+#endif /* CONFIG_PREEMPT_RT */
+
+/*
+ * Latch sequence counters allows interruptible, preemptible, writer
+ * sections. There is no need for a special PREEMPT_RT implementation.
+ */
 #define do_raw_read_seqcount_latch(s)					\
 	raw_read_seqcount_t_latch(__to_seqcount_t(s))
 
