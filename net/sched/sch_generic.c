@@ -871,7 +871,6 @@ struct Qdisc *qdisc_alloc(struct netdev_queue *dev_queue,
 		lockdep_set_class(&sch->busylock, &dev->qdisc_tx_busylock_key);
 		lockdep_set_class(&sch->seqlock, &dev->qdisc_tx_busylock_key);
 #ifdef CONFIG_PREEMPT_RT
-		lockdep_set_class(&sch->running.seqcount, &dev->qdisc_running_key);
 		lockdep_set_class(&sch->running.lock, &dev->qdisc_running_key);
 #else
 		lockdep_set_class(&sch->running, &dev->qdisc_running_key);

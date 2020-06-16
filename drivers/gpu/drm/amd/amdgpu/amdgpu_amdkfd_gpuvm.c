@@ -257,9 +257,9 @@ static int amdgpu_amdkfd_remove_eviction_fence(struct amdgpu_bo *bo,
 	new->shared_count = k;
 
 	/* Install the new fence list, seqcount provides the barriers */
-	write_seqlock(&resv->seq);
+	write_seqcount_begin(&resv->seq);
 	RCU_INIT_POINTER(resv->fence, new);
-	write_sequnlock(&resv->seq);
+	write_seqcount_end(&resv->seq);
 
 	/* Drop the references to the removed fences or move them to ef_list */
 	for (i = j, k = 0; i < old->shared_count; ++i) {
