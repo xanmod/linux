@@ -59,12 +59,15 @@
  * zstd's only source dependeny is xxhash, which has no source
  * dependencies.
  *
- * zstd and xxhash avoid declaring themselves as modules
- * when ZSTD_PREBOOT and XXH_PREBOOT are defined.
+ * When UNZSTD_PREBOOT is defined we declare __decompress(), which is
+ * used for kernel decompression, instead of unzstd().
+ *
+ * __DISABLE_EXPORTS stops zstd and xxhash from declaring themselves
+ * as modules by disabling the EXPORT_SYMBOL macro.
  */
 #ifdef STATIC
-# define ZSTD_PREBOOT
-# define XXH_PREBOOT
+# define UNZSTD_PREBOOT
+# define __DISABLE_EXPORTS
 # include "xxhash.c"
 # include "zstd/entropy_common.c"
 # include "zstd/fse_decompress.c"
@@ -319,7 +322,7 @@ out:
 	return err;
 }
 
-#ifndef ZSTD_PREBOOT
+#ifndef UNZSTD_PREBOOT
 STATIC int INIT unzstd(unsigned char *buf, long len,
 		       long (*fill)(void*, unsigned long),
 		       long (*flush)(void*, unsigned long),
