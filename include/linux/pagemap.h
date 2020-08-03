@@ -699,7 +699,7 @@ int replace_page_cache_page(struct page *old, struct page *new, gfp_t gfp_mask);
 void delete_from_page_cache_batch(struct address_space *mapping,
 				  struct pagevec *pvec);
 
-#define VM_READAHEAD_PAGES	(SZ_128K / PAGE_SIZE)
+#define VM_READAHEAD_PAGES	(SZ_2M / PAGE_SIZE)
 
 void page_cache_sync_readahead(struct address_space *, struct file_ra_state *,
 		struct file *, pgoff_t index, unsigned long req_count);
