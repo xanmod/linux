@@ -5,7 +5,11 @@
 #include <linux/nospec.h>
 #include "sched.h"
 
+#ifdef CONFIG_SCHED_AUTOGROUP_DEFAULT_ENABLED
 unsigned int __read_mostly sysctl_sched_autogroup_enabled = 1;
+#else
+unsigned int __read_mostly sysctl_sched_autogroup_enabled = 0;
+#endif
 static struct autogroup autogroup_default;
 static atomic_t autogroup_seq_nr;
 
@@ -197,11 +201,9 @@ void sched_autogroup_exit(struct signal_struct *sig)
 
 static int __init setup_autogroup(char *str)
 {
-	sysctl_sched_autogroup_enabled = 0;
-
-	return 1;
+	return kstrtouint(str, 2, &sysctl_sched_autogroup_enabled);
 }
-__setup("noautogroup", setup_autogroup);
+__setup("autogroup=", setup_autogroup);
 
 #ifdef CONFIG_PROC_FS
 
