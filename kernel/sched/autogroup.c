@@ -201,7 +201,10 @@ void sched_autogroup_exit(struct signal_struct *sig)
 
 static int __init setup_autogroup(char *str)
 {
-	return kstrtouint(str, 2, &sysctl_sched_autogroup_enabled);
+	unsigned long enabled;
+	if (!kstrtoul(str, 0, &enabled))
+		sysctl_sched_autogroup_enabled = enabled ? 1 : 0;
+	return 1;
 }
 __setup("autogroup=", setup_autogroup);
 
