@@ -367,6 +367,10 @@
 	autoconf=	[IPV6]
 			See Documentation/networking/ipv6.rst.
 
+	autogroup=	[KNL] Enable or disable scheduler automatic task group
+			creation.
+			Format: <bool>
+
 	show_lapic=	[APIC,X86] Advanced Programmable Interrupt Controller
 			Limit apic dumping. The parameter defines the maximal
 			number of local apics being dumped. Also it is possible
@@ -3355,8 +3359,6 @@
 
 	noapic		[SMP,APIC] Tells the kernel to not make use of any
 			IOAPICs that may be present in the system.
-
-	noautogroup	Disable scheduler automatic task group creation.
 
 	nobats		[PPC] Do not use BATs for mapping kernel lowmem
 			on "Classic" PPC cores.
