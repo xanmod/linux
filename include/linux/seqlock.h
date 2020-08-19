@@ -182,6 +182,12 @@ __seqcount_##locktype##_ptr(seqcount_##locktype##_t *s)			\
 	return &s->seqcount;						\
 }									\
 									\
+static __always_inline unsigned						\
+__seqcount_##locktype##_sequence(const seqcount_##locktype##_t *s)	\
+{									\
+	return READ_ONCE(s->seqcount.sequence);				\
+}									\
+									\
 static __always_inline bool						\
 __seqcount_##locktype##_preemptible(seqcount_##locktype##_t *s)		\
 {									\
@@ -201,6 +207,11 @@ __seqcount_##locktype##_assert(seqcount_##locktype##_t *s)		\
 static inline seqcount_t *__seqcount_t_ptr(seqcount_t *s)
 {
 	return s;
+}
+
+static inline unsigned __seqcount_t_sequence(seqcount_t *s)
+{
+	return READ_ONCE(s->sequence);
 }
 
 static inline bool __seqcount_t_preemptible(seqcount_t *s)
@@ -248,6 +259,7 @@ SEQCOUNT_LOCKTYPE(ww_mutex,	struct ww_mutex,	true,	&s->lock->base)
 	__seqprop_case((s),	ww_mutex,	prop))
 
 #define __seqcount_ptr(s)		__seqprop(s, ptr)
+#define __seqcount_sequence(s)		__seqprop(s, sequence)
 #define __seqcount_lock_preemptible(s)	__seqprop(s, preemptible)
 #define __seqcount_assert_lock_held(s)	__seqprop(s, assert)
 
@@ -266,21 +278,19 @@ SEQCOUNT_LOCKTYPE(ww_mutex,	struct ww_mutex,	true,	&s->lock->base)
  * Return: count to be passed to read_seqcount_retry()
  */
 #define __read_seqcount_begin(s)					\
-	__read_seqcount_t_begin(__seqcount_ptr(s))
-
-static inline unsigned __read_seqcount_t_begin(const seqcount_t *s)
-{
-	unsigned ret;
-
-repeat:
-	ret = READ_ONCE(s->sequence);
-	if (unlikely(ret & 1)) {
-		cpu_relax();
-		goto repeat;
-	}
-	kcsan_atomic_next(KCSAN_SEQLOCK_REGION_MAX);
-	return ret;
-}
+({									\
+	unsigned ret;							\
+									\
+	while (true) {							\
+		ret = __seqcount_sequence(s);				\
+		if (likely(! (ret & 1)))				\
+			break;						\
+		cpu_relax();						\
+	}								\
+									\
+	kcsan_atomic_next(KCSAN_SEQLOCK_REGION_MAX);			\
+	ret;								\
+})
 
 /**
  * raw_read_seqcount_begin() - begin a seqcount_t read section w/o lockdep
@@ -289,14 +299,12 @@ repeat:
  * Return: count to be passed to read_seqcount_retry()
  */
 #define raw_read_seqcount_begin(s)					\
-	raw_read_seqcount_t_begin(__seqcount_ptr(s))
-
-static inline unsigned raw_read_seqcount_t_begin(const seqcount_t *s)
-{
-	unsigned ret = __read_seqcount_t_begin(s);
-	smp_rmb();
-	return ret;
-}
+({									\
+	unsigned ret = __read_seqcount_begin(s);			\
+									\
+	smp_rmb();							\
+	ret;								\
+})
 
 /**
  * read_seqcount_begin() - begin a seqcount_t read critical section
@@ -305,13 +313,10 @@ static inline unsigned raw_read_seqcount_t_begin(const seqcount_t *s)
  * Return: count to be passed to read_seqcount_retry()
  */
 #define read_seqcount_begin(s)						\
-	read_seqcount_t_begin(__seqcount_ptr(s))
-
-static inline unsigned read_seqcount_t_begin(const seqcount_t *s)
-{
-	seqcount_lockdep_reader_access(s);
-	return raw_read_seqcount_t_begin(s);
-}
+({									\
+	seqcount_lockdep_reader_access(__seqcount_ptr(s));		\
+	raw_read_seqcount_begin(s);					\
+})
 
 /**
  * raw_read_seqcount() - read the raw seqcount_t counter value
@@ -325,15 +330,13 @@ static inline unsigned read_seqcount_t_begin(const seqcount_t *s)
  * Return: count to be passed to read_seqcount_retry()
  */
 #define raw_read_seqcount(s)						\
-	raw_read_seqcount_t(__seqcount_ptr(s))
-
-static inline unsigned raw_read_seqcount_t(const seqcount_t *s)
-{
-	unsigned ret = READ_ONCE(s->sequence);
-	smp_rmb();
-	kcsan_atomic_next(KCSAN_SEQLOCK_REGION_MAX);
-	return ret;
-}
+({									\
+	unsigned ret = __seqcount_sequence(s);				\
+									\
+	smp_rmb();							\
+	kcsan_atomic_next(KCSAN_SEQLOCK_REGION_MAX);			\
+	ret;								\
+})
 
 /**
  * raw_seqcount_begin() - begin a seqcount_t read critical section w/o
@@ -353,16 +356,13 @@ static inline unsigned raw_read_seqcount_t(const seqcount_t *s)
  * Return: count to be passed to read_seqcount_retry()
  */
 #define raw_seqcount_begin(s)						\
-	raw_seqcount_t_begin(__seqcount_ptr(s))
-
-static inline unsigned raw_seqcount_t_begin(const seqcount_t *s)
-{
-	/*
-	 * If the counter is odd, let read_seqcount_retry() fail
-	 * by decrementing the counter.
-	 */
-	return raw_read_seqcount_t(s) & ~1;
-}
+({									\
+	/*								\
+	 * If the counter is odd, let read_seqcount_retry() fail	\
+	 * by decrementing the counter.					\
+	 */								\
+	raw_read_seqcount(s) & ~1;					\
+})
 
 /**
  * __read_seqcount_retry() - end a seqcount_t read section w/o barrier
