@@ -17,6 +17,7 @@
 #include <linux/kcsan-checks.h>
 #include <linux/lockdep.h>
 #include <linux/mutex.h>
+#include <linux/ww_mutex.h>
 #include <linux/preempt.h>
 #include <linux/spinlock.h>
 
@@ -131,7 +132,23 @@ static inline void seqcount_lockdep_reader_access(const seqcount_t *s)
  * See Documentation/locking/seqlock.rst
  */
 
-#ifdef CONFIG_LOCKDEP
+/*
+ * For PREEMPT_RT, seqcount_LOCKTYPE_t write side critical sections cannot
+ * disable preemption. It can lead to higher latencies and the write side
+ * sections will not be able to acquire locks which become sleeping locks
+ * in RT (e.g. spinlock_t).
+ *
+ * To remain preemptible while avoiding a possible livelock caused by a
+ * reader preempting the write section, use a different technique: detect
+ * if a seqcount_LOCKTYPE_t writer is in progress. If that is the case,
+ * acquire then release the associated LOCKTYPE writer serialization
+ * lock. This will force any possibly preempted writer to make progress
+ * until the end of its writer serialization lock critical section.
+ *
+ * This lock-unlock technique must be implemented for all PREEMPT_RT
+ * sleeping locks.  See Documentation/locking/locktypes.rst
+ */
+#if defined(CONFIG_LOCKDEP) || defined(CONFIG_PREEMPT_RT)
 #define __SEQ_LOCK(expr)	expr
 #else
 #define __SEQ_LOCK(expr)
@@ -162,8 +179,10 @@ static inline void seqcount_lockdep_reader_access(const seqcount_t *s)
  * @locktype_t:		canonical/full LOCKTYPE C data type
  * @preemptible:	preemptibility of above locktype
  * @lockmember:		argument for lockdep_assert_held()
+ * @lockbase:		associated lock release function (prefix only)
+ * @lock_acquire:	associated lock acquisition function (full call)
  */
-#define SEQCOUNT_LOCKTYPE(locktype, locktype_t, preemptible, lockmember)	\
+#define SEQCOUNT_LOCKTYPE(locktype, locktype_t, preemptible, lockmember, lockbase, lock_acquire) \
 typedef struct seqcount_##locktype {					\
 	seqcount_t		seqcount;				\
 	__SEQ_LOCK(locktype_t	*lock);					\
@@ -185,7 +204,23 @@ __seqcount_##locktype##_ptr(seqcount_##locktype##_t *s)			\
 static __always_inline unsigned						\
 __seqcount_##locktype##_sequence(const seqcount_##locktype##_t *s)	\
 {									\
-	return READ_ONCE(s->seqcount.sequence);				\
+	unsigned seq = READ_ONCE(s->seqcount.sequence);			\
+									\
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))				\
+		return seq;						\
+									\
+	if (preemptible && unlikely(seq & 1)) {				\
+		__SEQ_LOCK(lock_acquire);				\
+		__SEQ_LOCK(lockbase##_unlock((void *) s->lock));	\
+									\
+		/*							\
+		 * Re-read the sequence counter since the (possibly	\
+		 * preempted) writer made progress.			\
+		 */							\
+		seq = READ_ONCE(s->seqcount.sequence);			\
+	}								\
+									\
+	return seq;							\
 }									\
 									\
 static __always_inline bool						\
@@ -224,11 +259,13 @@ static inline void __seqcount_t_assert(seqcount_t *s)
 	lockdep_assert_preemption_disabled();
 }
 
-SEQCOUNT_LOCKTYPE(raw_spinlock,	raw_spinlock_t,		false,	s->lock)
-SEQCOUNT_LOCKTYPE(spinlock,	spinlock_t,		false,	s->lock)
-SEQCOUNT_LOCKTYPE(rwlock,	rwlock_t,		false,	s->lock)
-SEQCOUNT_LOCKTYPE(mutex,	struct mutex,		true,	s->lock)
-SEQCOUNT_LOCKTYPE(ww_mutex,	struct ww_mutex,	true,	&s->lock->base)
+#define __SEQ_RT	IS_ENABLED(CONFIG_PREEMPT_RT)
+
+SEQCOUNT_LOCKTYPE(raw_spinlock, raw_spinlock_t,  false,    s->lock,        raw_spin, raw_spin_lock(s->lock))
+SEQCOUNT_LOCKTYPE(spinlock,     spinlock_t,      __SEQ_RT, s->lock,        spin,     spin_lock(s->lock))
+SEQCOUNT_LOCKTYPE(rwlock,       rwlock_t,        __SEQ_RT, s->lock,        read,     read_lock(s->lock))
+SEQCOUNT_LOCKTYPE(mutex,        struct mutex,    true,     s->lock,        mutex,    mutex_lock(s->lock))
+SEQCOUNT_LOCKTYPE(ww_mutex,     struct ww_mutex, true,     &s->lock->base, ww_mutex, ww_mutex_lock(s->lock, NULL))
 
 /**
  * SEQCNT_LOCKTYPE_ZERO - static initializer for seqcount_LOCKTYPE_t
@@ -408,13 +445,22 @@ static inline int read_seqcount_t_retry(const seqcount_t *s, unsigned start)
 	return __read_seqcount_t_retry(s, start);
 }
 
+/*
+ * Automatically disable preemption for seqcount_LOCKTYPE_t writers, if the
+ * associated lock does not implicitly disable preemption.
+ *
+ * Don't do it for PREEMPT_RT. Check __SEQ_LOCK() for rationale.
+ */
+#define __seq_enforce_preemption_protection(s)				\
+	(!IS_ENABLED(CONFIG_PREEMPT_RT) && __seqcount_lock_preemptible(s))
+
 /**
  * raw_write_seqcount_begin() - start a seqcount_t write section w/o lockdep
  * @s: Pointer to seqcount_t or any of the seqcount_LOCKTYPE_t variants
  */
 #define raw_write_seqcount_begin(s)					\
 do {									\
-	if (__seqcount_lock_preemptible(s))				\
+	if (__seq_enforce_preemption_protection(s))			\
 		preempt_disable();					\
 									\
 	raw_write_seqcount_t_begin(__seqcount_ptr(s));			\
@@ -435,7 +481,7 @@ static inline void raw_write_seqcount_t_begin(seqcount_t *s)
 do {									\
 	raw_write_seqcount_t_end(__seqcount_ptr(s));			\
 									\
-	if (__seqcount_lock_preemptible(s))				\
+	if (__seq_enforce_preemption_protection(s))			\
 		preempt_enable();					\
 } while (0)
 
@@ -458,7 +504,7 @@ static inline void raw_write_seqcount_t_end(seqcount_t *s)
 do {									\
 	__seqcount_assert_lock_held(s);					\
 									\
-	if (__seqcount_lock_preemptible(s))				\
+	if (__seq_enforce_preemption_protection(s))			\
 		preempt_disable();					\
 									\
 	write_seqcount_t_begin_nested(__seqcount_ptr(s), subclass);	\
@@ -485,7 +531,7 @@ static inline void write_seqcount_t_begin_nested(seqcount_t *s, int subclass)
 do {									\
 	__seqcount_assert_lock_held(s);					\
 									\
-	if (__seqcount_lock_preemptible(s))				\
+	if (__seq_enforce_preemption_protection(s))			\
 		preempt_disable();					\
 									\
 	write_seqcount_t_begin(__seqcount_ptr(s));			\
@@ -506,7 +552,7 @@ static inline void write_seqcount_t_begin(seqcount_t *s)
 do {									\
 	write_seqcount_t_end(__seqcount_ptr(s));			\
 									\
-	if (__seqcount_lock_preemptible(s))				\
+	if (__seq_enforce_preemption_protection(s))			\
 		preempt_enable();					\
 } while (0)
 
