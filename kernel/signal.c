@@ -911,7 +911,7 @@ static int check_kill_permission(int sig, struct kernel_siginfo *info,
 			 */
 			if (!sid || sid == task_session(current))
 				break;
-			/* fall through */
+			fallthrough;
 		default:
 			return -EPERM;
 		}
