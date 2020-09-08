@@ -216,7 +216,18 @@ static inline bool qdisc_run_begin(struct Qdisc *qdisc)
 	}
 
 #ifdef CONFIG_PREEMPT_RT
-	return try_write_seqlock(&qdisc->running);
+	if (spin_trylock(&qdisc->running.lock)) {
+		seqcount_t *s = &qdisc->running.seqcount.seqcount;
+
+		/*
+		 * Variant of write_seqcount_t_begin() telling lockdep that
+		 * a trylock was attempted.
+		 */
+		do_raw_write_seqcount_begin(s);
+		seqcount_acquire(&s->dep_map, 0, 1, _RET_IP_);
+		return true;
+	}
+	return false;
 #else
 	/* Variant of write_seqcount_begin() telling lockdep a trylock
 	 * was attempted.
