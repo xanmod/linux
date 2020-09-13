@@ -806,6 +806,18 @@ config UCLAMP_BUCKETS_COUNT
 
 endmenu
 
+config CACHY_SCHED
+	bool "Cachy CPU scheduler"
+	default y
+	help
+	  The Cachy scheduler that utilizes CPU cache and it is based on Highest
+	  Response Ratio Next (HRRN) policy.
+
+	  Is designed for desktop usage since it is about responsiveness.
+	  It may be not bad for servers.
+
+	  If unsure, say Y here.
+
 #
 # For architectures that want to enable the support for NUMA-affine scheduler
 # balancing logic:
@@ -923,6 +935,7 @@ config CGROUP_WRITEBACK
 
 menuconfig CGROUP_SCHED
 	bool "CPU controller"
+	depends on !CACHY_SCHED
 	default n
 	help
 	  This feature lets CPU scheduler recognize task groups and control CPU
@@ -1185,9 +1198,7 @@ config CHECKPOINT_RESTORE
 
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
-	select CGROUPS
-	select CGROUP_SCHED
-	select FAIR_GROUP_SCHED
+	depends on FAIR_GROUP_SCHED && !CACHY_SCHED
 	help
 	  This option optimizes the scheduler for common desktop workloads by
 	  automatically creating and populating task groups.  This separation

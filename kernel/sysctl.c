@@ -1662,6 +1662,22 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
+#if CONFIG_CACHY_SCHED
+	{
+		.procname	= "sched_hrrn_max_lifetime_ms",
+		.data		= &hrrn_max_lifetime,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_hrrn_latency_us",
+		.data		= &hrrn_latency,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+#endif
 #ifdef CONFIG_SCHED_DEBUG
 	{
 		.procname	= "sched_min_granularity_ns",

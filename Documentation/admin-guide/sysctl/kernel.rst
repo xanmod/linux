@@ -1055,6 +1055,46 @@ requirements for EAS but you do not want to use it, change
 this value to 0.
 
 
+sched_hrrn_latency_us (Cachy scheduler only)
+============================================
+
+A new task could overcome old tasks because it has 1 sum execution, and lets
+say its age is few microseconds 7000ns (7us). This new task will have
+HRRN = 7000 which is high compared with older tasks. That's why we proposed
+hrrn_latency which is in microseconds. When new task is forked, the
+hrrn_start_time is set to (current time in nano + hrrn_latency). The default
+value of hrrn_latency is 0. This value can be changed by the following:
+
+  sysctl kernel.sched_hrrn_latency_us=6000000
+
+This sets `hrrn_latency` to 6ms. Notice that a new task will have HRRN=1 for
+this period of time. Notice also that if no runnable tasks other than this new
+task, this task will run. Adding 6ms doesn't mean that a new task will pause
+for 6ms.
+
+It means it will have HRRN=1 or 0 for 6ms. It depends on how many other task
+on the run queue and whether they have higher HRRN or not. This will solve a
+problem when having heavy compilation with -j5 on 4CPUS machine.
+The compilation will create new threads for each file and that might cause
+freezes and hangups. Technically those new threads could have higher HRRN
+values than Xorg or whatever old running desktop tasks.
+
+
+sched_hrrn_max_lifetime_ms (Cachy scheduler only)
+=================================================
+
+Instead of calculating a task HRRN value for infinite life time, we proposed
+hrrn_max_lifetime which is 10s by default. A task's hrrn_start_time and
+hrrn_sum_exec_runtime reset every 10s. Therefore, the rate of change of HRRN
+for old and new tasks is normalized. The value hrrn_max_lifetime can be
+changed at run time by the following sysctl command:
+
+  sysctl kernel.sched_hrrn_max_lifetime_ms=60000
+
+The value is in milliseconds, the above command changes hrrn_max_lifetime
+from 10s to 60s.
+
+
 sched_schedstats
 ================
 
