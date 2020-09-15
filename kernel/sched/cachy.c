@@ -6729,7 +6729,7 @@ static void task_fork_fair(struct task_struct *p)
 	update_rq_clock(rq);
 
 	// (hrrn_latency * 1000) converts to ns
-	p->se.hrrn_start_time = rq_clock_task(rq) + (hrrn_latency * 1000ULL);
+	p->se.hrrn_start_time = hrrn_latency * 1000ULL;
 
 	cfs_rq = task_cfs_rq(current);
 	curr = cfs_rq->curr;
