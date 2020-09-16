@@ -43,8 +43,7 @@
 #include <linux/fips.h>
 #include <linux/time.h>
 #include <crypto/internal/rng.h>
-
-#include "jitterentropy.h"
+#include <crypto/internal/jitterentropy.h>
 
 /***************************************************************************
  * Helper function
