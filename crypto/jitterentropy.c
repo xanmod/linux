@@ -117,7 +117,7 @@ struct rand_data {
 #define JENT_EHEALTH		9 /* Health test failed during initialization */
 #define JENT_ERCT		10 /* RCT failed during initialization */
 
-#include "jitterentropy.h"
+#include <crypto/internal/jitterentropy.h>
 
 /***************************************************************************
  * Adaptive Proportion Test
@@ -853,4 +853,33 @@ int jent_entropy_init(void)
 		return JENT_ESTUCK;
 
 	return 0;
+}
+
+struct rand_data *jent_lrng_entropy_collector(void)
+{
+	static unsigned char lrng_jent_mem[JENT_MEMORY_SIZE];
+	static struct rand_data lrng_jent_state = {
+		.data		= 0,
+		.old_data	= 0,
+		.prev_time	= 0,
+		.last_delta	= 0,
+		.last_delta2	= 0,
+		.osr		= 1,
+		.mem		= lrng_jent_mem,
+		.memlocation	= 0,
+		.memblocks	= JENT_MEMORY_BLOCKSIZE,
+		.memblocksize	= JENT_MEMORY_BLOCKS,
+		.memaccessloops	= JENT_MEMORY_ACCESSLOOPS,
+		.rct_count	= 0,
+		.apt_observations = 0,
+		.apt_count	= 0,
+		.apt_base	= 0,
+		.apt_base_set	= 0,
+		.health_failure = 0
+	};
+
+	if (jent_entropy_init())
+		return NULL;
+
+	return &lrng_jent_state;
 }
