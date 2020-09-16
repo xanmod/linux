@@ -117,7 +117,7 @@ struct rand_data {
 #define JENT_EHEALTH		9 /* Health test failed during initialization */
 #define JENT_ERCT		10 /* RCT failed during initialization */
 
-#include "jitterentropy.h"
+#include <crypto/internal/jitterentropy.h>
 
 /***************************************************************************
  * Adaptive Proportion Test
