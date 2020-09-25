@@ -4128,7 +4128,7 @@ static int check_wait_context(struct task_struct *curr, struct held_lock *next)
 	 */
 	for (depth = curr->lockdep_depth - 1; depth >= 0; depth--) {
 		struct held_lock *prev = curr->held_locks + depth;
-		if (prev->check && prev->irq_context != next->irq_context)
+		if (prev->irq_context != next->irq_context)
 			break;
 	}
 	depth++;
@@ -4138,9 +4138,6 @@ static int check_wait_context(struct task_struct *curr, struct held_lock *next)
 	for (; depth < curr->lockdep_depth; depth++) {
 		struct held_lock *prev = curr->held_locks + depth;
 		short prev_inner = hlock_class(prev)->wait_type_inner;
-
-		if (!prev->check)
-			continue;
 
 		if (prev_inner) {
 			/*
