@@ -19,8 +19,8 @@ do {							\
 } while (0)
 
 extern void __lockfunc rt_spin_lock(spinlock_t *lock);
-extern unsigned long __lockfunc rt_spin_lock_trace_flags(spinlock_t *lock);
 extern void __lockfunc rt_spin_lock_nested(spinlock_t *lock, int subclass);
+extern void __lockfunc rt_spin_lock_nest_lock(spinlock_t *lock, struct lockdep_map *nest_lock);
 extern void __lockfunc rt_spin_unlock(spinlock_t *lock);
 extern void __lockfunc rt_spin_lock_unlock(spinlock_t *lock);
 extern int __lockfunc rt_spin_trylock_irqsave(spinlock_t *lock, unsigned long *flags);
@@ -68,6 +68,12 @@ extern void __lockfunc __rt_spin_unlock(struct rt_mutex *lock);
 		rt_spin_lock_nested(lock, subclass);	\
 	} while (0)
 
+# define spin_lock_nest_lock(lock, nest_lock)		\
+	do {                                                           \
+		typecheck(struct lockdep_map *, &(nest_lock)->dep_map);	\
+		rt_spin_lock_nest_lock(lock, &(nest_lock)->dep_map);	\
+	} while (0)
+
 # define spin_lock_irqsave_nested(lock, flags, subclass) \
 	do {						 \
 		typecheck(unsigned long, flags);	 \
@@ -76,6 +82,7 @@ extern void __lockfunc __rt_spin_unlock(struct rt_mutex *lock);
 	} while (0)
 #else
 # define spin_lock_nested(lock, subclass)	spin_lock(lock)
+# define spin_lock_nest_lock(lock, nest_lock)	spin_lock(lock)
 # define spin_lock_bh_nested(lock, subclass)	spin_lock_bh(lock)
 
 # define spin_lock_irqsave_nested(lock, flags, subclass) \
@@ -92,20 +99,6 @@ extern void __lockfunc __rt_spin_unlock(struct rt_mutex *lock);
 		flags = 0;				 \
 		spin_lock(lock);			 \
 	} while (0)
-
-static inline unsigned long spin_lock_trace_flags(spinlock_t *lock)
-{
-	unsigned long flags = 0;
-#ifdef CONFIG_TRACE_IRQFLAGS
-	flags = rt_spin_lock_trace_flags(lock);
-#else
-	spin_lock(lock); /* lock_local */
-#endif
-	return flags;
-}
-
-/* FIXME: we need rt_spin_lock_nest_lock */
-#define spin_lock_nest_lock(lock, nest_lock) spin_lock_nested(lock, 0)
 
 #define spin_unlock(lock)			rt_spin_unlock(lock)
 
@@ -127,8 +120,15 @@ static inline unsigned long spin_lock_trace_flags(spinlock_t *lock)
 #define spin_trylock_bh(lock)	__cond_lock(lock, rt_spin_trylock_bh(lock))
 #define spin_trylock_irq(lock)	spin_trylock(lock)
 
-#define spin_trylock_irqsave(lock, flags)	\
-	rt_spin_trylock_irqsave(lock, &(flags))
+#define spin_trylock_irqsave(lock, flags)		\
+({							\
+	int __locked;					\
+							\
+	typecheck(unsigned long, flags);		\
+	flags = 0;					\
+	__locked = spin_trylock(lock);			\
+	__locked;					\
+})
 
 #ifdef CONFIG_GENERIC_LOCKBREAK
 # define spin_is_contended(lock)	((lock)->break_lock)

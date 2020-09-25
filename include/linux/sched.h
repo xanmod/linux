@@ -1028,7 +1028,7 @@ struct task_struct {
 	int				irq_config;
 #endif
 #ifdef CONFIG_PREEMPT_RT
-	int				softirq_count;
+	int				softirq_disable_cnt;
 #endif
 
 #ifdef CONFIG_LOCKDEP

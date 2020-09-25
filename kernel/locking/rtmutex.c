@@ -1161,6 +1161,17 @@ void __lockfunc rt_spin_lock_nested(spinlock_t *lock, int subclass)
 	rt_spin_lock_fastlock(&lock->lock, rt_spin_lock_slowlock);
 }
 EXPORT_SYMBOL(rt_spin_lock_nested);
+
+void __lockfunc rt_spin_lock_nest_lock(spinlock_t *lock,
+				       struct lockdep_map *nest_lock)
+{
+	sleeping_lock_inc();
+	rcu_read_lock();
+	migrate_disable();
+	spin_acquire_nest(&lock->dep_map, 0, 0, nest_lock, _RET_IP_);
+	rt_spin_lock_fastlock(&lock->lock, rt_spin_lock_slowlock);
+}
+EXPORT_SYMBOL(rt_spin_lock_nest_lock);
 #endif
 
 void __lockfunc rt_spin_unlock(spinlock_t *lock)
@@ -1226,22 +1237,6 @@ int __lockfunc rt_spin_trylock_bh(spinlock_t *lock)
 	return ret;
 }
 EXPORT_SYMBOL(rt_spin_trylock_bh);
-
-int __lockfunc rt_spin_trylock_irqsave(spinlock_t *lock, unsigned long *flags)
-{
-	int ret;
-
-	*flags = 0;
-	ret = __rt_mutex_trylock(&lock->lock);
-	if (ret) {
-		sleeping_lock_inc();
-		rcu_read_lock();
-		migrate_disable();
-		spin_acquire(&lock->dep_map, 0, 1, _RET_IP_);
-	}
-	return ret;
-}
-EXPORT_SYMBOL(rt_spin_trylock_irqsave);
 
 void
 __rt_spin_lock_init(spinlock_t *lock, const char *name, struct lock_class_key *key)

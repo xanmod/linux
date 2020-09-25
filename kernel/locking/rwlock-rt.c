@@ -79,7 +79,7 @@ int __read_rt_trylock(struct rt_rw_lock *lock)
 	return 0;
 }
 
-void __sched __read_rt_lock(struct rt_rw_lock *lock)
+static void __read_rt_lock(struct rt_rw_lock *lock)
 {
 	struct rt_mutex *m = &lock->rtmutex;
 	struct rt_mutex_waiter waiter;
@@ -142,7 +142,7 @@ void __sched __read_rt_lock(struct rt_rw_lock *lock)
 	debug_rt_mutex_free_waiter(&waiter);
 }
 
-void __read_rt_unlock(struct rt_rw_lock *lock)
+static void __read_rt_unlock(struct rt_rw_lock *lock)
 {
 	struct rt_mutex *m = &lock->rtmutex;
 	struct task_struct *tsk;
@@ -178,7 +178,7 @@ static void __write_unlock_common(struct rt_rw_lock *lock, int bias,
 	rt_spin_lock_slowunlock(m);
 }
 
-void __sched __write_rt_lock(struct rt_rw_lock *lock)
+static void __write_rt_lock(struct rt_rw_lock *lock)
 {
 	struct rt_mutex *m = &lock->rtmutex;
 	struct task_struct *self = current;
@@ -222,7 +222,7 @@ void __sched __write_rt_lock(struct rt_rw_lock *lock)
 	}
 }
 
-int __write_rt_trylock(struct rt_rw_lock *lock)
+static int __write_rt_trylock(struct rt_rw_lock *lock)
 {
 	struct rt_mutex *m = &lock->rtmutex;
 	unsigned long flags;
@@ -242,50 +242,13 @@ int __write_rt_trylock(struct rt_rw_lock *lock)
 	return 0;
 }
 
-void __write_rt_unlock(struct rt_rw_lock *lock)
+static void __write_rt_unlock(struct rt_rw_lock *lock)
 {
 	struct rt_mutex *m = &lock->rtmutex;
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&m->wait_lock, flags);
 	__write_unlock_common(lock, WRITER_BIAS, flags);
-}
-
-/* Map the reader biased implementation */
-static inline int do_read_rt_trylock(rwlock_t *rwlock)
-{
-	return __read_rt_trylock(rwlock);
-}
-
-static inline int do_write_rt_trylock(rwlock_t *rwlock)
-{
-	return __write_rt_trylock(rwlock);
-}
-
-static inline void do_read_rt_lock(rwlock_t *rwlock)
-{
-	__read_rt_lock(rwlock);
-}
-
-static inline void do_write_rt_lock(rwlock_t *rwlock)
-{
-	__write_rt_lock(rwlock);
-}
-
-static inline void do_read_rt_unlock(rwlock_t *rwlock)
-{
-	__read_rt_unlock(rwlock);
-}
-
-static inline void do_write_rt_unlock(rwlock_t *rwlock)
-{
-	__write_rt_unlock(rwlock);
-}
-
-static inline void do_rwlock_rt_init(rwlock_t *rwlock, const char *name,
-				     struct lock_class_key *key)
-{
-	__rwlock_biased_rt_init(rwlock, name, key);
 }
 
 int __lockfunc rt_read_can_lock(rwlock_t *rwlock)
@@ -307,7 +270,7 @@ int __lockfunc rt_read_trylock(rwlock_t *rwlock)
 
 	sleeping_lock_inc();
 	migrate_disable();
-	ret = do_read_rt_trylock(rwlock);
+	ret = __read_rt_trylock(rwlock);
 	if (ret) {
 		rwlock_acquire_read(&rwlock->dep_map, 0, 1, _RET_IP_);
 		rcu_read_lock();
@@ -325,7 +288,7 @@ int __lockfunc rt_write_trylock(rwlock_t *rwlock)
 
 	sleeping_lock_inc();
 	migrate_disable();
-	ret = do_write_rt_trylock(rwlock);
+	ret = __write_rt_trylock(rwlock);
 	if (ret) {
 		rwlock_acquire(&rwlock->dep_map, 0, 1, _RET_IP_);
 		rcu_read_lock();
@@ -343,7 +306,7 @@ void __lockfunc rt_read_lock(rwlock_t *rwlock)
 	rcu_read_lock();
 	migrate_disable();
 	rwlock_acquire_read(&rwlock->dep_map, 0, 0, _RET_IP_);
-	do_read_rt_lock(rwlock);
+	__read_rt_lock(rwlock);
 }
 EXPORT_SYMBOL(rt_read_lock);
 
@@ -353,14 +316,14 @@ void __lockfunc rt_write_lock(rwlock_t *rwlock)
 	rcu_read_lock();
 	migrate_disable();
 	rwlock_acquire(&rwlock->dep_map, 0, 0, _RET_IP_);
-	do_write_rt_lock(rwlock);
+	__write_rt_lock(rwlock);
 }
 EXPORT_SYMBOL(rt_write_lock);
 
 void __lockfunc rt_read_unlock(rwlock_t *rwlock)
 {
 	rwlock_release(&rwlock->dep_map, _RET_IP_);
-	do_read_rt_unlock(rwlock);
+	__read_rt_unlock(rwlock);
 	migrate_enable();
 	rcu_read_unlock();
 	sleeping_lock_dec();
@@ -370,7 +333,7 @@ EXPORT_SYMBOL(rt_read_unlock);
 void __lockfunc rt_write_unlock(rwlock_t *rwlock)
 {
 	rwlock_release(&rwlock->dep_map, _RET_IP_);
-	do_write_rt_unlock(rwlock);
+	__write_rt_unlock(rwlock);
 	migrate_enable();
 	rcu_read_unlock();
 	sleeping_lock_dec();
@@ -379,6 +342,6 @@ EXPORT_SYMBOL(rt_write_unlock);
 
 void __rt_rwlock_init(rwlock_t *rwlock, char *name, struct lock_class_key *key)
 {
-	do_rwlock_rt_init(rwlock, name, key);
+	__rwlock_biased_rt_init(rwlock, name, key);
 }
 EXPORT_SYMBOL(__rt_rwlock_init);
