@@ -208,10 +208,13 @@ SYSCALL_DEFINE3(setpriority, int, which, int, who, int, niceval)
 
 	/* normalize: avoid signed division (rounding problems) */
 	error = -ESRCH;
+
+#if !defined(CONFIG_CACHY_SCHED)
 	if (niceval < MIN_NICE)
 		niceval = MIN_NICE;
 	if (niceval > MAX_NICE)
 		niceval = MAX_NICE;
+#endif
 
 	rcu_read_lock();
 	read_lock(&tasklist_lock);

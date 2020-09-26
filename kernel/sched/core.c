@@ -3423,7 +3423,7 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	return rq;
 }
 
-#if defined(CONFIG_SMP) && !defined(CONFIG_CACHY_SCHED)
+#if defined(CONFIG_SMP)
 
 /* rq->lock is NOT held, but preemption is disabled */
 static void __balance_callback(struct rq *rq)
@@ -3783,9 +3783,7 @@ void scheduler_tick(void)
 
 	perf_event_task_tick();
 
-#if defined(CONFIG_SMP) && defined(CONFIG_CACHY_SCHED)
-	rq->idle_balance = idle_cpu(cpu);
-#elif CONFIG_SMP
+#if CONFIG_SMP
 	rq->idle_balance = idle_cpu(cpu);
 	trigger_load_balance(rq);
 #endif
@@ -4739,6 +4737,11 @@ void set_user_nice(struct task_struct *p, long nice)
 	struct rq_flags rf;
 	struct rq *rq;
 
+#ifdef CONFIG_CACHY_SCHED
+	if (p->static_prio > p->original_prio)
+		nice = NICE_TO_PRIO(nice) - p->static_prio;
+#endif
+
 	if (task_nice(p) == nice || nice < MIN_NICE || nice > MAX_NICE)
 		return;
 	/*
@@ -4766,6 +4769,14 @@ void set_user_nice(struct task_struct *p, long nice)
 		put_prev_task(rq, p);
 
 	p->static_prio = NICE_TO_PRIO(nice);
+
+#ifdef CONFIG_CACHY_SCHED
+	p->original_prio = p->static_prio;
+
+	if (p->original_prio >= 120)
+		p->prio = p->static_prio = p->normal_prio = 139;
+#endif
+
 	set_load_weight(p, true);
 	old_prio = p->prio;
 	p->prio = effective_prio(p);
@@ -6802,7 +6813,7 @@ void __init sched_init(void)
 	int i;
 
 #ifdef CONFIG_CACHY_SCHED
-	printk(KERN_INFO "Cachy CPU scheduler v5.8-r2 by Hamad Al Marri.");
+	printk(KERN_INFO "Cachy CPU scheduler v5.8-r5 by Hamad Al Marri.");
 #endif
 
 	wait_bit_init();
@@ -6933,6 +6944,9 @@ void __init sched_init(void)
 		atomic_set(&rq->nr_iowait, 0);
 	}
 
+#ifdef CONFIG_CACHY_SCHED
+	init_task.original_prio = init_task.static_prio;
+#endif
 	set_load_weight(&init_task, false);
 
 	/*

@@ -33,7 +33,6 @@ extern unsigned int sysctl_sched_child_runs_first;
 
 #ifdef CONFIG_CACHY_SCHED
 extern int hrrn_max_lifetime;
-extern int hrrn_latency;
 #endif
 
 enum sched_tunable_scaling {
