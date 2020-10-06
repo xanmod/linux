@@ -1981,12 +1981,6 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 }
 EXPORT_SYMBOL(vprintk);
 
-int vprintk_default(const char *fmt, va_list args)
-{
-	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, 0, fmt, args);
-}
-EXPORT_SYMBOL_GPL(vprintk_default);
-
 /**
  * printk - print a kernel message
  * @fmt: format string
@@ -2784,7 +2778,7 @@ static int __init init_printk_kthread(void)
 }
 late_initcall(init_printk_kthread);
 
-static int vprintk_deferred(const char *fmt, va_list args)
+__printf(1, 0) static int vprintk_deferred(const char *fmt, va_list args)
 {
 	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, 0, fmt, args);
 }
