@@ -530,36 +530,51 @@ static inline u64 max_vruntime(u64 max_vruntime, u64 vruntime)
 	return max_vruntime;
 }
 
-static inline u64 min_vruntime(u64 min_vruntime, u64 vruntime)
-{
-	s64 delta = (s64)(vruntime - min_vruntime);
-	if (delta < 0)
-		min_vruntime = vruntime;
-
-	return min_vruntime;
-}
-
-static inline int entity_before(struct sched_entity *a,
-				struct sched_entity *b)
-{
-	return (s64)(a->vruntime - b->vruntime) < 0;
-}
+static int
+wakeup_preempt_entity(u64 now, struct sched_entity *curr, struct sched_entity *se);
 
 /*
  * Enqueue an entity
  */
 static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
+	struct sched_entity *iter, *prev = NULL;
+	u64 now = rq_clock(rq_of(cfs_rq));
 	se->next = NULL;
 	se->prev = NULL;
 
-	if (likely(cfs_rq->head))
-	{
-		se->next		= cfs_rq->head;
-		cfs_rq->head->prev	= se;
+	if (likely(cfs_rq->head)) {
 
-		// lastly reset the head
-		cfs_rq->head = se;
+		// start from head
+		iter = cfs_rq->head;
+
+		// does iter have higher HRRN value than se?
+		while (iter && wakeup_preempt_entity(now, se, iter) == 1) {
+			prev = iter;
+			iter = iter->next;
+		}
+
+		// if iter == NULL, insert se at the end
+		if (iter == NULL) {
+			prev->next	= se;
+			se->prev	= prev;
+		}
+		// else if iter != head, insert se before iter
+		else if (iter != cfs_rq->head) {
+			se->next	= iter;
+			se->prev	= prev;
+
+			iter->prev	= se;
+			prev->next	= se;
+		}
+		// else if iter == head, insert se at head
+		else {
+			se->next		= cfs_rq->head;
+			cfs_rq->head->prev	= se;
+
+			// lastly reset the head
+			cfs_rq->head = se;
+		}
 
 		return;
 	}
@@ -4030,19 +4045,6 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq) {}
 
 #endif /* CONFIG_SMP */
 
-static void check_spread(struct cfs_rq *cfs_rq, struct sched_entity *se)
-{
-#ifdef CONFIG_SCHED_DEBUG
-	s64 d = se->vruntime - cfs_rq->min_vruntime;
-
-	if (d < 0)
-		d = -d;
-
-	if (d > 3*sysctl_sched_latency)
-		schedstat_inc(cfs_rq->nr_spread_over);
-#endif
-}
-
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
 
 static inline void check_schedstat_required(void)
@@ -4119,7 +4121,6 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	check_schedstat_required();
 	update_stats_enqueue(cfs_rq, se, flags);
-	check_spread(cfs_rq, se);
 	if (!curr)
 		__enqueue_entity(cfs_rq, se);
 	se->on_rq = 1;
@@ -4170,14 +4171,31 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	update_cfs_group(se);
 }
 
+static struct sched_entity *pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr);
+
 /*
  * Preempt the current task with a newly woken task if needed:
  */
 static void
 check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 {
-	if (pick_next_entity(cfs_rq, curr) != curr)
+	u64 now = rq_clock(rq_of(cfs_rq));
+
+	// does head have higher HRRN value than curr
+	if (wakeup_preempt_entity(now, curr, cfs_rq->head) == 1)
 		resched_curr(rq_of(cfs_rq));
+}
+
+static inline void reset_lifetime(u64 now, struct sched_entity *se)
+{
+	s64 diff;
+
+	diff = (now - se->hrrn_start_time) - (hrrn_max_lifetime * 1000000ULL);
+
+	if (diff > 0) {
+		se->hrrn_start_time = now - 2000000ULL;
+		se->vruntime = 1ULL;
+	}
 }
 
 static void
@@ -4213,52 +4231,22 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	se->prev_sum_exec_runtime = se->sum_exec_runtime;
 }
 
-static int
-wakeup_preempt_entity(u64 now, struct sched_entity *curr, struct sched_entity *se);
-
-static inline void reset_lifetime(u64 now, struct sched_entity *se)
-{
-	s64 diff;
-
-	diff = (now - se->hrrn_start_time) - (hrrn_max_lifetime * 1000000ULL);
-
-	if (diff > 0) {
-		se->hrrn_start_time = now - 2000000ULL;
-		se->vruntime = 1ULL;
-	}
-}
-
-/*
- * Pick the next process, keeping these things in mind, in this order:
- * 1) keep things fair between processes/task groups
- * 2) pick the "next" process, since someone really wants that to run
- * 3) pick the "last" process, for cache locality
- * 4) do not run the "skip" process, if something else is available
- */
 static struct sched_entity *
 pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 {
-	struct sched_entity *se, *next;
+	struct sched_entity *se = cfs_rq->head;
 	u64 now = rq_clock(rq_of(cfs_rq));
 
-	if (!cfs_rq->head)
+	if (unlikely(!se))
 		return curr;
 
-	se = cfs_rq->head;
-	next = se->next;
 	reset_lifetime(now, se);
 
 	if (curr) {
 		reset_lifetime(now, curr);
+
 		if (wakeup_preempt_entity(now, se, curr) == 1)
-			se = curr;
-	}
-
-	while (next) {
-		if (wakeup_preempt_entity(now, se, next) == 1)
-			se = next;
-
-		next = next->next;
+			return curr;
 	}
 
 	return se;
@@ -4277,8 +4265,6 @@ static void put_prev_entity(struct cfs_rq *cfs_rq, struct sched_entity *prev)
 
 	/* throttle cfs_rqs exceeding runtime */
 	check_cfs_rq_runtime(cfs_rq);
-
-	check_spread(cfs_rq, prev);
 
 	if (prev->on_rq) {
 		update_stats_wait_start(cfs_rq, prev);
@@ -6220,32 +6206,6 @@ static void detach_entity_cfs_rq(struct sched_entity *se);
  */
 static void migrate_task_rq_fair(struct task_struct *p, int new_cpu)
 {
-	/*
-	 * As blocked tasks retain absolute vruntime the migration needs to
-	 * deal with this by subtracting the old and adding the new
-	 * min_vruntime -- the latter is done by enqueue_entity() when placing
-	 * the task on the new runqueue.
-	 */
-	if (p->state == TASK_WAKING) {
-		struct sched_entity *se = &p->se;
-		struct cfs_rq *cfs_rq = cfs_rq_of(se);
-		u64 min_vruntime;
-
-#ifndef CONFIG_64BIT
-		u64 min_vruntime_copy;
-
-		do {
-			min_vruntime_copy = cfs_rq->min_vruntime_copy;
-			smp_rmb();
-			min_vruntime = cfs_rq->min_vruntime;
-		} while (min_vruntime != min_vruntime_copy);
-#else
-		min_vruntime = cfs_rq->min_vruntime;
-#endif
-
-		se->vruntime -= min_vruntime;
-	}
-
 	if (p->on_rq == TASK_ON_RQ_MIGRATING) {
 		/*
 		 * In case of TASK_ON_RQ_MIGRATING we in fact hold the 'old'
@@ -6311,16 +6271,6 @@ wakeup_preempt_entity(u64 now, struct sched_entity *curr, struct sched_entity *s
 	u64 vr_curr	= curr->vruntime + 1;
 	u64 vr_se	= se->vruntime + 1;
 	s64 diff;
-
-	if (vr_curr == 1) {
-		curr->hrrn_start_time	= now;
-		curr->vruntime = 1;
-	}
-
-	if (vr_se == 1) {
-		se->hrrn_start_time	= now;
-		se->vruntime = 1;
-	}
 
 	l_curr	= now - curr->hrrn_start_time;
 	l_se	= now - se->hrrn_start_time;
@@ -6495,13 +6445,6 @@ simple:
 	p = task_of(se);
 
 done: __maybe_unused;
-
-	if (p->static_prio > p->original_prio) {
-		p->static_prio = p->static_prio - 1;
-		p->prio = p->normal_prio = p->static_prio;
-		reweight_task(p, p->static_prio - MAX_RT_PRIO);
-	}
-
 #ifdef CONFIG_SMP
 	/*
 	 * Move the next running task to the front of
@@ -6823,14 +6766,6 @@ static int task_hot(struct task_struct *p, struct lb_env *env)
 
 	if (unlikely(task_has_idle_policy(p)))
 		return 0;
-
-	/*
-	 * Buddy candidates are cache hot:
-	 */
-	if (sched_feat(CACHE_HOT_BUDDY) && env->dst_rq->nr_running &&
-			(&p->se == cfs_rq_of(&p->se)->next ||
-			 &p->se == cfs_rq_of(&p->se)->last))
-		return 1;
 
 	if (sysctl_sched_migration_cost == -1)
 		return 1;
@@ -10084,15 +10019,12 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 static void task_fork_fair(struct task_struct *p)
 {
 	struct cfs_rq *cfs_rq;
-	struct sched_entity *se = &p->se, *curr;
+	struct sched_entity *curr;
 	struct rq *rq = this_rq();
 	struct rq_flags rf;
 
 	rq_lock(rq, &rf);
 	update_rq_clock(rq);
-
-	se->hrrn_start_time = p->start_time;
-	se->vruntime = 0;
 
 	cfs_rq = task_cfs_rq(current);
 	curr = cfs_rq->curr;
@@ -10277,10 +10209,6 @@ static void set_next_task_fair(struct rq *rq, struct task_struct *p, bool first)
 void init_cfs_rq(struct cfs_rq *cfs_rq)
 {
 	cfs_rq->tasks_timeline = RB_ROOT_CACHED;
-	cfs_rq->min_vruntime = (u64)(-(1LL << 20));
-#ifndef CONFIG_64BIT
-	cfs_rq->min_vruntime_copy = cfs_rq->min_vruntime;
-#endif
 #ifdef CONFIG_SMP
 	raw_spin_lock_init(&cfs_rq->removed.lock);
 #endif

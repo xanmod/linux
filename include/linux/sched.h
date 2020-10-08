@@ -704,7 +704,6 @@ struct task_struct {
 #endif
 	int				on_rq;
 
-	int				original_prio;
 	int				prio;
 	int				static_prio;
 	int				normal_prio;

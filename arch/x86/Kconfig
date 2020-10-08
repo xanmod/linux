@@ -1543,7 +1543,6 @@ config AMD_MEM_ENCRYPT_ACTIVE_BY_DEFAULT
 # Common NUMA Features
 config NUMA
 	bool "NUMA Memory Allocation and Scheduler Support"
-	depends on !CACHY_SCHED
 	depends on SMP
 	depends on X86_64 || (X86_32 && HIGHMEM64G && X86_BIGSMP)
 	default y if X86_BIGSMP
