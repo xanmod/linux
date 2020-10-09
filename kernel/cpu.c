@@ -864,15 +864,6 @@ static int take_cpu_down(void *_param)
 	int err, cpu = smp_processor_id();
 	int ret;
 
-#ifdef CONFIG_PREEMPT_RT
-	/*
-	 * If any tasks disabled migration before we got here,
-	 * go back and sleep again.
-	 */
-	if (cpu_nr_pinned(cpu))
-		return -EAGAIN;
-#endif
-
 	/* Ensure this CPU doesn't handle any more interrupts. */
 	err = __cpu_disable();
 	if (err < 0)
@@ -902,10 +893,6 @@ static int take_cpu_down(void *_param)
 	return 0;
 }
 
-#ifdef CONFIG_PREEMPT_RT
-struct task_struct *takedown_cpu_task;
-#endif
-
 static int takedown_cpu(unsigned int cpu)
 {
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, cpu);
@@ -920,39 +907,11 @@ static int takedown_cpu(unsigned int cpu)
 	 */
 	irq_lock_sparse();
 
-#ifdef CONFIG_PREEMPT_RT
-	WARN_ON_ONCE(takedown_cpu_task);
-	takedown_cpu_task = current;
-
-again:
-	/*
-	 * If a task pins this CPU after we pass this check, take_cpu_down
-	 * will return -EAGAIN.
-	 */
-	for (;;) {
-		int nr_pinned;
-
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		nr_pinned = cpu_nr_pinned(cpu);
-		if (nr_pinned == 0)
-			break;
-		schedule();
-	}
-	set_current_state(TASK_RUNNING);
-#endif
-
 	/*
 	 * So now all preempt/rcu users must observe !cpu_active().
 	 */
 	err = stop_machine_cpuslocked(take_cpu_down, NULL, cpumask_of(cpu));
-#ifdef CONFIG_PREEMPT_RT
-	if (err == -EAGAIN)
-		goto again;
-#endif
 	if (err) {
-#ifdef CONFIG_PREEMPT_RT
-		takedown_cpu_task = NULL;
-#endif
 		/* CPU refused to die */
 		irq_unlock_sparse();
 		/* Unpark the hotplug thread so we can rollback there */
@@ -971,9 +930,6 @@ again:
 	wait_for_ap_thread(st, false);
 	BUG_ON(st->state != CPUHP_AP_IDLE_DEAD);
 
-#ifdef CONFIG_PREEMPT_RT
-	takedown_cpu_task = NULL;
-#endif
 	/* Interrupts are moved away from the dying cpu, reenable alloc/free */
 	irq_unlock_sparse();
 
@@ -1646,7 +1602,7 @@ static struct cpuhp_step cpuhp_hp_states[] = {
 		.name			= "ap:online",
 	},
 	/*
-	 * Handled on controll processor until the plugged processor manages
+	 * Handled on control processor until the plugged processor manages
 	 * this itself.
 	 */
 	[CPUHP_TEARDOWN_CPU] = {
@@ -1655,6 +1611,13 @@ static struct cpuhp_step cpuhp_hp_states[] = {
 		.teardown.single	= takedown_cpu,
 		.cant_stop		= true,
 	},
+
+	[CPUHP_AP_SCHED_WAIT_EMPTY] = {
+		.name			= "sched:waitempty",
+		.startup.single		= NULL,
+		.teardown.single	= sched_cpu_wait_empty,
+	},
+
 	/* Handle smpboot threads park/unpark */
 	[CPUHP_AP_SMPBOOT_THREADS] = {
 		.name			= "smpboot/threads:online",

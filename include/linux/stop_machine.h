@@ -24,10 +24,9 @@ typedef int (*cpu_stop_fn_t)(void *arg);
 struct cpu_stop_work {
 	struct list_head	list;		/* cpu_stopper->works */
 	cpu_stop_fn_t		fn;
+	unsigned long		caller;
 	void			*arg;
 	struct cpu_stop_done	*done;
-	/* Did not run due to disabled stopper; for nowait debug checks */
-	bool			disabled;
 };
 
 int stop_one_cpu(unsigned int cpu, cpu_stop_fn_t fn, void *arg);
@@ -37,6 +36,8 @@ bool stop_one_cpu_nowait(unsigned int cpu, cpu_stop_fn_t fn, void *arg,
 void stop_machine_park(int cpu);
 void stop_machine_unpark(int cpu);
 void stop_machine_yield(const struct cpumask *cpumask);
+
+extern void print_stop_info(const char *log_lvl, struct task_struct *task);
 
 #else	/* CONFIG_SMP */
 
@@ -81,6 +82,8 @@ static inline bool stop_one_cpu_nowait(unsigned int cpu,
 
 	return false;
 }
+
+static inline void print_stop_info(const char *log_lvl, struct task_struct *task) { }
 
 #endif	/* CONFIG_SMP */
 

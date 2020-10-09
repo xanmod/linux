@@ -232,8 +232,6 @@ extern void io_schedule_finish(int token);
 extern long io_schedule_timeout(long timeout);
 extern void io_schedule(void);
 
-int cpu_nr_pinned(int cpu);
-
 /**
  * struct prev_cputime - snapshot of system and user cputime
  * @utime: time spent in user mode
@@ -720,17 +718,11 @@ struct task_struct {
 	int				nr_cpus_allowed;
 	const cpumask_t			*cpus_ptr;
 	cpumask_t			cpus_mask;
+	void				*migration_pending;
 #if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
-	int				migrate_disable;
-	bool				migrate_disable_scheduled;
-# ifdef CONFIG_SCHED_DEBUG
-	int				pinned_on_cpu;
-# endif
-#elif !defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
-# ifdef CONFIG_SCHED_DEBUG
-	int				migrate_disable;
-# endif
+	unsigned short			migration_disabled;
 #endif
+	unsigned short			migration_flags;
 
 #ifdef CONFIG_PREEMPT_RCU
 	int				rcu_read_lock_nesting;
@@ -2164,7 +2156,5 @@ int sched_trace_rq_cpu(struct rq *rq);
 int sched_trace_rq_nr_running(struct rq *rq);
 
 const struct cpumask *sched_trace_rd_span(struct root_domain *rd);
-
-extern struct task_struct *takedown_cpu_task;
 
 #endif
