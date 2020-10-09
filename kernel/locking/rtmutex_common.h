@@ -30,13 +30,8 @@ struct rt_mutex_waiter {
 	struct rb_node          pi_tree_entry;
 	struct task_struct	*task;
 	struct rt_mutex		*lock;
-	bool			savestate;
-#ifdef CONFIG_DEBUG_RT_MUTEXES
-	unsigned long		ip;
-	struct pid		*deadlock_task_pid;
-	struct rt_mutex		*deadlock_lock;
-#endif
 	int prio;
+	bool			savestate;
 	u64 deadline;
 };
 

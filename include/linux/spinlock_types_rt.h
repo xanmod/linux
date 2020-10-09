@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #ifndef __LINUX_SPINLOCK_TYPES_RT_H
 #define __LINUX_SPINLOCK_TYPES_RT_H
 
@@ -18,22 +19,11 @@ typedef struct spinlock {
 #endif
 } spinlock_t;
 
-#ifdef CONFIG_DEBUG_RT_MUTEXES
-# define __RT_SPIN_INITIALIZER(name) \
+#define __RT_SPIN_INITIALIZER(name) \
 	{ \
 	.wait_lock = __RAW_SPIN_LOCK_UNLOCKED(name.wait_lock), \
 	.save_state = 1, \
-	.file = __FILE__, \
-	.line = __LINE__ , \
 	}
-#else
-# define __RT_SPIN_INITIALIZER(name) \
-	{								\
-	.wait_lock = __RAW_SPIN_LOCK_UNLOCKED(name.wait_lock),		\
-	.save_state = 1, \
-	}
-#endif
-
 /*
 .wait_list = PLIST_HEAD_INIT_RAW((name).lock.wait_list, (name).lock.wait_lock)
 */

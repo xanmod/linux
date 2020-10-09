@@ -148,7 +148,6 @@ struct task_group;
 		current->state = (state_value);				\
 		raw_spin_unlock_irqrestore(&current->pi_lock, flags);	\
 	} while (0)
-
 #else
 /*
  * set_current_state() includes a barrier so that the write of current->state
@@ -731,9 +730,6 @@ struct task_struct {
 # ifdef CONFIG_SCHED_DEBUG
 	int				migrate_disable;
 # endif
-#endif
-#ifdef CONFIG_PREEMPT_RT
-	int				sleeping_lock;
 #endif
 
 #ifdef CONFIG_PREEMPT_RCU
@@ -1984,23 +1980,6 @@ static __always_inline bool need_resched(void)
 {
 	return unlikely(tif_need_resched());
 }
-
-#ifdef CONFIG_PREEMPT_RT
-static inline void sleeping_lock_inc(void)
-{
-	current->sleeping_lock++;
-}
-
-static inline void sleeping_lock_dec(void)
-{
-	current->sleeping_lock--;
-}
-
-#else
-
-static inline void sleeping_lock_inc(void) { }
-static inline void sleeping_lock_dec(void) { }
-#endif
 
 /*
  * Wrappers for p->thread_info->cpu access. No-op on UP.

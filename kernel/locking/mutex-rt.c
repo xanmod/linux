@@ -1,6 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * kernel/rt.c
- *
  * Real-Time Preemption Support
  *
  * started by Ingo Molnar:

@@ -25,7 +25,6 @@
 #include <linux/sched/debug.h>
 #include <linux/timer.h>
 #include <linux/ww_mutex.h>
-#include <linux/blkdev.h>
 
 #include "rtmutex_common.h"
 
@@ -640,7 +639,6 @@ static int rt_mutex_adjust_prio_chain(struct task_struct *task,
 	 * walk, we detected a deadlock.
 	 */
 	if (lock == orig_lock || rt_mutex_owner(lock) == top_task) {
-		debug_rt_mutex_deadlock(chwalk, orig_waiter, lock);
 		raw_spin_unlock(&lock->wait_lock);
 		ret = -EDEADLK;
 		goto out_unlock_pi;
@@ -1068,10 +1066,8 @@ void __sched rt_spin_lock_slowlock_locked(struct rt_mutex *lock,
 
 		raw_spin_unlock_irqrestore(&lock->wait_lock, flags);
 
-		debug_rt_mutex_print_deadlock(waiter);
-
 		if (top_waiter != waiter || adaptive_wait(lock, lock_owner))
-			schedule();
+			preempt_schedule_lock();
 
 		raw_spin_lock_irqsave(&lock->wait_lock, flags);
 
@@ -1138,11 +1134,10 @@ void __sched rt_spin_lock_slowunlock(struct rt_mutex *lock)
 
 void __lockfunc rt_spin_lock(spinlock_t *lock)
 {
-	sleeping_lock_inc();
-	rcu_read_lock();
-	migrate_disable();
 	spin_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	rt_spin_lock_fastlock(&lock->lock, rt_spin_lock_slowlock);
+	rcu_read_lock();
+	migrate_disable();
 }
 EXPORT_SYMBOL(rt_spin_lock);
 
@@ -1154,22 +1149,20 @@ void __lockfunc __rt_spin_lock(struct rt_mutex *lock)
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 void __lockfunc rt_spin_lock_nested(spinlock_t *lock, int subclass)
 {
-	sleeping_lock_inc();
-	rcu_read_lock();
-	migrate_disable();
 	spin_acquire(&lock->dep_map, subclass, 0, _RET_IP_);
 	rt_spin_lock_fastlock(&lock->lock, rt_spin_lock_slowlock);
+	rcu_read_lock();
+	migrate_disable();
 }
 EXPORT_SYMBOL(rt_spin_lock_nested);
 
 void __lockfunc rt_spin_lock_nest_lock(spinlock_t *lock,
 				       struct lockdep_map *nest_lock)
 {
-	sleeping_lock_inc();
-	rcu_read_lock();
-	migrate_disable();
 	spin_acquire_nest(&lock->dep_map, 0, 0, nest_lock, _RET_IP_);
 	rt_spin_lock_fastlock(&lock->lock, rt_spin_lock_slowlock);
+	rcu_read_lock();
+	migrate_disable();
 }
 EXPORT_SYMBOL(rt_spin_lock_nest_lock);
 #endif
@@ -1178,10 +1171,9 @@ void __lockfunc rt_spin_unlock(spinlock_t *lock)
 {
 	/* NOTE: we always pass in '1' for nested, for simplicity */
 	spin_release(&lock->dep_map, _RET_IP_);
-	rt_spin_lock_fastunlock(&lock->lock, rt_spin_lock_slowunlock);
 	migrate_enable();
 	rcu_read_unlock();
-	sleeping_lock_dec();
+	rt_spin_lock_fastunlock(&lock->lock, rt_spin_lock_slowunlock);
 }
 EXPORT_SYMBOL(rt_spin_unlock);
 
@@ -1207,15 +1199,11 @@ int __lockfunc rt_spin_trylock(spinlock_t *lock)
 {
 	int ret;
 
-	sleeping_lock_inc();
-	migrate_disable();
 	ret = __rt_mutex_trylock(&lock->lock);
 	if (ret) {
 		spin_acquire(&lock->dep_map, 0, 1, _RET_IP_);
 		rcu_read_lock();
-	} else {
-		migrate_enable();
-		sleeping_lock_dec();
+		migrate_disable();
 	}
 	return ret;
 }
@@ -1228,12 +1216,12 @@ int __lockfunc rt_spin_trylock_bh(spinlock_t *lock)
 	local_bh_disable();
 	ret = __rt_mutex_trylock(&lock->lock);
 	if (ret) {
-		sleeping_lock_inc();
+		spin_acquire(&lock->dep_map, 0, 1, _RET_IP_);
 		rcu_read_lock();
 		migrate_disable();
-		spin_acquire(&lock->dep_map, 0, 1, _RET_IP_);
-	} else
+	} else {
 		local_bh_enable();
+	}
 	return ret;
 }
 EXPORT_SYMBOL(rt_spin_trylock_bh);
@@ -1592,8 +1580,6 @@ __rt_mutex_slowlock(struct rt_mutex *lock, int state,
 
 		raw_spin_unlock_irq(&lock->wait_lock);
 
-		debug_rt_mutex_print_deadlock(waiter);
-
 		schedule();
 
 		raw_spin_lock_irq(&lock->wait_lock);
@@ -1614,10 +1600,6 @@ static void rt_mutex_handle_deadlock(int res, int detect_deadlock,
 	if (res != -EDEADLOCK || detect_deadlock)
 		return;
 
-	/*
-	 * Yell lowdly and stop the task right here.
-	 */
-	rt_mutex_print_deadlock(w);
 	while (1) {
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
@@ -1926,36 +1908,7 @@ rt_mutex_fastlock(struct rt_mutex *lock, int state,
 	if (likely(rt_mutex_cmpxchg_acquire(lock, NULL, current)))
 		return 0;
 
-	/*
-	 * If rt_mutex blocks, the function sched_submit_work will not call
-	 * blk_schedule_flush_plug (because tsk_is_pi_blocked would be true).
-	 * We must call blk_schedule_flush_plug here, if we don't call it,
-	 * a deadlock in I/O may happen.
-	 */
-	if (unlikely(blk_needs_flush_plug(current)))
-		blk_schedule_flush_plug(current);
-
 	return slowfn(lock, state, NULL, RT_MUTEX_MIN_CHAINWALK, ww_ctx);
-}
-
-static inline int
-rt_mutex_timed_fastlock(struct rt_mutex *lock, int state,
-			struct hrtimer_sleeper *timeout,
-			enum rtmutex_chainwalk chwalk,
-			struct ww_acquire_ctx *ww_ctx,
-			int (*slowfn)(struct rt_mutex *lock, int state,
-				      struct hrtimer_sleeper *timeout,
-				      enum rtmutex_chainwalk chwalk,
-				      struct ww_acquire_ctx *ww_ctx))
-{
-	if (chwalk == RT_MUTEX_MIN_CHAINWALK &&
-	    likely(rt_mutex_cmpxchg_acquire(lock, NULL, current)))
-		return 0;
-
-	if (unlikely(blk_needs_flush_plug(current)))
-		blk_schedule_flush_plug(current);
-
-	return slowfn(lock, state, timeout, chwalk, ww_ctx);
 }
 
 static inline int
@@ -2084,50 +2037,17 @@ int __sched __rt_mutex_futex_trylock(struct rt_mutex *lock)
 /**
  * rt_mutex_lock_killable - lock a rt_mutex killable
  *
- * @lock:              the rt_mutex to be locked
- * @detect_deadlock:   deadlock detection on/off
+ * @lock:		the rt_mutex to be locked
  *
  * Returns:
- *  0          on success
- * -EINTR      when interrupted by a signal
+ *  0		on success
+ * -EINTR	when interrupted by a signal
  */
 int __sched rt_mutex_lock_killable(struct rt_mutex *lock)
 {
 	return rt_mutex_lock_state(lock, 0, TASK_KILLABLE);
 }
 EXPORT_SYMBOL_GPL(rt_mutex_lock_killable);
-
-/**
- * rt_mutex_timed_lock - lock a rt_mutex interruptible
- *			the timeout structure is provided
- *			by the caller
- *
- * @lock:		the rt_mutex to be locked
- * @timeout:		timeout structure or NULL (no timeout)
- *
- * Returns:
- *  0		on success
- * -EINTR	when interrupted by a signal
- * -ETIMEDOUT	when the timeout expired
- */
-int
-rt_mutex_timed_lock(struct rt_mutex *lock, struct hrtimer_sleeper *timeout)
-{
-	int ret;
-
-	might_sleep();
-
-	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
-	ret = rt_mutex_timed_fastlock(lock, TASK_INTERRUPTIBLE, timeout,
-				       RT_MUTEX_MIN_CHAINWALK,
-				       NULL,
-				       rt_mutex_slowlock);
-	if (ret)
-		mutex_release(&lock->dep_map, _RET_IP_);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(rt_mutex_timed_lock);
 
 int __sched __rt_mutex_trylock(struct rt_mutex *lock)
 {
@@ -2242,9 +2162,6 @@ void __sched rt_mutex_futex_unlock(struct rt_mutex *lock)
 void rt_mutex_destroy(struct rt_mutex *lock)
 {
 	WARN_ON(rt_mutex_is_locked(lock));
-#ifdef CONFIG_DEBUG_RT_MUTEXES
-	lock->magic = NULL;
-#endif
 }
 EXPORT_SYMBOL_GPL(rt_mutex_destroy);
 
@@ -2413,8 +2330,6 @@ int __rt_mutex_start_proxy_lock(struct rt_mutex *lock,
 	if (ret)
 		fixup_rt_mutex_blocked(lock);
 
-	debug_rt_mutex_print_deadlock(waiter);
-
 	return ret;
 }
 
@@ -2573,7 +2488,7 @@ static inline int
 ww_mutex_deadlock_injection(struct ww_mutex *lock, struct ww_acquire_ctx *ctx)
 {
 #ifdef CONFIG_DEBUG_WW_MUTEX_SLOWPATH
-	unsigned tmp;
+	unsigned int tmp;
 
 	if (ctx->deadlock_inject_countdown-- == 0) {
 		tmp = ctx->deadlock_inject_interval;

@@ -1333,7 +1333,6 @@ static struct rw_semaphore *rwsem_downgrade_wake(struct rw_semaphore *sem)
 	return sem;
 }
 
-
 /*
  * lock for reading
  */
