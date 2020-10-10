@@ -2437,6 +2437,15 @@ enum print_line_t trace_handle_return(struct trace_seq *s)
 }
 EXPORT_SYMBOL_GPL(trace_handle_return);
 
+static unsigned short migration_disable_value(struct task_struct *tsk)
+{
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+	return tsk ? tsk->migration_disabled : 0;
+#else
+	return 0;
+#endif
+}
+
 void
 tracing_generic_entry_update(struct trace_entry *entry, unsigned short type,
 			     unsigned long flags, int pc)
@@ -2460,7 +2469,7 @@ tracing_generic_entry_update(struct trace_entry *entry, unsigned short type,
 		(need_resched_lazy() ? TRACE_FLAG_NEED_RESCHED_LAZY : 0) |
 		(test_preempt_need_resched() ? TRACE_FLAG_PREEMPT_RESCHED : 0);
 
-	entry->migrate_disable = (tsk) ? tsk->migration_disabled & 0xFF : 0;
+	entry->migrate_disable = migration_disable_value(tsk);
 }
 EXPORT_SYMBOL_GPL(tracing_generic_entry_update);
 
