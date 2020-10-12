@@ -69,10 +69,10 @@ extern void __lockfunc __rt_spin_unlock(struct rt_mutex *lock);
 		rt_spin_lock_nested(lock, subclass);	\
 	} while (0)
 
-# define spin_lock_nest_lock(lock, nest_lock)		\
+# define spin_lock_nest_lock(lock, subclass)		\
 	do {                                                           \
-		typecheck(struct lockdep_map *, &(nest_lock)->dep_map);	\
-		rt_spin_lock_nest_lock(lock, &(nest_lock)->dep_map);	\
+		typecheck(struct lockdep_map *, &(subclass)->dep_map);	\
+		rt_spin_lock_nest_lock(lock, &(subclass)->dep_map);	\
 	} while (0)
 
 # define spin_lock_irqsave_nested(lock, flags, subclass) \
@@ -82,15 +82,15 @@ extern void __lockfunc __rt_spin_unlock(struct rt_mutex *lock);
 		rt_spin_lock_nested(lock, subclass);	 \
 	} while (0)
 #else
-# define spin_lock_nested(lock, subclass)	spin_lock(lock)
-# define spin_lock_nest_lock(lock, nest_lock)	spin_lock(lock)
-# define spin_lock_bh_nested(lock, subclass)	spin_lock_bh(lock)
+# define spin_lock_nested(lock, subclass)	spin_lock(((void)(subclass), (lock)))
+# define spin_lock_nest_lock(lock, subclass)	spin_lock(((void)(subclass), (lock)))
+# define spin_lock_bh_nested(lock, subclass)	spin_lock_bh(((void)(subclass), (lock)))
 
 # define spin_lock_irqsave_nested(lock, flags, subclass) \
 	do {						 \
 		typecheck(unsigned long, flags);	 \
 		flags = 0;				 \
-		spin_lock(lock);			 \
+		spin_lock(((void)(subclass), (lock)));	 \
 	} while (0)
 #endif
 
