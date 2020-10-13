@@ -134,9 +134,7 @@ static int one_hundred = 100;
 static int one_thousand = 1000;
 extern int hrtimer_granularity_us;
 extern int hrtimeout_min_us;
-#if defined(CONFIG_PRINTK)
 static int ten_thousand = 10000;
-#endif
 #ifdef CONFIG_PERF_EVENTS
 static int six_hundred_forty_kb = 640 * 1024;
 #endif
