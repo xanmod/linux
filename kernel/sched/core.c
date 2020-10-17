@@ -5,6 +5,9 @@
  *  Core kernel scheduler code and related syscalls
  *
  *  Copyright (C) 1991-2002  Linus Torvalds
+ *
+ *  Core kernel scheduler tunes by Alexandre Frade
+ *  (C) 2018 XanMod Kernel <kernel@xanmod.org>
  */
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
@@ -64,11 +67,8 @@ const_debug unsigned int sysctl_sched_features =
  * Number of tasks to iterate in a single balance run.
  * Limited because this is done with IRQs disabled.
  */
-#ifdef CONFIG_PREEMPT_RT
-const_debug unsigned int sysctl_sched_nr_migrate = 8;
-#else
-const_debug unsigned int sysctl_sched_nr_migrate = 32;
-#endif
+const_debug unsigned int sysctl_sched_nr_migrate =
+				   IS_ENABLED(CONFIG_PREEMPT_RT) ? 128 : 256;
 
 /*
  * period over which we measure -rt task CPU usage in us.
@@ -80,9 +80,9 @@ __read_mostly int scheduler_running;
 
 /*
  * part of the period that we allow rt tasks to run in us.
- * default: 0.95s
+ * XanMod default: 0.98s
  */
-int sysctl_sched_rt_runtime = 950000;
+int sysctl_sched_rt_runtime = 980000;
 
 
 /*
