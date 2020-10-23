@@ -1903,9 +1903,16 @@ static struct rq *move_queued_task(struct rq *rq, struct rq_flags *rf,
 }
 
 struct migration_arg {
-	struct task_struct *task;
-	int dest_cpu;
-	struct completion *done;
+	struct task_struct		*task;
+	int				dest_cpu;
+	struct set_affinity_pending	*pending;
+};
+
+struct set_affinity_pending {
+	refcount_t		refs;
+	struct completion	done;
+	struct cpu_stop_work	stop_work;
+	struct migration_arg	arg;
 };
 
 /*
@@ -1937,8 +1944,10 @@ static struct rq *__migrate_task(struct rq *rq, struct rq_flags *rf,
  */
 static int migration_cpu_stop(void *data)
 {
+	struct set_affinity_pending *pending;
 	struct migration_arg *arg = data;
 	struct task_struct *p = arg->task;
+	int dest_cpu = arg->dest_cpu;
 	struct rq *rq = this_rq();
 	bool complete = false;
 	struct rq_flags rf;
@@ -1947,7 +1956,7 @@ static int migration_cpu_stop(void *data)
 	 * The original target CPU might have gone down and we might
 	 * be on another CPU but it doesn't matter.
 	 */
-	local_irq_disable();
+	local_irq_save(rf.flags);
 	/*
 	 * We need to explicitly wake pending tasks before running
 	 * __migrate_task() such that we will not miss enforcing cpus_ptr
@@ -1957,6 +1966,8 @@ static int migration_cpu_stop(void *data)
 
 	raw_spin_lock(&p->pi_lock);
 	rq_lock(rq, &rf);
+
+	pending = p->migration_pending;
 	/*
 	 * If task_rq(p) != rq, it cannot be migrated here, because we're
 	 * holding rq->lock, if p->on_rq == 0 it cannot get enqueued because
@@ -1966,23 +1977,71 @@ static int migration_cpu_stop(void *data)
 		if (is_migration_disabled(p))
 			goto out;
 
-		if (task_on_rq_queued(p))
-			rq = __migrate_task(rq, &rf, p, arg->dest_cpu);
-		else
-			p->wake_cpu = arg->dest_cpu;
-
-		if (arg->done) {
+		if (pending) {
 			p->migration_pending = NULL;
 			complete = true;
 		}
+
+		/* migrate_enable() --  we must not race against SCA */
+		if (dest_cpu < 0) {
+			/*
+			 * When this was migrate_enable() but we no longer
+			 * have a @pending, a concurrent SCA 'fixed' things
+			 * and we should be valid again. Nothing to do.
+			 */
+			if (!pending) {
+				WARN_ON_ONCE(!is_cpu_allowed(p, cpu_of(rq)));
+				goto out;
+			}
+
+			dest_cpu = cpumask_any_distribute(&p->cpus_mask);
+		}
+
+		if (task_on_rq_queued(p))
+			rq = __migrate_task(rq, &rf, p, dest_cpu);
+		else
+			p->wake_cpu = dest_cpu;
+
+	} else if (dest_cpu < 0) {
+		/*
+		 * This happens when we get migrated between migrate_enable()'s
+		 * preempt_enable() and scheduling the stopper task. At that
+		 * point we're a regular task again and not current anymore.
+		 *
+		 * A !PREEMPT kernel has a giant hole here, which makes it far
+		 * more likely.
+		 */
+
+		/*
+		 * When this was migrate_enable() but we no longer have an
+		 * @pending, a concurrent SCA 'fixed' things and we should be
+		 * valid again. Nothing to do.
+		 */
+		if (!pending) {
+			WARN_ON_ONCE(!is_cpu_allowed(p, cpu_of(rq)));
+			goto out;
+		}
+
+		/*
+		 * When migrate_enable() hits a rq mis-match we can't reliably
+		 * determine is_migration_disabled() and so have to chase after
+		 * it.
+		 */
+		task_rq_unlock(rq, p, &rf);
+		stop_one_cpu_nowait(task_cpu(p), migration_cpu_stop,
+				    &pending->arg, &pending->stop_work);
+		return 0;
 	}
 out:
-	rq_unlock(rq, &rf);
-	raw_spin_unlock(&p->pi_lock);
-	local_irq_enable();
+	task_rq_unlock(rq, p, &rf);
 
 	if (complete)
-		complete_all(arg->done);
+		complete_all(&pending->done);
+
+	/* For pending->{arg,stop_work} */
+	pending = arg->pending;
+	if (pending && refcount_dec_and_test(&pending->refs))
+		wake_up_var(&pending->refs);
 
 	return 0;
 }
@@ -2095,13 +2154,6 @@ void do_set_cpus_allowed(struct task_struct *p, const struct cpumask *new_mask)
 	__do_set_cpus_allowed(p, new_mask, 0);
 }
 
-struct set_affinity_pending {
-	refcount_t		refs;
-	struct completion	done;
-	struct cpu_stop_work	stop_work;
-	struct migration_arg	arg;
-};
-
 /*
  * This function is wildly self concurrent; here be dragons.
  *
@@ -2173,8 +2225,8 @@ struct set_affinity_pending {
  * pending affinity completion is preceded an uninstallion of
  * p->migration_pending done with p->pi_lock held.
  */
-static int affine_move_task(struct rq *rq, struct rq_flags *rf,
-			    struct task_struct *p, int dest_cpu, unsigned int flags)
+static int affine_move_task(struct rq *rq, struct task_struct *p, struct rq_flags *rf,
+			    int dest_cpu, unsigned int flags)
 {
 	struct set_affinity_pending my_pending = { }, *pending = NULL;
 	struct migration_arg arg = {
@@ -2240,13 +2292,18 @@ static int affine_move_task(struct rq *rq, struct rq_flags *rf,
 	if (WARN_ON_ONCE(!pending))
 		return -EINVAL;
 
-	arg.done = &pending->done;
-
 	if (flags & SCA_MIGRATE_ENABLE) {
 
+		refcount_inc(&pending->refs); /* pending->{arg,stop_work} */
 		p->migration_flags &= ~MDF_PUSH;
 		task_rq_unlock(rq, p, rf);
-		pending->arg = arg;
+
+		pending->arg = (struct migration_arg) {
+			.task = p,
+			.dest_cpu = -1,
+			.pending = pending,
+		};
+
 		stop_one_cpu_nowait(cpu_of(rq), migration_cpu_stop,
 				    &pending->arg, &pending->stop_work);
 
@@ -2370,7 +2427,7 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 			p->nr_cpus_allowed != 1);
 	}
 
-	return affine_move_task(rq, &rf, p, dest_cpu, flags);
+	return affine_move_task(rq, p, &rf, dest_cpu, flags);
 
 out:
 	task_rq_unlock(rq, p, &rf);
@@ -3609,6 +3666,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	init_numa_balancing(clone_flags, p);
 #ifdef CONFIG_SMP
 	p->wake_entry.u_flags = CSD_TYPE_TTWU;
+	p->migration_pending = NULL;
 #endif
 }
 
