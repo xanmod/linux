@@ -65,6 +65,7 @@
 #include <linux/fs.h>
 #include <linux/futex.h>
 #include <linux/hrtimer.h>
+#include <linux/blkdev.h>
 
 #include "rtmutex_common.h"
 
@@ -85,54 +86,23 @@ void __mutex_do_init(struct mutex *mutex, const char *name,
 }
 EXPORT_SYMBOL(__mutex_do_init);
 
+static int _mutex_lock_blk_flush(struct mutex *lock, int state)
+{
+	/*
+	 * Flush blk before ->pi_blocked_on is set. At schedule() time it is too
+	 * late if one of the callbacks needs to acquire a sleeping lock.
+	 */
+	if (blk_needs_flush_plug(current))
+		blk_schedule_flush_plug(current);
+	return __rt_mutex_lock_state(&lock->lock, state);
+}
+
 void __lockfunc _mutex_lock(struct mutex *lock)
 {
 	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
-	__rt_mutex_lock_state(&lock->lock, TASK_UNINTERRUPTIBLE);
+	_mutex_lock_blk_flush(lock, TASK_UNINTERRUPTIBLE);
 }
 EXPORT_SYMBOL(_mutex_lock);
-
-void __lockfunc _mutex_lock_io(struct mutex *lock)
-{
-	int token;
-
-	token = io_schedule_prepare();
-	_mutex_lock(lock);
-	io_schedule_finish(token);
-}
-EXPORT_SYMBOL_GPL(_mutex_lock_io);
-
-int __lockfunc _mutex_lock_interruptible(struct mutex *lock)
-{
-	int ret;
-
-	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
-	ret = __rt_mutex_lock_state(&lock->lock, TASK_INTERRUPTIBLE);
-	if (ret)
-		mutex_release(&lock->dep_map, _RET_IP_);
-	return ret;
-}
-EXPORT_SYMBOL(_mutex_lock_interruptible);
-
-int __lockfunc _mutex_lock_killable(struct mutex *lock)
-{
-	int ret;
-
-	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
-	ret = __rt_mutex_lock_state(&lock->lock, TASK_KILLABLE);
-	if (ret)
-		mutex_release(&lock->dep_map, _RET_IP_);
-	return ret;
-}
-EXPORT_SYMBOL(_mutex_lock_killable);
-
-#ifdef CONFIG_DEBUG_LOCK_ALLOC
-void __lockfunc _mutex_lock_nested(struct mutex *lock, int subclass)
-{
-	mutex_acquire_nest(&lock->dep_map, subclass, 0, NULL, _RET_IP_);
-	__rt_mutex_lock_state(&lock->lock, TASK_UNINTERRUPTIBLE);
-}
-EXPORT_SYMBOL(_mutex_lock_nested);
 
 void __lockfunc _mutex_lock_io_nested(struct mutex *lock, int subclass)
 {
@@ -147,10 +117,42 @@ void __lockfunc _mutex_lock_io_nested(struct mutex *lock, int subclass)
 }
 EXPORT_SYMBOL_GPL(_mutex_lock_io_nested);
 
+int __lockfunc _mutex_lock_interruptible(struct mutex *lock)
+{
+	int ret;
+
+	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
+	ret = _mutex_lock_blk_flush(lock, TASK_INTERRUPTIBLE);
+	if (ret)
+		mutex_release(&lock->dep_map, _RET_IP_);
+	return ret;
+}
+EXPORT_SYMBOL(_mutex_lock_interruptible);
+
+int __lockfunc _mutex_lock_killable(struct mutex *lock)
+{
+	int ret;
+
+	mutex_acquire(&lock->dep_map, 0, 0, _RET_IP_);
+	ret = _mutex_lock_blk_flush(lock, TASK_KILLABLE);
+	if (ret)
+		mutex_release(&lock->dep_map, _RET_IP_);
+	return ret;
+}
+EXPORT_SYMBOL(_mutex_lock_killable);
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+void __lockfunc _mutex_lock_nested(struct mutex *lock, int subclass)
+{
+	mutex_acquire_nest(&lock->dep_map, subclass, 0, NULL, _RET_IP_);
+	_mutex_lock_blk_flush(lock, TASK_UNINTERRUPTIBLE);
+}
+EXPORT_SYMBOL(_mutex_lock_nested);
+
 void __lockfunc _mutex_lock_nest_lock(struct mutex *lock, struct lockdep_map *nest)
 {
 	mutex_acquire_nest(&lock->dep_map, 0, 0, nest, _RET_IP_);
-	__rt_mutex_lock_state(&lock->lock, TASK_UNINTERRUPTIBLE);
+	_mutex_lock_blk_flush(lock, TASK_UNINTERRUPTIBLE);
 }
 EXPORT_SYMBOL(_mutex_lock_nest_lock);
 
@@ -159,7 +161,7 @@ int __lockfunc _mutex_lock_interruptible_nested(struct mutex *lock, int subclass
 	int ret;
 
 	mutex_acquire_nest(&lock->dep_map, subclass, 0, NULL, _RET_IP_);
-	ret = __rt_mutex_lock_state(&lock->lock, TASK_INTERRUPTIBLE);
+	ret = _mutex_lock_blk_flush(lock, TASK_INTERRUPTIBLE);
 	if (ret)
 		mutex_release(&lock->dep_map, _RET_IP_);
 	return ret;
@@ -171,7 +173,7 @@ int __lockfunc _mutex_lock_killable_nested(struct mutex *lock, int subclass)
 	int ret;
 
 	mutex_acquire(&lock->dep_map, subclass, 0, _RET_IP_);
-	ret = __rt_mutex_lock_state(&lock->lock, TASK_KILLABLE);
+	ret = _mutex_lock_blk_flush(lock, TASK_KILLABLE);
 	if (ret)
 		mutex_release(&lock->dep_map, _RET_IP_);
 	return ret;
