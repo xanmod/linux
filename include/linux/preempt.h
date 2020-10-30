@@ -236,11 +236,16 @@ do { \
 		__preempt_schedule(); \
 } while (0)
 
+/*
+ * open code preempt_check_resched() because it is not exported to modules and
+ * used by local_unlock() or bpf_enable_instrumentation().
+ */
 #define preempt_lazy_enable() \
 do { \
 	dec_preempt_lazy_count(); \
 	barrier(); \
-	preempt_check_resched(); \
+	if (should_resched(0)) \
+		__preempt_schedule(); \
 } while (0)
 
 #else /* !CONFIG_PREEMPTION */
@@ -441,7 +446,19 @@ static inline void preempt_notifier_init(struct preempt_notifier *notifier,
 extern void migrate_disable(void);
 extern void migrate_enable(void);
 
-#else /* !(CONFIG_SMP && CONFIG_PREEMPT_RT) */
+#elif defined(CONFIG_PREEMPT_RT)
+
+static inline void migrate_disable(void)
+{
+	preempt_lazy_disable();
+}
+
+static inline void migrate_enable(void)
+{
+	preempt_lazy_enable();
+}
+
+#else /* !CONFIG_PREEMPT_RT */
 
 /**
  * migrate_disable - Prevent migration of the current task

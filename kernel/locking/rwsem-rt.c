@@ -3,6 +3,7 @@
 #include <linux/sched/debug.h>
 #include <linux/sched/signal.h>
 #include <linux/export.h>
+#include <linux/blkdev.h>
 
 #include "rtmutex_common.h"
 
@@ -86,6 +87,13 @@ static int __sched __down_read_common(struct rw_semaphore *sem, int state)
 
 	if (__down_read_trylock(sem))
 		return 0;
+
+	/*
+	 * Flush blk before ->pi_blocked_on is set. At schedule() time it is too
+	 * late if one of the callbacks needs to acquire a sleeping lock.
+	 */
+	if (blk_needs_flush_plug(current))
+		blk_schedule_flush_plug(current);
 
 	might_sleep();
 	raw_spin_lock_irq(&m->wait_lock);
@@ -208,6 +216,13 @@ static int __sched __down_write_common(struct rw_semaphore *sem, int state)
 {
 	struct rt_mutex *m = &sem->rtmutex;
 	unsigned long flags;
+
+	/*
+	 * Flush blk before ->pi_blocked_on is set. At schedule() time it is too
+	 * late if one of the callbacks needs to acquire a sleeping lock.
+	 */
+	if (blk_needs_flush_plug(current))
+		blk_schedule_flush_plug(current);
 
 	/* Take the rtmutex as a first step */
 	if (__rt_mutex_lock_state(m, state))

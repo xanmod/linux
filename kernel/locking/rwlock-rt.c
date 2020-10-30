@@ -61,7 +61,7 @@ void __rwlock_biased_rt_init(struct rt_rw_lock *lock, const char *name,
 	lock->rtmutex.save_state = 1;
 }
 
-int __read_rt_trylock(struct rt_rw_lock *lock)
+static int __read_rt_trylock(struct rt_rw_lock *lock)
 {
 	int r, old;
 

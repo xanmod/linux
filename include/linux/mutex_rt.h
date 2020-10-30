@@ -29,7 +29,6 @@ struct mutex {
 
 extern void __mutex_do_init(struct mutex *lock, const char *name, struct lock_class_key *key);
 extern void __lockfunc _mutex_lock(struct mutex *lock);
-extern void __lockfunc _mutex_lock_io(struct mutex *lock);
 extern void __lockfunc _mutex_lock_io_nested(struct mutex *lock, int subclass);
 extern int __lockfunc _mutex_lock_interruptible(struct mutex *lock);
 extern int __lockfunc _mutex_lock_killable(struct mutex *lock);
@@ -46,7 +45,7 @@ extern void __lockfunc _mutex_unlock(struct mutex *lock);
 #define mutex_lock_killable(l)		_mutex_lock_killable(l)
 #define mutex_trylock(l)		_mutex_trylock(l)
 #define mutex_unlock(l)			_mutex_unlock(l)
-#define mutex_lock_io(l)		_mutex_lock_io(l);
+#define mutex_lock_io(l)		_mutex_lock_io_nested(l, 0);
 
 #define __mutex_owner(l)		((l)->lock.owner)
 
@@ -77,7 +76,7 @@ do {									\
 # define mutex_lock_killable_nested(l, s) \
 					_mutex_lock_killable(l)
 # define mutex_lock_nest_lock(lock, nest_lock) mutex_lock(lock)
-# define mutex_lock_io_nested(l, s)	_mutex_lock_io(l)
+# define mutex_lock_io_nested(l, s)	_mutex_lock_io_nested(l, s)
 #endif
 
 # define mutex_init(mutex)				\
