@@ -101,8 +101,10 @@ deploy_libc_headers () {
 
 version=$KERNELRELEASE
 tmpdir=debian/linux-image
+tools_dir=debian/linux-tools
 dbg_dir=debian/linux-image-dbg
 packagename=linux-image-$version
+tools_packagename=linux-tools-$version
 dbg_packagename=$packagename-dbg
 
 if [ "$ARCH" = "um" ] ; then
@@ -126,7 +128,7 @@ esac
 BUILD_DEBUG=$(if_enabled_echo CONFIG_DEBUG_INFO Yes)
 
 # Setup the directory structure
-rm -rf "$tmpdir" "$dbg_dir" debian/files
+rm -rf "$tmpdir" "$dbg_dir" "$tools_dir" debian/files
 mkdir -m 755 -p "$tmpdir/DEBIAN"
 mkdir -p "$tmpdir/lib" "$tmpdir/boot"
 
@@ -212,6 +214,35 @@ if [ "$ARCH" != "um" ]; then
 fi
 
 create_package "$packagename" "$tmpdir"
+
+if [ -n "$BUILD_TOOLS" ] ; then
+	# HACK - change output dir from relative to absolute
+	mkdir -p $tools_dir
+	tools_dest=`readlink -f $tools_dir`
+	if [ -n "$O" ] ; then
+		output=`readlink -f $objtree`
+		mkdir -p $output/tools/perf
+		output="O=$output/tools/perf"
+	fi
+	$MAKE -C $srctree/tools/perf $output LDFLAGS=-static srctree=$KBUILD_SRC prefix=$tools_dest/usr install
+	cat <<EOF >> debian/control
+
+Package: $tools_packagename
+Architecture: any
+Replaces: linux-base, linux-tools-common
+Depends: \${shlibs:Depends}
+Description: Performance analysis tools for Linux $version
+ This package contains the 'perf' performance analysis tools for Linux
+ kernel version $version .
+EOF
+
+	if [ -d "$tools_dest/usr/lib64" ] ; then
+	mv $tools_dest/usr/lib64/* $tools_dest/usr/lib && rm -rf $tools_dest/usr/lib64
+	fi
+
+	dpkg-shlibdeps $tools_dest/usr/bin/* $tools_dest/usr/lib/traceevent/plugins/*
+	create_package "$tools_packagename" "$tools_dir"
+fi
 
 if [ -n "$BUILD_DEBUG" ] ; then
 	# Build debug package
