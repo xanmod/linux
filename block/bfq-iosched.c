@@ -6482,7 +6482,7 @@ static int bfq_init_queue(struct request_queue *q, struct elevator_type *e)
 	bfqd->bfq_large_burst_thresh = 8;
 	bfqd->bfq_burst_interval = msecs_to_jiffies(180);
 
-	bfqd->low_latency = IS_ENABLED(CONFIG_BLK_CGROUP_IOLATENCY) ? false : true;
+	bfqd->low_latency = true;
 
 	/*
 	 * Trade-off between responsiveness and fairness.
