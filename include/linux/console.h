@@ -17,6 +17,18 @@
 #include <linux/atomic.h>
 #include <linux/types.h>
 #include <linux/printk.h>
+#include <linux/seqlock.h>
+
+#ifdef CONFIG_PRINTK_NMI
+#define PRINTK_CTX_NUM 2
+#else
+#define PRINTK_CTX_NUM 1
+#endif
+
+struct latched_seq {
+	seqcount_latch_t	latch;
+	u64			val[2];
+};
 
 struct vc_data;
 struct console_font_op;
@@ -154,6 +166,10 @@ struct console {
 #ifdef CONFIG_PRINTK
 	char	sync_buf[CONSOLE_LOG_MAX];
 #endif
+	struct latched_seq printk_seq;
+	struct latched_seq printk_sync_seq[PRINTK_CTX_NUM];
+
+	struct task_struct *thread;
 	void	*data;
 	struct	 console *next;
 };
