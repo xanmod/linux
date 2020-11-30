@@ -16,6 +16,7 @@
 
 #include <linux/atomic.h>
 #include <linux/types.h>
+#include <linux/printk.h>
 
 struct vc_data;
 struct console_font_op;
@@ -150,6 +151,9 @@ struct console {
 	short	flags;
 	short	index;
 	int	cflag;
+#ifdef CONFIG_PRINTK
+	char	sync_buf[CONSOLE_LOG_MAX];
+#endif
 	void	*data;
 	struct	 console *next;
 };
