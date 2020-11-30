@@ -44,6 +44,7 @@
 #include <linux/irq_work.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#include <linux/kdb.h>
 #include <linux/kgdb.h>
 #include <linux/kthread.h>
 #include <linux/clocksource.h>
@@ -228,19 +229,7 @@ static int nr_ext_console_drivers;
 
 static int __down_trylock_console_sem(unsigned long ip)
 {
-	int lock_failed;
-	unsigned long flags;
-
-	/*
-	 * Here and in __up_console_sem() we need to be in safe mode,
-	 * because spindump/WARN/etc from under console ->lock will
-	 * deadlock in printk()->down_trylock_console_sem() otherwise.
-	 */
-	printk_safe_enter_irqsave(flags);
-	lock_failed = down_trylock(&console_sem);
-	printk_safe_exit_irqrestore(flags);
-
-	if (lock_failed)
+	if (down_trylock(&console_sem))
 		return 1;
 	mutex_acquire(&console_lock_dep_map, 0, 1, ip);
 	return 0;
@@ -249,13 +238,9 @@ static int __down_trylock_console_sem(unsigned long ip)
 
 static void __up_console_sem(unsigned long ip)
 {
-	unsigned long flags;
-
 	mutex_release(&console_lock_dep_map, ip);
 
-	printk_safe_enter_irqsave(flags);
 	up(&console_sem);
-	printk_safe_exit_irqrestore(flags);
 }
 #define up_console_sem() __up_console_sem(_RET_IP_)
 
@@ -417,7 +402,7 @@ static struct printk_ringbuffer *prb = &printk_rb_static;
  */
 static bool __printk_percpu_data_ready __read_mostly;
 
-bool printk_percpu_data_ready(void)
+static bool printk_percpu_data_ready(void)
 {
 	return __printk_percpu_data_ready;
 }
@@ -2023,9 +2008,9 @@ static u16 printk_sprint(char *text, u16 size, int facility,
 }
 
 __printf(4, 0)
-int vprintk_store(int facility, int level,
-		  const struct dev_printk_info *dev_info,
-		  const char *fmt, va_list args)
+static int vprintk_store(int facility, int level,
+			 const struct dev_printk_info *dev_info,
+			 const char *fmt, va_list args)
 {
 	const u32 caller_id = printk_caller_id();
 	struct prb_reserved_entry e;
@@ -2171,11 +2156,28 @@ asmlinkage int vprintk_emit(int facility, int level,
 }
 EXPORT_SYMBOL(vprintk_emit);
 
-int vprintk_default(const char *fmt, va_list args)
+__printf(1, 0)
+static int vprintk_default(const char *fmt, va_list args)
 {
 	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, fmt, args);
 }
-EXPORT_SYMBOL_GPL(vprintk_default);
+
+__printf(1, 0)
+static int vprintk_func(const char *fmt, va_list args)
+{
+#ifdef CONFIG_KGDB_KDB
+	/* Allow to pass printk() to kdb but avoid a recursion. */
+	if (unlikely(kdb_trap_printk && kdb_printf_cpu < 0))
+		return vkdb_printf(KDB_MSGSRC_PRINTK, fmt, args);
+#endif
+	return vprintk_default(fmt, args);
+}
+
+asmlinkage int vprintk(const char *fmt, va_list args)
+{
+	return vprintk_func(fmt, args);
+}
+EXPORT_SYMBOL(vprintk);
 
 asmlinkage __visible int _printk(const char *fmt, ...)
 {
@@ -3134,32 +3136,6 @@ void wake_up_klogd(void)
 		irq_work_queue(this_cpu_ptr(&wake_up_klogd_work));
 	}
 	preempt_enable();
-}
-
-void defer_console_output(void)
-{
-}
-
-int vprintk_deferred(const char *fmt, va_list args)
-{
-	int r;
-
-	r = vprintk_emit(0, LOGLEVEL_SCHED, NULL, fmt, args);
-	defer_console_output();
-
-	return r;
-}
-
-int _printk_deferred(const char *fmt, ...)
-{
-	va_list args;
-	int r;
-
-	va_start(args, fmt);
-	r = vprintk_deferred(fmt, args);
-	va_end(args);
-
-	return r;
 }
 
 /*

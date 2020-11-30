@@ -201,7 +201,8 @@ int get_stack_info(unsigned long *stack, struct task_struct *task,
 	if (visit_mask) {
 		if (*visit_mask & (1UL << info->type)) {
 			if (task == current)
-				printk_deferred_once(KERN_WARNING "WARNING: stack recursion on stack type %d\n", info->type);
+				pr_warn_once("WARNING: stack recursion on stack type %d\n",
+					     info->type);
 			goto unknown;
 		}
 		*visit_mask |= 1UL << info->type;

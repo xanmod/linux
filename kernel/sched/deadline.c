@@ -800,7 +800,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	 * entity.
 	 */
 	if (dl_time_before(dl_se->deadline, rq_clock(rq))) {
-		printk_deferred_once("sched: DL replenish lagged too much\n");
+		printk_once("sched: DL replenish lagged too much\n");
 		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
 		dl_se->runtime = pi_of(dl_se)->dl_runtime;
 	}

@@ -41,9 +41,9 @@ static void unwind_dump(struct unwind_state *state)
 
 	dumped_before = true;
 
-	printk_deferred("unwind stack type:%d next_sp:%p mask:0x%lx graph_idx:%d\n",
-			state->stack_info.type, state->stack_info.next_sp,
-			state->stack_mask, state->graph_idx);
+	printk("unwind stack type:%d next_sp:%p mask:0x%lx graph_idx:%d\n",
+	       state->stack_info.type, state->stack_info.next_sp,
+	       state->stack_mask, state->graph_idx);
 
 	for (sp = PTR_ALIGN(state->orig_sp, sizeof(long)); sp;
 	     sp = PTR_ALIGN(stack_info.next_sp, sizeof(long))) {
@@ -59,13 +59,11 @@ static void unwind_dump(struct unwind_state *state)
 
 			if (zero) {
 				if (!prev_zero)
-					printk_deferred("%p: %0*x ...\n",
-							sp, BITS_PER_LONG/4, 0);
+					printk("%p: %0*x ...\n", sp, BITS_PER_LONG/4, 0);
 				continue;
 			}
 
-			printk_deferred("%p: %0*lx (%pB)\n",
-					sp, BITS_PER_LONG/4, word, (void *)word);
+			printk("%p: %0*lx (%pB)\n", sp, BITS_PER_LONG/4, word, (void *)word);
 		}
 	}
 }
@@ -342,13 +340,13 @@ bad_address:
 		goto the_end;
 
 	if (state->regs) {
-		printk_deferred_once(KERN_WARNING
+		pr_warn_once(
 			"WARNING: kernel stack regs at %p in %s:%d has bad 'bp' value %p\n",
 			state->regs, state->task->comm,
 			state->task->pid, next_bp);
 		unwind_dump(state);
 	} else {
-		printk_deferred_once(KERN_WARNING
+		pr_warn_once(
 			"WARNING: kernel stack frame pointer at %p in %s:%d has bad value %p\n",
 			state->bp, state->task->comm,
 			state->task->pid, next_bp);

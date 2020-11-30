@@ -9,7 +9,7 @@
 #include <asm/orc_lookup.h>
 
 #define orc_warn(fmt, ...) \
-	printk_deferred_once(KERN_WARNING "WARNING: " fmt, ##__VA_ARGS__)
+	pr_warn_once("WARNING: " fmt, ##__VA_ARGS__)
 
 #define orc_warn_current(args...)					\
 ({									\
