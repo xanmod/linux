@@ -582,6 +582,11 @@ static void debugger_ipi_callback(struct pt_regs *regs)
 	debugger_ipi(regs);
 }
 
+void smp_send_debugger_break_cpu(unsigned int cpu)
+{
+	smp_send_nmi_ipi(cpu, debugger_ipi_callback, 1000000);
+}
+
 void smp_send_debugger_break(void)
 {
 	smp_send_nmi_ipi(NMI_IPI_ALL_OTHERS, debugger_ipi_callback, 1000000);

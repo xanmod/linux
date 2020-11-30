@@ -212,6 +212,8 @@ extern void kgdb_call_nmi_hook(void *ignored);
  */
 extern void kgdb_roundup_cpus(void);
 
+extern void kgdb_roundup_cpu(unsigned int cpu);
+
 /**
  *	kgdb_arch_set_pc - Generic call back to the program counter
  *	@regs: Current &struct pt_regs.
@@ -365,5 +367,6 @@ extern void kgdb_free_init_mem(void);
 #define dbg_late_init()
 static inline void kgdb_panic(const char *msg) {}
 static inline void kgdb_free_init_mem(void) { }
+static inline void kgdb_roundup_cpu(unsigned int cpu) {}
 #endif /* ! CONFIG_KGDB */
 #endif /* _KGDB_H_ */
