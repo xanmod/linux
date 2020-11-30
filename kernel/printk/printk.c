@@ -45,6 +45,7 @@
 #include <linux/ctype.h>
 #include <linux/uio.h>
 #include <linux/kgdb.h>
+#include <linux/clocksource.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
@@ -360,6 +361,15 @@ enum log_flags {
 static DEFINE_SPINLOCK(syslog_lock);
 
 #ifdef CONFIG_PRINTK
+/* Set to enable sync mode. Once set, it is never cleared. */
+static bool sync_mode;
+
+#ifdef CONFIG_PRINTK_NMI
+#define PRINTK_CTX_NUM 2
+#else
+#define PRINTK_CTX_NUM 1
+#endif
+
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 /* All 3 protected by @syslog_lock. */
 /* the next printk record to read by syslog(READ) or /proc/kmsg */
@@ -387,6 +397,21 @@ static struct latched_seq console_seq = {
 	.val[1]		= 0,
 };
 
+static struct latched_seq console_sync_seq[PRINTK_CTX_NUM] = {
+	{
+		.latch		= SEQCNT_LATCH_ZERO(console_sync_seq[0].latch),
+		.val[0]		= 0,
+		.val[1]		= 0,
+	},
+#if PRINTK_CTX_NUM > 1
+	{
+		.latch		= SEQCNT_LATCH_ZERO(console_sync_seq[1].latch),
+		.val[0]		= 0,
+		.val[1]		= 0,
+	},
+#endif
+};
+
 /*
  * The next printk record to read after the last 'clear' command. There are
  * two copies (updated with seqcount_latch) so that reads can locklessly
@@ -403,9 +428,6 @@ static struct latched_seq clear_seq = {
 #else
 #define PREFIX_MAX		32
 #endif
-
-/* the maximum size of a formatted record (i.e. with prefix added per line) */
-#define CONSOLE_LOG_MAX		1024
 
 /* the maximum size allowed to be reserved for a record */
 #define LOG_LINE_MAX		(CONSOLE_LOG_MAX - PREFIX_MAX)
@@ -1750,6 +1772,114 @@ static inline void printk_delay(int level)
 	}
 }
 
+static bool kernel_sync_mode(void)
+{
+	return (oops_in_progress || sync_mode);
+}
+
+static bool console_may_sync(struct console *con)
+{
+	if (!(con->flags & CON_ENABLED))
+		return false;
+	if (con->write_atomic && kernel_sync_mode())
+		return true;
+	return false;
+}
+
+static bool call_sync_console_driver(struct console *con, const char *text, size_t text_len)
+{
+	if (!(con->flags & CON_ENABLED))
+		return false;
+	if (con->write_atomic && kernel_sync_mode())
+		con->write_atomic(con, text, text_len);
+	else
+		return false;
+
+	return true;
+}
+
+static bool have_atomic_console(void)
+{
+	struct console *con;
+
+	for_each_console(con) {
+		if (!(con->flags & CON_ENABLED))
+			continue;
+		if (con->write_atomic)
+			return true;
+	}
+	return false;
+}
+
+static bool print_sync(struct console *con, u64 *seq)
+{
+	struct printk_info info;
+	struct printk_record r;
+	size_t text_len;
+
+	prb_rec_init_rd(&r, &info, &con->sync_buf[0], sizeof(con->sync_buf));
+
+	if (!prb_read_valid(prb, *seq, &r))
+		return false;
+
+	text_len = record_print_text(&r, console_msg_format & MSG_FORMAT_SYSLOG, printk_time);
+
+	if (!call_sync_console_driver(con, &con->sync_buf[0], text_len))
+		return false;
+
+	*seq = r.info->seq;
+
+	touch_softlockup_watchdog_sync();
+	clocksource_touch_watchdog();
+	rcu_cpu_stall_reset();
+	touch_nmi_watchdog();
+
+	if (text_len)
+		printk_delay(r.info->level);
+
+	return true;
+}
+
+static u64 read_console_seq(void)
+{
+	u64 seq2;
+	u64 seq;
+
+	seq = latched_seq_read_nolock(&console_seq);
+	seq2 = latched_seq_read_nolock(&console_sync_seq[0]);
+	if (seq2 > seq)
+		seq = seq2;
+#if PRINTK_CTX_NUM > 1
+	seq2 = latched_seq_read_nolock(&console_sync_seq[1]);
+	if (seq2 > seq)
+		seq = seq2;
+#endif
+	return seq;
+}
+
+static void print_sync_until(struct console *con, u64 seq)
+{
+	unsigned int flags;
+	u64 printk_seq;
+
+	console_atomic_lock(&flags);
+	for (;;) {
+		int ctx = 0;
+
+#ifdef CONFIG_PRINTK_NMI
+		if (in_nmi())
+			ctx = 1;
+#endif
+		printk_seq = read_console_seq();
+		if (printk_seq >= seq)
+			break;
+		if (!print_sync(con, &printk_seq))
+			break;
+		latched_seq_write(&console_sync_seq[ctx], printk_seq + 1);
+	}
+	console_atomic_unlock(flags);
+}
+
 /*
  * Special console_lock variants that help to reduce the risk of soft-lockups.
  * They allow to pass console_lock to another printk() call using a busy wait.
@@ -1924,6 +2054,8 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
 		if (!cpu_online(smp_processor_id()) &&
 		    !(con->flags & CON_ANYTIME))
 			continue;
+		if (kernel_sync_mode())
+			continue;
 		if (con->flags & CON_EXTENDED)
 			con->write(con, ext_text, ext_len);
 		else {
@@ -1939,11 +2071,6 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
  * additional NMI context per CPU is also separately tracked. Until per-CPU
  * is available, a separate "early tracking" is performed.
  */
-#ifdef CONFIG_PRINTK_NMI
-#define PRINTK_CTX_NUM 2
-#else
-#define PRINTK_CTX_NUM 1
-#endif
 static DEFINE_PER_CPU(char [PRINTK_CTX_NUM], printk_count);
 static char printk_count_early[PRINTK_CTX_NUM];
 
@@ -2084,6 +2211,7 @@ int vprintk_store(int facility, int level,
 	const u32 caller_id = printk_caller_id();
 	struct prb_reserved_entry e;
 	enum log_flags lflags = 0;
+	bool final_commit = false;
 	struct printk_record r;
 	unsigned long irqflags;
 	u16 trunc_msg_len = 0;
@@ -2093,6 +2221,7 @@ int vprintk_store(int facility, int level,
 	u16 text_len;
 	int ret = 0;
 	u64 ts_nsec;
+	u64 seq;
 
 	/*
 	 * Since the duration of printk() can vary depending on the message
@@ -2131,6 +2260,7 @@ int vprintk_store(int facility, int level,
 	if (lflags & LOG_CONT) {
 		prb_rec_init_wr(&r, reserve_size);
 		if (prb_reserve_in_last(&e, prb, &r, caller_id, LOG_LINE_MAX)) {
+			seq = r.info->seq;
 			text_len = printk_sprint(&r.text_buf[r.info->text_len], reserve_size,
 						 facility, &lflags, fmt, args);
 			r.info->text_len += text_len;
@@ -2138,6 +2268,7 @@ int vprintk_store(int facility, int level,
 			if (lflags & LOG_NEWLINE) {
 				r.info->flags |= LOG_NEWLINE;
 				prb_final_commit(&e);
+				final_commit = true;
 			} else {
 				prb_commit(&e);
 			}
@@ -2162,6 +2293,8 @@ int vprintk_store(int facility, int level,
 			goto out;
 	}
 
+	seq = r.info->seq;
+
 	/* fill message */
 	text_len = printk_sprint(&r.text_buf[0], reserve_size, facility, &lflags, fmt, args);
 	if (trunc_msg_len)
@@ -2176,13 +2309,25 @@ int vprintk_store(int facility, int level,
 		memcpy(&r.info->dev_info, dev_info, sizeof(r.info->dev_info));
 
 	/* A message without a trailing newline can be continued. */
-	if (!(lflags & LOG_NEWLINE))
+	if (!(lflags & LOG_NEWLINE)) {
 		prb_commit(&e);
-	else
+	} else {
 		prb_final_commit(&e);
+		final_commit = true;
+	}
 
 	ret = text_len + trunc_msg_len;
 out:
+	/* only the kernel may perform synchronous printing */
+	if (facility == 0 && final_commit) {
+		struct console *con;
+
+		for_each_console(con) {
+			if (console_may_sync(con))
+				print_sync_until(con, seq + 1);
+		}
+	}
+
 	printk_exit_irqrestore(irqflags);
 	return ret;
 }
@@ -2272,11 +2417,12 @@ EXPORT_SYMBOL(printk);
 
 #else /* CONFIG_PRINTK */
 
-#define CONSOLE_LOG_MAX		0
 #define printk_time		false
 
 #define prb_read_valid(rb, seq, r)	false
 #define prb_first_valid_seq(rb)		0
+
+#define kernel_sync_mode()	false
 
 static u64 syslog_seq;
 #error FIXME
@@ -2571,6 +2717,8 @@ static int have_callable_console(void)
  */
 static inline int can_use_console(void)
 {
+	if (kernel_sync_mode())
+		return false;
 	return cpu_online(raw_smp_processor_id()) || have_callable_console();
 }
 
@@ -2639,7 +2787,7 @@ again:
 		size_t len;
 
 skip:
-		seq = latched_seq_read_nolock(&console_seq);
+		seq = read_console_seq();
 		if (!prb_read_valid(prb, seq, &r))
 			break;
 
@@ -2719,7 +2867,7 @@ skip:
 	 * there's a new owner and the console_unlock() from them will do the
 	 * flush, no worries.
 	 */
-	retry = prb_read_valid(prb, latched_seq_read_nolock(&console_seq), NULL);
+	retry = prb_read_valid(prb, read_console_seq(), NULL);
 	if (retry && console_trylock())
 		goto again;
 }
@@ -3020,7 +3168,7 @@ void register_console(struct console *newcon)
 		 * ignores console_lock.
 		 */
 		exclusive_console = newcon;
-		exclusive_console_stop_seq = latched_seq_read_nolock(&console_seq);
+		exclusive_console_stop_seq = read_console_seq();
 
 		/* Get a consistent copy of @syslog_seq. */
 		spin_lock_irqsave(&syslog_lock, flags);
@@ -3389,6 +3537,18 @@ EXPORT_SYMBOL_GPL(kmsg_dump_reason_str);
 void kmsg_dump(enum kmsg_dump_reason reason)
 {
 	struct kmsg_dumper *dumper;
+
+	if (!oops_in_progress) {
+		/*
+		 * If atomic consoles are available, activate kernel sync mode
+		 * to make sure any final messages are visible. The trailing
+		 * printk message is important to flush any pending messages.
+		 */
+		if (have_atomic_console()) {
+			sync_mode = true;
+			pr_info("enabled sync mode\n");
+		}
+	}
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(dumper, &dump_list, list) {
