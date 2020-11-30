@@ -154,6 +154,8 @@ struct console {
 #ifdef CONFIG_PRINTK
 	char	sync_buf[CONSOLE_LOG_MAX];
 #endif
+	atomic64_t printk_seq;
+	struct task_struct *thread;
 	void	*data;
 	struct	 console *next;
 };
