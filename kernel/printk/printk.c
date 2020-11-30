@@ -45,6 +45,7 @@
 #include <linux/ctype.h>
 #include <linux/uio.h>
 #include <linux/kthread.h>
+#include <linux/kdb.h>
 #include <linux/clocksource.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
@@ -60,7 +61,6 @@
 #include "printk_ringbuffer.h"
 #include "console_cmdline.h"
 #include "braille.h"
-#include "internal.h"
 
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
@@ -227,19 +227,7 @@ static int nr_ext_console_drivers;
 
 static int __down_trylock_console_sem(unsigned long ip)
 {
-	int lock_failed;
-	unsigned long flags;
-
-	/*
-	 * Here and in __up_console_sem() we need to be in safe mode,
-	 * because spindump/WARN/etc from under console ->lock will
-	 * deadlock in printk()->down_trylock_console_sem() otherwise.
-	 */
-	printk_safe_enter_irqsave(flags);
-	lock_failed = down_trylock(&console_sem);
-	printk_safe_exit_irqrestore(flags);
-
-	if (lock_failed)
+	if (down_trylock(&console_sem))
 		return 1;
 	mutex_acquire(&console_lock_dep_map, 0, 1, ip);
 	return 0;
@@ -248,13 +236,9 @@ static int __down_trylock_console_sem(unsigned long ip)
 
 static void __up_console_sem(unsigned long ip)
 {
-	unsigned long flags;
-
 	mutex_release(&console_lock_dep_map, ip);
 
-	printk_safe_enter_irqsave(flags);
 	up(&console_sem);
-	printk_safe_exit_irqrestore(flags);
 }
 #define up_console_sem() __up_console_sem(_RET_IP_)
 
@@ -424,7 +408,7 @@ static struct printk_ringbuffer *prb = &printk_rb_static;
  */
 static bool __printk_percpu_data_ready __read_mostly;
 
-bool printk_percpu_data_ready(void)
+static bool printk_percpu_data_ready(void)
 {
 	return __printk_percpu_data_ready;
 }
@@ -1057,7 +1041,6 @@ void __init setup_log_buf(int early)
 	struct printk_record r;
 	size_t new_descs_size;
 	size_t new_infos_size;
-	unsigned long flags;
 	char *new_log_buf;
 	unsigned int free;
 	u64 seq;
@@ -1115,8 +1098,6 @@ void __init setup_log_buf(int early)
 		 new_descs, ilog2(new_descs_count),
 		 new_infos);
 
-	printk_safe_enter_irqsave(flags);
-
 	log_buf_len = new_log_buf_len;
 	log_buf = new_log_buf;
 	new_log_buf_len = 0;
@@ -1131,8 +1112,6 @@ void __init setup_log_buf(int early)
 	 * appear during the transition to the dynamic buffer.
 	 */
 	prb = &printk_rb_dynamic;
-
-	printk_safe_exit_irqrestore(flags);
 
 	if (seq != prb_next_seq(&printk_rb_static)) {
 		pr_err("dropped %llu messages\n",
@@ -1924,9 +1903,9 @@ static u16 printk_sprint(char *text, u16 size, int facility, enum log_flags *lfl
 }
 
 __printf(4, 0)
-int vprintk_store(int facility, int level,
-		  const struct dev_printk_info *dev_info,
-		  const char *fmt, va_list args)
+static int vprintk_store(int facility, int level,
+			 const struct dev_printk_info *dev_info,
+			 const char *fmt, va_list args)
 {
 	const u32 caller_id = printk_caller_id();
 	struct prb_reserved_entry e;
@@ -2050,7 +2029,6 @@ asmlinkage int vprintk_emit(int facility, int level,
 			    const struct dev_printk_info *dev_info,
 			    const char *fmt, va_list args)
 {
-	unsigned long flags;
 	int printed_len;
 
 	/* Suppress unimportant messages after panic happens */
@@ -2060,20 +2038,29 @@ asmlinkage int vprintk_emit(int facility, int level,
 	if (level == LOGLEVEL_SCHED)
 		level = LOGLEVEL_DEFAULT;
 
-	printk_safe_enter_irqsave(flags);
 	printed_len = vprintk_store(facility, level, dev_info, fmt, args);
-	printk_safe_exit_irqrestore(flags);
 
 	wake_up_klogd();
 	return printed_len;
 }
 EXPORT_SYMBOL(vprintk_emit);
 
-int vprintk_default(const char *fmt, va_list args)
+__printf(1, 0)
+static int vprintk_default(const char *fmt, va_list args)
 {
 	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, fmt, args);
 }
-EXPORT_SYMBOL_GPL(vprintk_default);
+
+__printf(1, 0)
+static int vprintk_func(const char *fmt, va_list args)
+{
+#ifdef CONFIG_KGDB_KDB
+	/* Allow to pass printk() to kdb but avoid a recursion. */
+	if (unlikely(kdb_trap_printk && kdb_printf_cpu < 0))
+		return vkdb_printf(KDB_MSGSRC_PRINTK, fmt, args);
+#endif
+	return vprintk_default(fmt, args);
+}
 
 asmlinkage int vprintk(const char *fmt, va_list args)
 {
@@ -3042,18 +3029,10 @@ void wake_up_klogd(void)
 	preempt_enable();
 }
 
-void defer_console_output(void)
+__printf(1, 0)
+static int vprintk_deferred(const char *fmt, va_list args)
 {
-}
-
-int vprintk_deferred(const char *fmt, va_list args)
-{
-	int r;
-
-	r = vprintk_emit(0, LOGLEVEL_SCHED, NULL, fmt, args);
-	defer_console_output();
-
-	return r;
+	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, fmt, args);
 }
 
 int printk_deferred(const char *fmt, ...)
