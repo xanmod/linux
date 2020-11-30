@@ -366,11 +366,12 @@ static u64 syslog_seq;
 static size_t syslog_partial;
 static bool syslog_time;
 
-/* All 3 protected by @console_sem. */
-/* the next printk record to write to the console */
-static u64 console_seq;
+/* Both protected by @console_sem. */
 static u64 exclusive_console_stop_seq;
 static unsigned long console_dropped;
+
+/* the next printk record to write to the console */
+static atomic64_t console_seq = ATOMIC64_INIT(0);
 
 struct latched_seq {
 	seqcount_latch_t	latch;
@@ -2216,7 +2217,7 @@ EXPORT_SYMBOL(printk);
 #define prb_first_valid_seq(rb)		0
 
 static u64 syslog_seq;
-static u64 console_seq;
+static atomic64_t console_seq = ATOMIC64_INIT(0);
 static u64 exclusive_console_stop_seq;
 static unsigned long console_dropped;
 
@@ -2532,6 +2533,7 @@ void console_unlock(void)
 	bool do_cond_resched, retry;
 	struct printk_info info;
 	struct printk_record r;
+	u64 seq;
 
 	if (console_suspended) {
 		up_console_sem();
@@ -2575,12 +2577,14 @@ again:
 
 		printk_safe_enter_irqsave(flags);
 skip:
-		if (!prb_read_valid(prb, console_seq, &r))
+		seq = atomic64_read(&console_seq);
+		if (!prb_read_valid(prb, seq, &r))
 			break;
 
-		if (console_seq != r.info->seq) {
-			console_dropped += r.info->seq - console_seq;
-			console_seq = r.info->seq;
+		if (seq != r.info->seq) {
+			console_dropped += r.info->seq - seq;
+			atomic64_set(&console_seq, r.info->seq);
+			seq = r.info->seq;
 		}
 
 		if (suppress_message_printing(r.info->level)) {
@@ -2589,13 +2593,13 @@ skip:
 			 * directly to the console when we received it, and
 			 * record that has level above the console loglevel.
 			 */
-			console_seq++;
+			atomic64_set(&console_seq, seq + 1);
 			goto skip;
 		}
 
 		/* Output to all consoles once old messages replayed. */
 		if (unlikely(exclusive_console &&
-			     console_seq >= exclusive_console_stop_seq)) {
+			     seq >= exclusive_console_stop_seq)) {
 			exclusive_console = NULL;
 		}
 
@@ -2616,7 +2620,7 @@ skip:
 		len = record_print_text(&r,
 				console_msg_format & MSG_FORMAT_SYSLOG,
 				printk_time);
-		console_seq++;
+		atomic64_set(&console_seq, seq + 1);
 
 		/*
 		 * While actively printing out messages, if another printk()
@@ -2651,7 +2655,7 @@ skip:
 	 * there's a new owner and the console_unlock() from them will do the
 	 * flush, no worries.
 	 */
-	retry = prb_read_valid(prb, console_seq, NULL);
+	retry = prb_read_valid(prb, atomic64_read(&console_seq), NULL);
 	printk_safe_exit_irqrestore(flags);
 
 	if (retry && console_trylock())
@@ -2716,7 +2720,7 @@ void console_flush_on_panic(enum con_flush_mode mode)
 	console_may_schedule = 0;
 
 	if (mode == CONSOLE_REPLAY_ALL)
-		console_seq = prb_first_valid_seq(prb);
+		atomic64_set(&console_seq, prb_first_valid_seq(prb));
 	console_unlock();
 }
 
@@ -2953,11 +2957,11 @@ void register_console(struct console *newcon)
 		 * ignores console_lock.
 		 */
 		exclusive_console = newcon;
-		exclusive_console_stop_seq = console_seq;
+		exclusive_console_stop_seq = atomic64_read(&console_seq);
 
 		/* Get a consistent copy of @syslog_seq. */
 		spin_lock_irqsave(&syslog_lock, flags);
-		console_seq = syslog_seq;
+		atomic64_set(&console_seq, syslog_seq);
 		spin_unlock_irqrestore(&syslog_lock, flags);
 	}
 	console_unlock();
