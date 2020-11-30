@@ -280,10 +280,18 @@ static inline void dump_stack(void)
 extern int __printk_cpu_trylock(void);
 extern void __printk_wait_on_cpu_lock(void);
 extern void __printk_cpu_unlock(void);
+extern bool kgdb_roundup_delay(unsigned int cpu);
+
 #else
+
 #define __printk_cpu_trylock()		1
 #define __printk_wait_on_cpu_lock()
 #define __printk_cpu_unlock()
+
+static inline bool kgdb_roundup_delay(unsigned int cpu)
+{
+	return false;
+}
 #endif /* CONFIG_SMP */
 
 /**
@@ -314,6 +322,21 @@ extern void __printk_cpu_unlock(void);
 		__printk_cpu_unlock();		\
 		local_irq_restore(flags);	\
 	} while (0)
+
+/*
+ * Used to synchronize atomic consoles.
+ *
+ * The same as raw_printk_cpu_lock_irqsave() except that hardware interrupts
+ * are _not_ restored while spinning.
+ */
+#define console_atomic_lock(flags)		\
+	do {					\
+		local_irq_save(flags);		\
+		while (!__printk_cpu_trylock())	\
+			cpu_relax();		\
+	} while (0)
+
+#define console_atomic_unlock raw_printk_cpu_unlock_irqrestore
 
 extern int kptr_restrict;
 

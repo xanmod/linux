@@ -44,6 +44,7 @@
 #include <linux/irq_work.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#include <linux/kgdb.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
@@ -3582,6 +3583,7 @@ EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
 #ifdef CONFIG_SMP
 static atomic_t printk_cpulock_owner = ATOMIC_INIT(-1);
 static atomic_t printk_cpulock_nested = ATOMIC_INIT(0);
+static unsigned int kgdb_cpu = -1;
 
 /**
  * __printk_wait_on_cpu_lock() - Busy wait until the printk cpu-reentrant
@@ -3661,6 +3663,9 @@ EXPORT_SYMBOL(__printk_cpu_trylock);
  */
 void __printk_cpu_unlock(void)
 {
+	bool trigger_kgdb = false;
+	unsigned int cpu;
+
 	if (atomic_read(&printk_cpulock_nested)) {
 		atomic_dec(&printk_cpulock_nested);
 		return;
@@ -3670,6 +3675,12 @@ void __printk_cpu_unlock(void)
 	 * This CPU is finished loading/storing data:
 	 * LMM(__printk_cpu_unlock:A)
 	 */
+
+	cpu = smp_processor_id();
+	if (kgdb_cpu == cpu) {
+		trigger_kgdb = true;
+		kgdb_cpu = -1;
+	}
 
 	/*
 	 * Guarantee loads and stores from this CPU when it was the
@@ -3691,6 +3702,21 @@ void __printk_cpu_unlock(void)
 	 */
 	atomic_set_release(&printk_cpulock_owner,
 			   -1); /* LMM(__printk_cpu_unlock:B) */
+
+	if (trigger_kgdb) {
+		pr_warn("re-triggering kgdb roundup for CPU#%d\n", cpu);
+		kgdb_roundup_cpu(cpu);
+	}
 }
 EXPORT_SYMBOL(__printk_cpu_unlock);
+
+bool kgdb_roundup_delay(unsigned int cpu)
+{
+	if (cpu != atomic_read(&printk_cpulock_owner))
+		return false;
+
+	kgdb_cpu = cpu;
+	return true;
+}
+EXPORT_SYMBOL(kgdb_roundup_delay);
 #endif /* CONFIG_SMP */

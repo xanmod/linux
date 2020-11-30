@@ -140,6 +140,7 @@ static inline int con_debug_leave(void)
 struct console {
 	char	name[16];
 	void	(*write)(struct console *, const char *, unsigned);
+	void	(*write_atomic)(struct console *co, const char *s, unsigned int count);
 	int	(*read)(struct console *, char *, unsigned);
 	struct tty_driver *(*device)(struct console *, int *);
 	void	(*unblank)(void);
