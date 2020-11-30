@@ -367,15 +367,24 @@ static u64 syslog_seq;
 static size_t syslog_partial;
 static bool syslog_time;
 
-/* All 3 protected by @console_sem. */
-/* the next printk record to write to the console */
-static u64 console_seq;
+/* Both protected by @console_sem. */
 static u64 exclusive_console_stop_seq;
 static unsigned long console_dropped;
 
 struct latched_seq {
 	seqcount_latch_t	latch;
 	u64			val[2];
+};
+
+/*
+ * The next printk record to write to the console. There are two
+ * copies (updated with seqcount_latch) so that reads can locklessly
+ * access a valid value. Writers are synchronized by @console_sem.
+ */
+static struct latched_seq console_seq = {
+	.latch		= SEQCNT_LATCH_ZERO(console_seq.latch),
+	.val[0]		= 0,
+	.val[1]		= 0,
 };
 
 /*
@@ -441,7 +450,7 @@ bool printk_percpu_data_ready(void)
 	return __printk_percpu_data_ready;
 }
 
-/* Must be called under syslog_lock. */
+/* Must be called under associated write-protection lock. */
 static void latched_seq_write(struct latched_seq *ls, u64 val)
 {
 	raw_write_seqcount_latch(&ls->latch);
@@ -2270,7 +2279,8 @@ EXPORT_SYMBOL(printk);
 #define prb_first_valid_seq(rb)		0
 
 static u64 syslog_seq;
-static u64 console_seq;
+#error FIXME
+static atomic64_t console_seq = ATOMIC64_INIT(0);
 static u64 exclusive_console_stop_seq;
 static unsigned long console_dropped;
 
@@ -2586,6 +2596,7 @@ void console_unlock(void)
 	bool do_cond_resched, retry;
 	struct printk_info info;
 	struct printk_record r;
+	u64 seq;
 
 	if (console_suspended) {
 		up_console_sem();
@@ -2628,12 +2639,14 @@ again:
 		size_t len;
 
 skip:
-		if (!prb_read_valid(prb, console_seq, &r))
+		seq = latched_seq_read_nolock(&console_seq);
+		if (!prb_read_valid(prb, seq, &r))
 			break;
 
-		if (console_seq != r.info->seq) {
-			console_dropped += r.info->seq - console_seq;
-			console_seq = r.info->seq;
+		if (seq != r.info->seq) {
+			console_dropped += r.info->seq - seq;
+			latched_seq_write(&console_seq, r.info->seq);
+			seq = r.info->seq;
 		}
 
 		if (suppress_message_printing(r.info->level)) {
@@ -2642,13 +2655,13 @@ skip:
 			 * directly to the console when we received it, and
 			 * record that has level above the console loglevel.
 			 */
-			console_seq++;
+			latched_seq_write(&console_seq, seq + 1);
 			goto skip;
 		}
 
 		/* Output to all consoles once old messages replayed. */
 		if (unlikely(exclusive_console &&
-			     console_seq >= exclusive_console_stop_seq)) {
+			     seq >= exclusive_console_stop_seq)) {
 			exclusive_console = NULL;
 		}
 
@@ -2669,7 +2682,7 @@ skip:
 		len = record_print_text(&r,
 				console_msg_format & MSG_FORMAT_SYSLOG,
 				printk_time);
-		console_seq++;
+		latched_seq_write(&console_seq, seq + 1);
 
 		printk_safe_enter_irqsave(flags);
 
@@ -2706,7 +2719,7 @@ skip:
 	 * there's a new owner and the console_unlock() from them will do the
 	 * flush, no worries.
 	 */
-	retry = prb_read_valid(prb, console_seq, NULL);
+	retry = prb_read_valid(prb, latched_seq_read_nolock(&console_seq), NULL);
 	if (retry && console_trylock())
 		goto again;
 }
@@ -2758,18 +2771,19 @@ void console_unblank(void)
  */
 void console_flush_on_panic(enum con_flush_mode mode)
 {
-	/*
-	 * If someone else is holding the console lock, trylock will fail
-	 * and may_schedule may be set.  Ignore and proceed to unlock so
-	 * that messages are flushed out.  As this can be called from any
-	 * context and we don't want to get preempted while flushing,
-	 * ensure may_schedule is cleared.
-	 */
-	console_trylock();
-	console_may_schedule = 0;
-
-	if (mode == CONSOLE_REPLAY_ALL)
-		console_seq = prb_first_valid_seq(prb);
+	if (console_trylock()) {
+		if (mode == CONSOLE_REPLAY_ALL)
+			latched_seq_write(&console_seq, prb_first_valid_seq(prb));
+	} else {
+		/*
+		 * Another context is holding the console lock and
+		 * @console_may_schedule may be set. Ignore and proceed to
+		 * unlock so that messages are flushed out. As this can be
+		 * called from any context and we don't want to get preempted
+		 * while flushing, ensure @console_may_schedule is cleared.
+		 */
+		console_may_schedule = 0;
+	}
 	console_unlock();
 }
 
@@ -3006,11 +3020,11 @@ void register_console(struct console *newcon)
 		 * ignores console_lock.
 		 */
 		exclusive_console = newcon;
-		exclusive_console_stop_seq = console_seq;
+		exclusive_console_stop_seq = latched_seq_read_nolock(&console_seq);
 
 		/* Get a consistent copy of @syslog_seq. */
 		spin_lock_irqsave(&syslog_lock, flags);
-		console_seq = syslog_seq;
+		latched_seq_write(&console_seq, syslog_seq);
 		spin_unlock_irqrestore(&syslog_lock, flags);
 	}
 	console_unlock();
