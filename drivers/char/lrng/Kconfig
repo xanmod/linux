@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Linux Random Number Generator configuration
+#
+
+menuconfig LRNG
+	bool "Linux Random Number Generator"
+	select CRYPTO_LIB_SHA256 if CRYPTO
+	help
+	  The Linux Random Number Generator (LRNG) is the replacement
+	  of the existing /dev/random provided with drivers/char/random.c.
+	  It generates entropy from different noise sources and
+	  delivers significant entropy during boot.
+
+if LRNG
+
+choice
+	prompt "LRNG Entropy Collection Pool Size"
+	default LRNG_COLLECTION_SIZE_1024
+	help
+	  Select the size of the LRNG entropy collection pool
+	  storing data without performing a compression operation.
+	  The larger the collection size is, the faster the
+	  average interrupt handling will be. However, on the
+	  other hand the time until the LRNG received full entropy
+	  during boot time is longer because entropy is only awarded
+	  to events once they are compressed. The collection
+	  size represents the number of bytes of the per-CPU
+	  memory used to batch up entropy event data.
+
+	  The default value is good for regular operations. Choose
+	  larger sizes for servers whose boot time is of less
+	  interest. Runtime memory is precious, choose a smaller
+	  size.
+
+	  The collection size is unrelated to the entropy rate
+	  or the amount of entropy the LRNG can process.
+
+	config LRNG_COLLECTION_SIZE_16
+		bool "16 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_32
+		bool "32 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_64
+		bool "64 interrupt events (default)"
+
+	config LRNG_COLLECTION_SIZE_128
+		bool "128 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_256
+		bool "256 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_512
+		bool "512 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_1024
+		bool "1024 interrupt events"
+
+endchoice
+
+config LRNG_COLLECTION_SIZE
+	int
+	default 16 if LRNG_COLLECTION_SIZE_16
+	default 32 if LRNG_COLLECTION_SIZE_32
+	default 64 if LRNG_COLLECTION_SIZE_64
+	default 128 if LRNG_COLLECTION_SIZE_128
+	default 256 if LRNG_COLLECTION_SIZE_256
+	default 512 if LRNG_COLLECTION_SIZE_512
+	default 1024 if LRNG_COLLECTION_SIZE_1024
+
+endif # LRNG
