@@ -3359,11 +3359,6 @@ void wake_up_new_task(struct task_struct *p)
 	update_rq_clock(rq);
 	post_init_entity_util_avg(p);
 
-#ifdef CONFIG_CACHY_SCHED
-	if (!cachy_harsh_mode)
-		p->se.hrrn_start_time = rq_clock(rq);
-#endif
-
 	activate_task(rq, p, ENQUEUE_NOCLOCK);
 	trace_sched_wakeup_new(p);
 	check_preempt_curr(rq, p, WF_FORK);
@@ -7077,10 +7072,6 @@ void __init sched_init(void)
 	       &rt_sched_class + 1   != &dl_sched_class);
 #ifdef CONFIG_SMP
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
-#endif
-
-#ifdef CONFIG_CACHY_SCHED
-	printk(KERN_INFO "Cachy CPU scheduler v5.9-r8 by Hamad Al Marri.");
 #endif
 
 	wait_bit_init();

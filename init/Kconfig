@@ -822,17 +822,6 @@ config UCLAMP_BUCKETS_COUNT
 
 endmenu
 
-config CACHY_SCHED
-	bool "Cachy CPU scheduler"
-	default y
-	help
-	  The Cachy CPU scheduler that is based on Highest Response Ratio Next
-	  (HRRN) policy.
-
-	  Is designed for desktop usage since it is about responsiveness.
-
-	  If unsure, say Y here.
-
 #
 # For architectures that want to enable the support for NUMA-affine scheduler
 # balancing logic:
