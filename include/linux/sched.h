@@ -475,16 +475,29 @@ struct sched_statistics {
 #endif
 };
 
+#ifdef CONFIG_CACULE_SCHED
+struct cacule_node {
+	struct cacule_node* 		next;
+	struct cacule_node* 		prev;
+	u64				cacule_start_time;
+	u64				vruntime;
+};
+#endif
+
 struct sched_entity {
 	/* For load-balancing: */
 	struct load_weight		load;
 	struct rb_node			run_node;
+#ifdef CONFIG_CACULE_SCHED
+	struct cacule_node		cacule_node;
+#else
+	u64				vruntime;
+#endif
 	struct list_head		group_node;
 	unsigned int			on_rq;
 
 	u64				exec_start;
 	u64				sum_exec_runtime;
-	u64				vruntime;
 	u64				prev_sum_exec_runtime;
 
 	u64				nr_migrations;
