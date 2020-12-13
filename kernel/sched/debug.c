@@ -385,7 +385,11 @@ static void print_cfs_group_stats(struct seq_file *m, int cpu, struct task_group
 		return;
 
 	PN(se->exec_start);
+#ifdef CONFIG_CACULE_SCHED
+	PN(se->cacule_node.vruntime);
+#else
 	PN(se->vruntime);
+#endif
 	PN(se->sum_exec_runtime);
 
 	if (schedstat_enabled()) {
@@ -439,7 +443,11 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 
 	SEQ_printf(m, " %15s %5d %9Ld.%06ld %9Ld %5d ",
 		p->comm, task_pid_nr(p),
+#ifdef CONFIG_CACULE_SCHED
+		SPLIT_NS(p->se.cacule_node.vruntime),
+#else
 		SPLIT_NS(p->se.vruntime),
+#endif
 		(long long)(p->nvcsw + p->nivcsw),
 		p->prio);
 
@@ -481,8 +489,12 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 {
-	s64 MIN_vruntime = -1, min_vruntime, max_vruntime = -1,
-		spread, rq0_min_vruntime, spread0;
+	s64 MIN_vruntime = -1,
+#if !defined(CONFIG_CACULE_SCHED)
+	min_vruntime, rq0_min_vruntime,
+	spread0,
+#endif
+	max_vruntime = -1, spread;
 	struct rq *rq = cpu_rq(cpu);
 	struct sched_entity *last;
 	unsigned long flags;
@@ -499,25 +511,41 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 
 	raw_spin_lock_irqsave(&rq->lock, flags);
 	if (rb_first_cached(&cfs_rq->tasks_timeline))
+#ifdef CONFIG_CACULE_SCHED
+		MIN_vruntime = (__pick_first_entity(cfs_rq))->cacule_node.vruntime;
+#else
 		MIN_vruntime = (__pick_first_entity(cfs_rq))->vruntime;
+#endif
+
 	last = __pick_last_entity(cfs_rq);
 	if (last)
+#ifdef CONFIG_CACULE_SCHED
+		max_vruntime = last->cacule_node.vruntime;
+#else
 		max_vruntime = last->vruntime;
+#endif
+
+#if !defined(CONFIG_CACULE_SCHED)
 	min_vruntime = cfs_rq->min_vruntime;
 	rq0_min_vruntime = cpu_rq(0)->cfs.min_vruntime;
+#endif
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "MIN_vruntime",
 			SPLIT_NS(MIN_vruntime));
+#if !defined(CONFIG_CACULE_SCHED)
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "min_vruntime",
 			SPLIT_NS(min_vruntime));
+#endif
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "max_vruntime",
 			SPLIT_NS(max_vruntime));
 	spread = max_vruntime - MIN_vruntime;
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "spread",
 			SPLIT_NS(spread));
+#if !defined(CONFIG_CACULE_SCHED)
 	spread0 = min_vruntime - rq0_min_vruntime;
 	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", "spread0",
 			SPLIT_NS(spread0));
+#endif
 	SEQ_printf(m, "  .%-30s: %d\n", "nr_spread_over",
 			cfs_rq->nr_spread_over);
 	SEQ_printf(m, "  .%-30s: %d\n", "nr_running", cfs_rq->nr_running);
@@ -874,7 +902,11 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 #define PN_SCHEDSTAT(F) __PSN(#F, schedstat_val(p->F))
 
 	PN(se.exec_start);
+#ifdef CONFIG_CACULE_SCHED
+	PN(se.cacule_node.vruntime);
+#else
 	PN(se.vruntime);
+#endif
 	PN(se.sum_exec_runtime);
 
 	nr_switches = p->nvcsw + p->nivcsw;

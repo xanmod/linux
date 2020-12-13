@@ -3074,7 +3074,13 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.sum_exec_runtime		= 0;
 	p->se.prev_sum_exec_runtime	= 0;
 	p->se.nr_migrations		= 0;
+
+#ifdef CONFIG_CACULE_SCHED
+	p->se.cacule_node.vruntime	= 0;
+#else
 	p->se.vruntime			= 0;
+#endif
+
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -3358,6 +3364,10 @@ void wake_up_new_task(struct task_struct *p)
 	rq = __task_rq_lock(p, &rf);
 	update_rq_clock(rq);
 	post_init_entity_util_avg(p);
+
+#ifdef CONFIG_CACULE_SCHED
+	p->se.cacule_node.cacule_start_time = sched_clock();
+#endif
 
 	activate_task(rq, p, ENQUEUE_NOCLOCK);
 	trace_sched_wakeup_new(p);
@@ -7072,6 +7082,10 @@ void __init sched_init(void)
 	       &rt_sched_class + 1   != &dl_sched_class);
 #ifdef CONFIG_SMP
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
+#endif
+
+#ifdef CONFIG_CACULE_SCHED
+	printk(KERN_INFO "CacULE CPU scheduler v5.9 by Hamad Al Marri.");
 #endif
 
 	wait_bit_init();
