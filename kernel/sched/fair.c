@@ -44,7 +44,7 @@ static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
 
 #ifdef CONFIG_CACHY_SCHED
 int hrrn_max_lifetime					= 30000; // in ms
-int cachy_harsh_mode					= 1;
+int cachy_harsh_mode					= 0;
 #define U64_TO_U32(X) ((u32) (((X) >> 8) & 0xFFFFFFFF))
 #endif
 
