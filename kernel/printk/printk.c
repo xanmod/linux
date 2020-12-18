@@ -3393,6 +3393,7 @@ void kmsg_dump(enum kmsg_dump_reason reason)
 	rcu_read_lock();
 	list_for_each_entry_rcu(dumper, &dump_list, list) {
 		enum kmsg_dump_reason max_reason = dumper->max_reason;
+		struct kmsg_dumper dumper_copy;
 
 		/*
 		 * If client has not provided a specific max_reason, default
@@ -3405,19 +3406,20 @@ void kmsg_dump(enum kmsg_dump_reason reason)
 		if (reason > max_reason)
 			continue;
 
-		/* initialize iterator with data about the stored records */
-		dumper->active = true;
+		/*
+		 * Invoke a copy of the dumper to iterate over the records.
+		 * This allows kmsg_dump() to be called simultaneously on
+		 * multiple CPUs.
+		 */
+
+		memcpy(&dumper_copy, dumper, sizeof(dumper_copy));
+		INIT_LIST_HEAD(&dumper_copy.list);
+		dumper_copy.active = true;
 
 		logbuf_lock_irqsave(flags);
-		dumper->cur_seq = latched_seq_read_nolock(&clear_seq);
-		dumper->next_seq = prb_next_seq(prb);
+		kmsg_dump_rewind_nolock(&dumper_copy);
+		dumper_copy.dump(&dumper_copy, reason);
 		logbuf_unlock_irqrestore(flags);
-
-		/* invoke dumper which will iterate over records */
-		dumper->dump(dumper, reason);
-
-		/* reset iterator */
-		dumper->active = false;
 	}
 	rcu_read_unlock();
 }
