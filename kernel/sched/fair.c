@@ -7019,10 +7019,8 @@ static void migrate_task_rq_fair(struct task_struct *p, int new_cpu)
 	/* Tell new CPU we are migrated */
 	p->se.avg.last_update_time = 0;
 
-#if !defined(CONFIG_CACULE_SCHED)
 	/* We have migrated, no longer consider this task hot */
 	p->se.exec_start = 0;
-#endif
 
 	update_scan_period(p, new_cpu);
 }
