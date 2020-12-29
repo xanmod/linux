@@ -591,22 +591,25 @@ static void update_min_vruntime(struct cfs_rq *cfs_rq)
 static inline unsigned int
 calc_interactivity(u64 now, struct cacule_node *se)
 {
-	u64 l_se, vr_se, sleep_se, u64_factor;
+	u64 l_se, vr_se, sleep_se = 1ULL, u64_factor;
 	unsigned int score_se;
 
 	/*
 	 * in case of vruntime==0, logical OR with 1 would
 	 * make sure that the least sig. bit is 1
 	 */
-	l_se		= (now + 1ULL) - se->cacule_start_time;
+	l_se		= now - se->cacule_start_time;
 	vr_se		= se->vruntime		| 1;
-	sleep_se	= (l_se - vr_se)	| 1;
 	u64_factor	= interactivity_factor;
 
-	if (sleep_se > vr_se)
+	/* safety check */
+	if (likely(l_se > vr_se))
+		sleep_se = (l_se - vr_se) | 1;
+
+	if (sleep_se >= vr_se)
 		score_se = u64_factor / (sleep_se / vr_se);
 	else
-		score_se = (u64_factor / (vr_se / sleep_se)) + u64_factor;
+		score_se = (u64_factor << 1) - (u64_factor / (vr_se / sleep_se));
 
 	return score_se;
 }
