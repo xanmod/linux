@@ -43,7 +43,6 @@ unsigned int sysctl_sched_latency			= 6000000ULL;
 static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
 
 #ifdef CONFIG_CACULE_SCHED
-int cacule_max_lifetime					= 30000;
 int interactivity_factor				= 32768;
 #endif
 
@@ -592,25 +591,22 @@ static void update_min_vruntime(struct cfs_rq *cfs_rq)
 static inline unsigned int
 calc_interactivity(u64 now, struct cacule_node *se)
 {
-	u64 l_se, vr_se, sleep_se = 1ULL, u64_factor;
+	u64 l_se, vr_se, sleep_se, u64_factor;
 	unsigned int score_se;
 
 	/*
 	 * in case of vruntime==0, logical OR with 1 would
 	 * make sure that the least sig. bit is 1
 	 */
-	l_se		= now - se->cacule_start_time;
+	l_se		= (now + 1ULL) - se->cacule_start_time;
 	vr_se		= se->vruntime		| 1;
+	sleep_se	= (l_se - vr_se)	| 1;
 	u64_factor	= interactivity_factor;
 
-	/* safety check */
-	if (likely(l_se > vr_se))
-		sleep_se = (l_se - vr_se) | 1;
-
-	if (sleep_se >= vr_se)
+	if (sleep_se > vr_se)
 		score_se = u64_factor / (sleep_se / vr_se);
 	else
-		score_se = (u64_factor << 1) - (u64_factor / (vr_se / sleep_se));
+		score_se = (u64_factor / (vr_se / sleep_se)) + u64_factor;
 
 	return score_se;
 }
@@ -968,42 +964,6 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 }
 #endif /* CONFIG_SMP */
 
-#ifdef CONFIG_CACULE_SCHED
-static void reset_lifetime(u64 now, struct sched_entity *se)
-{
-	struct cacule_node *cn;
-	u64 max_life_ns, life_time;
-	s64 diff;
-
-	/*
-	 * left shift 20 bits is approximately = * 1000000
-	 * we don't need the precision of life time
-	 * Ex. for 30s, with left shift (20bits) == 31.457s
-	 */
-	max_life_ns	= ((u64) cacule_max_lifetime) << 20;
-
-	for_each_sched_entity(se) {
-		cn		= &se->cacule_node;
-		life_time	= now - cn->cacule_start_time;
-		diff		= life_time - max_life_ns;
-
-		if (unlikely(diff > 0)) {
-			// multiply life_time by 8 for more precision
-			u64 old_hrrn_x8	= life_time / ((cn->vruntime >> 3) | 1);
-
-			// reset life to half max_life (i.e ~15s)
-			cn->cacule_start_time = now - (max_life_ns >> 1);
-
-			// avoid division by zero
-			if (old_hrrn_x8 == 0) old_hrrn_x8 = 1;
-
-			// reset vruntime based on old hrrn ratio
-			cn->vruntime = (max_life_ns << 2) / old_hrrn_x8;
-		}
-	}
-}
-#endif /* CONFIG_CACULE_SCHED */
-
 /*
  * Update the current task's runtime statistics.
  */
@@ -1031,7 +991,6 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 #ifdef CONFIG_CACULE_SCHED
 	curr->cacule_node.vruntime += calc_delta_fair(delta_exec, curr);
-	reset_lifetime(sched_clock(), curr);
 #else
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
 	update_min_vruntime(cfs_rq);
