@@ -1384,8 +1384,7 @@ __kprobe_trace_func(struct trace_kprobe *tk, struct pt_regs *regs,
 	if (trace_trigger_soft_disabled(trace_file))
 		return;
 
-	local_save_flags(fbuffer.flags);
-	fbuffer.pc = preempt_count();
+	fbuffer.trace_ctx = tracing_gen_ctx_flags();
 	fbuffer.trace_file = trace_file;
 
 	dsize = __get_data_size(&tk->tp, regs);
@@ -1394,7 +1393,7 @@ __kprobe_trace_func(struct trace_kprobe *tk, struct pt_regs *regs,
 		trace_event_buffer_lock_reserve(&fbuffer.buffer, trace_file,
 					call->event.type,
 					sizeof(*entry) + tk->tp.size + dsize,
-					fbuffer.flags, fbuffer.pc);
+					fbuffer.trace_ctx);
 	if (!fbuffer.event)
 		return;
 
@@ -1432,8 +1431,7 @@ __kretprobe_trace_func(struct trace_kprobe *tk, struct kretprobe_instance *ri,
 	if (trace_trigger_soft_disabled(trace_file))
 		return;
 
-	local_save_flags(fbuffer.flags);
-	fbuffer.pc = preempt_count();
+	fbuffer.trace_ctx = tracing_gen_ctx_flags();
 	fbuffer.trace_file = trace_file;
 
 	dsize = __get_data_size(&tk->tp, regs);
@@ -1441,7 +1439,7 @@ __kretprobe_trace_func(struct trace_kprobe *tk, struct kretprobe_instance *ri,
 		trace_event_buffer_lock_reserve(&fbuffer.buffer, trace_file,
 					call->event.type,
 					sizeof(*entry) + tk->tp.size + dsize,
-					fbuffer.flags, fbuffer.pc);
+					fbuffer.trace_ctx);
 	if (!fbuffer.event)
 		return;
 
