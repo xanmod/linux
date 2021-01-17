@@ -2744,6 +2744,7 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->rcv_ooopack = 0;
 	tp->fast_ack_mode = 0;
 
+
 	/* Clean up fastopen related fields */
 	tcp_free_fastopen_req(tp);
 	inet->defer_connect = 0;

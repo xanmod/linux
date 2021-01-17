@@ -1039,7 +1039,12 @@ static void tcp_verify_retransmit_hint(struct tcp_sock *tp, struct sk_buff *skb)
  */
 static void tcp_notify_skb_loss_event(struct tcp_sock *tp, const struct sk_buff *skb)
 {
+	struct sock *sk = (struct sock *)tp;
+	const struct tcp_congestion_ops *ca_ops = inet_csk(sk)->icsk_ca_ops;
+
 	tp->lost += tcp_skb_pcount(skb);
+	if (ca_ops->skb_marked_lost)
+		ca_ops->skb_marked_lost(sk, skb);
 }
 
 void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
@@ -1061,15 +1066,9 @@ void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
 			tcp_notify_skb_loss_event(tp, skb);
 		}
 	} else {
-		struct sock *sk = (struct sock *)tp;
-		const struct tcp_congestion_ops *ca_ops;
-
 		tp->lost_out += tcp_skb_pcount(skb);
 		TCP_SKB_CB(skb)->sacked |= TCPCB_LOST;
 		tcp_notify_skb_loss_event(tp, skb);
-		ca_ops = inet_csk(sk)->icsk_ca_ops;
-		if (ca_ops->skb_marked_lost)
-			ca_ops->skb_marked_lost(sk, skb);
 	}
 }
 

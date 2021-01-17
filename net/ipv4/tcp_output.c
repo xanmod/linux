@@ -1614,10 +1614,10 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 
 		/* Set buff tx.in_flight as if buff were sent by itself. */
 		inflight_prev = TCP_SKB_CB(skb)->tx.in_flight - old_factor;
-		/* if (WARN_ONCE(inflight_prev < 0,
+		if (WARN_ONCE(inflight_prev < 0,
 			      "inconsistent: tx.in_flight: %u old_factor: %d",
-			      TCP_SKB_CB(skb)->tx.in_flight, old_factor)) */
-		if (inflight_prev < 0) inflight_prev = 0;
+			      TCP_SKB_CB(skb)->tx.in_flight, old_factor))
+			inflight_prev = 0;
 		TCP_SKB_CB(buff)->tx.in_flight = inflight_prev +
 						 tcp_skb_pcount(buff);
 	}
