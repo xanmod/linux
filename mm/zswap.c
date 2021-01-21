@@ -944,7 +944,7 @@ static int zswap_writeback_entry(struct zpool *pool, unsigned long handle)
 
 	if (!zpool_can_sleep_mapped(pool)) {
 
-		tmp = kmalloc(entry->length, GFP_ATOMIC);
+		tmp = kmalloc(PAGE_SIZE, GFP_ATOMIC);
 		if (!tmp)
 			return -ENOMEM;
 	}
