@@ -27,6 +27,7 @@
 #include "sched.h"
 
 #ifdef CONFIG_CACULE_SCHED
+int cacule_max_lifetime					= 30000;
 int interactivity_factor				= 32768;
 
 /* Default XanMod's CacULE latency: 2ms * (1 + ilog(ncpus)) */
@@ -625,13 +626,28 @@ calc_interactivity(u64 now, struct cacule_node *se)
 	return score_se;
 }
 
+static inline int
+entity_before_cached(u64 now, unsigned int score_curr, struct cacule_node *se)
+{
+	unsigned int score_se;
+	int diff;
+
+	score_se	= calc_interactivity(now, se);
+	diff		= score_se - score_curr;
+
+	if (diff < 0)
+		return 1;
+
+	return -1;
+}
+
 /*
  * Does se have lower interactivity score value (i.e. interactive) than curr? If yes, return 1,
  * otherwise return -1
  * se is before curr if se has lower interactivity score value
  * the lower score, the more interactive
  */
-static int
+static inline int
 entity_before(u64 now, struct cacule_node *curr, struct cacule_node *se)
 {
 	unsigned int score_curr, score_se;
@@ -978,13 +994,49 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 }
 #endif /* CONFIG_SMP */
 
+#ifdef CONFIG_CACULE_SCHED
+static void reset_lifetime(u64 now, struct sched_entity *se)
+{
+	struct cacule_node *cn;
+	u64 max_life_ns, life_time;
+	s64 diff;
+
+	/*
+	 * left shift 20 bits is approximately = * 1000000
+	 * we don't need the precision of life time
+	 * Ex. for 30s, with left shift (20bits) == 31.457s
+	 */
+	max_life_ns	= ((u64) cacule_max_lifetime) << 20;
+
+	for_each_sched_entity(se) {
+		cn		= &se->cacule_node;
+		life_time	= now - cn->cacule_start_time;
+		diff		= life_time - max_life_ns;
+
+		if (unlikely(diff > 0)) {
+			// multiply life_time by 8 for more precision
+			u64 old_hrrn_x8	= life_time / ((cn->vruntime >> 3) | 1);
+
+			// reset life to half max_life (i.e ~15s)
+			cn->cacule_start_time = now - (max_life_ns >> 1);
+
+			// avoid division by zero
+			if (old_hrrn_x8 == 0) old_hrrn_x8 = 1;
+
+			// reset vruntime based on old hrrn ratio
+			cn->vruntime = (max_life_ns << 2) / old_hrrn_x8;
+		}
+	}
+}
+#endif /* CONFIG_CACULE_SCHED */
+
 /*
  * Update the current task's runtime statistics.
  */
 static void update_curr(struct cfs_rq *cfs_rq)
 {
 	struct sched_entity *curr = cfs_rq->curr;
-	u64 now = rq_clock_task(rq_of(cfs_rq));
+	u64 now = sched_clock();
 	u64 delta_exec;
 
 	if (unlikely(!curr))
@@ -1005,6 +1057,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 #ifdef CONFIG_CACULE_SCHED
 	curr->cacule_node.vruntime += calc_delta_fair(delta_exec, curr);
+	reset_lifetime(now, curr);
 #else
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
 	update_min_vruntime(cfs_rq);
@@ -1203,7 +1256,7 @@ update_stats_curr_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	/*
 	 * We are starting a new run period:
 	 */
-	se->exec_start = rq_clock_task(rq_of(cfs_rq));
+	se->exec_start = sched_clock();
 }
 
 /**************************************************
@@ -4613,19 +4666,24 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	struct cacule_node *se = cfs_rq->head;
 	struct cacule_node *next;
 	u64 now = sched_clock();
+	unsigned int score_se;
 
 	if (!se)
 		return curr;
 
+	score_se = calc_interactivity(now, se);
+
 	next = se->next;
 	while (next) {
-		if (entity_before(now, se, next) == 1)
+		if (entity_before_cached(now, score_se, next) == 1) {
 			se = next;
+			score_se = calc_interactivity(now, se);
+		}
 
 		next = next->next;
 	}
 
-	if (curr && entity_before(now, se, &curr->cacule_node) == 1)
+	if (curr && entity_before_cached(now, score_se, &curr->cacule_node) == 1)
 		se = &curr->cacule_node;
 
 	return se_of(se);
