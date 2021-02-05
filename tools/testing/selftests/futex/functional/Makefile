@@ -19,7 +19,8 @@ TEST_GEN_FILES := \
 	futex_wait_private_mapped_file \
 	futex_wait \
 	futex_requeue \
-	futex2_wait
+	futex2_wait \
+	futex2_waitv
 
 TEST_PROGS := run.sh
 

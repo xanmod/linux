@@ -82,3 +82,6 @@ echo
 
 echo
 ./futex2_wait $COLOR
+
+echo
+./futex2_waitv $COLOR

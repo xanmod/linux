@@ -28,6 +28,10 @@
 # define FUTEX_32	2
 #endif
 
+#ifndef FUTEX_SHARED_FLAG
+#define FUTEX_SHARED_FLAG 8
+#endif
+
 /*
  * - Y2038 section for 32-bit applications -
  *
@@ -76,4 +80,17 @@ static inline int futex2_wait(volatile void *uaddr, unsigned long val,
 static inline int futex2_wake(volatile void *uaddr, unsigned int nr, unsigned long flags)
 {
 	return syscall(__NR_futex_wake, uaddr, nr, flags);
+}
+
+/**
+ * futex2_waitv - Wait at multiple futexes, wake on any
+ * @waiters:    Array of waiters
+ * @nr_waiters: Length of waiters array
+ * @flags: Operation flags
+ * @timo:  Optional timeout for operation
+ */
+static inline int futex2_waitv(volatile struct futex_waitv *waiters, unsigned long nr_waiters,
+			      unsigned long flags, struct timespec64 *timo)
+{
+	return syscall(__NR_futex_waitv, waiters, nr_waiters, flags, timo);
 }
