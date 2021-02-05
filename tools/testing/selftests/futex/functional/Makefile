@@ -6,6 +6,7 @@ LDLIBS := -lpthread -lrt
 
 HEADERS := \
 	../include/futextest.h \
+	../include/futex2test.h \
 	../include/atomic.h \
 	../include/logging.h
 TEST_GEN_FILES := \
@@ -17,7 +18,8 @@ TEST_GEN_FILES := \
 	futex_wait_uninitialized_heap \
 	futex_wait_private_mapped_file \
 	futex_wait \
-	futex_requeue
+	futex_requeue \
+	futex2_wait
 
 TEST_PROGS := run.sh
 

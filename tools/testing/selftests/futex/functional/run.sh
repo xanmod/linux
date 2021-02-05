@@ -79,3 +79,6 @@ echo
 
 echo
 ./futex_requeue $COLOR
+
+echo
+./futex2_wait $COLOR
