@@ -143,7 +143,7 @@ function_trace_call(unsigned long ip, unsigned long parent_ip,
 	if (bit < 0)
 		return;
 
-	trace_ctx = tracing_gen_ctx_flags();
+	trace_ctx = tracing_gen_ctx();
 	preempt_disable_notrace();
 
 	cpu = smp_processor_id();
@@ -197,7 +197,7 @@ function_stack_trace_call(unsigned long ip, unsigned long parent_ip,
 	disabled = atomic_inc_return(&data->disabled);
 
 	if (likely(disabled == 1)) {
-		trace_ctx = _tracing_gen_ctx_flags(flags);
+		trace_ctx = tracing_gen_ctx_flags(flags);
 		trace_function(tr, ip, parent_ip, trace_ctx);
 		__trace_stack(tr, trace_ctx, STACK_SKIP);
 	}
@@ -404,7 +404,7 @@ static __always_inline void trace_stack(struct trace_array *tr)
 {
 	unsigned int trace_ctx;
 
-	trace_ctx = tracing_gen_ctx_flags();
+	trace_ctx = tracing_gen_ctx();
 
 	__trace_stack(tr, trace_ctx, FTRACE_STACK_SKIP);
 }
