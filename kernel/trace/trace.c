@@ -2606,6 +2606,11 @@ unsigned int tracing_gen_ctx_irq_test(unsigned int irqs_status)
 	if (test_preempt_need_resched())
 		trace_flags |= TRACE_FLAG_PREEMPT_RESCHED;
 
+#ifdef CONFIG_PREEMPT_LAZY
+	if (need_resched_lazy())
+		trace_flags |= TRACE_FLAG_NEED_RESCHED_LAZY;
+#endif
+
 	return (pc & 0xff) |
 		(migration_disable_value() & 0xff) << 8 |
 		(preempt_lazy_count() & 0xff) << 16 |
@@ -2750,7 +2755,7 @@ trace_event_buffer_lock_reserve(struct trace_buffer **current_rb,
 	    (entry = this_cpu_read(trace_buffered_event))) {
 		/* Try to use the per cpu buffer first */
 		val = this_cpu_inc_return(trace_buffered_event_cnt);
-		if (val == 1) {
+		if ((len < (PAGE_SIZE - sizeof(*entry))) && val == 1) {
 			trace_event_setup(entry, type, trace_ctx);
 			entry->array[0] = len;
 			return entry;
@@ -2758,8 +2763,8 @@ trace_event_buffer_lock_reserve(struct trace_buffer **current_rb,
 		this_cpu_dec(trace_buffered_event_cnt);
 	}
 
-	entry = __trace_buffer_lock_reserve(*current_rb, type, len,
-					    trace_ctx);
+	entry = __trace_buffer_lock_reserve(*current_rb,
+					    type, len, trace_ctx);
 	/*
 	 * If tracing is off, but we have triggers enabled
 	 * we still need to look at the event data. Use the temp_buffer
