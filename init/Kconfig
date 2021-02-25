@@ -825,6 +825,27 @@ config UCLAMP_BUCKETS_COUNT
 
 endmenu
 
+config CACULE_SCHED
+	bool "CacULE CPU scheduler"
+	default y
+	help
+	  The CacULE CPU scheduler is based on interactivity score mechanism.
+	  The interactivity score is inspired by the ULE scheduler (FreeBSD
+	  scheduler).
+
+	  If unsure, say Y here.
+
+config CACULE_RDB
+	bool "RDB (Response Driven Balancer)"
+	default y
+	depends on CACULE_SCHED
+	help
+	  This is an experimental load balancer for CacULE. It is a lightweight
+	  load balancer which is a replacement of CFS load balancer. It migrates
+	  tasks based on their interactivity scores.
+
+	  If unsure, say Y here.
+
 #
 # For architectures that want to enable the support for NUMA-affine scheduler
 # balancing logic:
@@ -942,6 +963,7 @@ config CGROUP_WRITEBACK
 
 menuconfig CGROUP_SCHED
 	bool "CPU controller"
+	depends on !CACULE_RDB
 	default n
 	help
 	  This feature lets CPU scheduler recognize task groups and control CPU
@@ -1204,6 +1226,7 @@ config CHECKPOINT_RESTORE
 
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
+	depends on !CACULE_RDB
 	select CGROUPS
 	select CGROUP_SCHED
 	select FAIR_GROUP_SCHED
