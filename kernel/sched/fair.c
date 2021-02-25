@@ -7093,10 +7093,10 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	int cpu = smp_processor_id();
 	int new_cpu = prev_cpu;
 	int want_affine = 0;
-#if !defined(CONFIG_CACULE_SCHED)
 	/* SD_flags and WF_flags share the first nibble */
 	int sd_flag = wake_flags & 0xF;
 
+#if !defined(CONFIG_CACULE_SCHED)
 	if (wake_flags & WF_TTWU) {
 		record_wakee(p);
 
