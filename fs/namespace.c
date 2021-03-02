@@ -14,7 +14,7 @@
 #include <linux/mnt_namespace.h>
 #include <linux/user_namespace.h>
 #include <linux/namei.h>
-#include <linux/delay.h>
+#include <linux/hrtimer.h>
 #include <linux/security.h>
 #include <linux/cred.h>
 #include <linux/idr.h>

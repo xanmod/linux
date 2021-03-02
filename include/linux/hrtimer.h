@@ -540,4 +540,10 @@ int hrtimers_dead_cpu(unsigned int cpu);
 #define hrtimers_dead_cpu	NULL
 #endif
 
+#ifdef CONFIG_PREEMPT_RT
+extern void cpu_chill(void);
+#else
+# define cpu_chill()	cpu_relax()
+#endif
+
 #endif
