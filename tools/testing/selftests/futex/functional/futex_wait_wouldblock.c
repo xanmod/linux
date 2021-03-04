@@ -12,7 +12,7 @@
  *
  * HISTORY
  *      2009-Nov-14: Initial version by Gowrishankar <gowrishankar.m@in.ibm.com>
- *      2019-Dec-13: Add WAIT_MULTIPLE test by Krisman <krisman@collabora.com>
+ *      2021-Feb-5: Add futex2 test by André <andrealmeid@collabora.com>
  *
  *****************************************************************************/
 
@@ -22,7 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "futextest.h"
+#include "futex2test.h"
 #include "logging.h"
 
 #define TEST_NAME "futex-wait-wouldblock"
@@ -40,8 +40,8 @@ void usage(char *prog)
 int main(int argc, char *argv[])
 {
 	struct timespec to = {.tv_sec = 0, .tv_nsec = timeout_ns};
+	struct timespec64 to64;
 	futex_t f1 = FUTEX_INITIALIZER;
-	struct futex_wait_block fwb = {&f1, f1+1, 0};
 	int res, ret = RET_PASS;
 	int c;
 
@@ -70,32 +70,33 @@ int main(int argc, char *argv[])
 	info("Calling futex_wait on f1: %u @ %p with val=%u\n", f1, &f1, f1+1);
 	res = futex_wait(&f1, f1+1, &to, FUTEX_PRIVATE_FLAG);
 	if (!res || errno != EWOULDBLOCK) {
-		fail("futex_wait returned: %d %s\n",
+		ksft_test_result_fail("futex_wait returned: %d %s\n",
 		     res ? errno : res, res ? strerror(errno) : "");
 		ret = RET_FAIL;
-	} else
+	} else {
 		ksft_test_result_pass("futex_wait wouldblock succeeds\n");
+	}
 
-	info("Calling futex_wait_multiple on f1: %u @ %p with val=%u\n",
-	     f1, &f1, f1+1);
-	res = futex_wait_multiple(&fwb, 1, NULL, FUTEX_PRIVATE_FLAG);
+	/* setting absolute timeout for futex2 */
+	if (gettime64(CLOCK_MONOTONIC, &to64))
+		error("gettime64 failed\n", errno);
 
-#ifdef __ILP32__
-	if (res != -1 || errno != ENOSYS) {
-		ksft_test_result_fail("futex_wait_multiple returned %d\n",
-				      res < 0 ? errno : res);
+	to64.tv_nsec += timeout_ns;
+
+	if (to64.tv_nsec >= 1000000000) {
+		to64.tv_sec++;
+		to64.tv_nsec -= 1000000000;
+	}
+
+	info("Calling futex2_wait on f1: %u @ %p with val=%u\n", f1, &f1, f1+1);
+	res = futex2_wait(&f1, f1+1, FUTEX_32, &to64);
+	if (!res || errno != EWOULDBLOCK) {
+		ksft_test_result_fail("futex2_wait returned: %d %s\n",
+		     res ? errno : res, res ? strerror(errno) : "");
 		ret = RET_FAIL;
 	} else {
-		ksft_test_result_skip("futex_wait_multiple not supported at x32\n");
+		ksft_test_result_pass("futex2_wait wouldblock succeeds\n");
 	}
-#else
-	if (!res || errno != EWOULDBLOCK) {
-		ksft_test_result_fail("futex_wait_multiple returned %d\n",
-				      res < 0 ? errno : res);
-		ret = RET_FAIL;
-	}
-	ksft_test_result_pass("futex_wait_multiple wouldblock succeeds\n");
-#endif /* __ILP32__ */
 
 	ksft_print_cnts();
 	return ret;

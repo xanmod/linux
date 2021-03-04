@@ -75,4 +75,7 @@ echo
 ./futex_wait_private_mapped_file $COLOR
 
 echo
-./futex_wait_multiple $COLOR
+./futex2_wait $COLOR
+
+echo
+./futex2_waitv $COLOR
