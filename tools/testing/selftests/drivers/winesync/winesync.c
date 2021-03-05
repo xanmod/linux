@@ -790,4 +790,106 @@ TEST(wake_any)
 	close(fd);
 }
 
+TEST(wake_all)
+{
+	struct winesync_mutex_args mutex_args = {0};
+	struct winesync_wait_args wait_args = {0};
+	struct winesync_sem_args sem_args = {0};
+	struct wait_args thread_args;
+	__u32 objs[2], count, index;
+	struct timespec timeout;
+	pthread_t thread;
+	int fd, ret;
+
+	fd = open("/dev/winesync", O_CLOEXEC | O_RDONLY);
+	ASSERT_LE(0, fd);
+
+	sem_args.count = 0;
+	sem_args.max = 3;
+	sem_args.sem = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, sem_args.sem);
+
+	mutex_args.owner = 123;
+	mutex_args.count = 1;
+	mutex_args.mutex = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_MUTEX, &mutex_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, mutex_args.mutex);
+
+	objs[0] = sem_args.sem;
+	objs[1] = mutex_args.mutex;
+
+	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 1000);
+	wait_args.timeout = (uintptr_t)&timeout;
+	wait_args.objs = (uintptr_t)objs;
+	wait_args.count = 2;
+	wait_args.owner = 456;
+	thread_args.fd = fd;
+	thread_args.args = &wait_args;
+	thread_args.request = WINESYNC_IOC_WAIT_ALL;
+	ret = pthread_create(&thread, NULL, wait_thread, &thread_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(ETIMEDOUT, ret);
+
+	sem_args.count = 1;
+	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, sem_args.count);
+
+	ret = pthread_tryjoin_np(thread, NULL);
+	EXPECT_EQ(EBUSY, ret);
+
+	check_sem_state(fd, sem_args.sem, 1, 3);
+
+	ret = wait_any(fd, 1, &sem_args.sem, 123, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+
+	ret = put_mutex(fd, mutex_args.mutex, 123, &count);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, count);
+
+	ret = pthread_tryjoin_np(thread, NULL);
+	EXPECT_EQ(EBUSY, ret);
+
+	check_mutex_state(fd, mutex_args.mutex, 0, 0);
+
+	sem_args.count = 2;
+	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, sem_args.count);
+	check_sem_state(fd, sem_args.sem, 1, 3);
+	check_mutex_state(fd, mutex_args.mutex, 1, 456);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, thread_args.ret);
+
+	/* delete an object while it's being waited on */
+
+	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 200);
+	wait_args.owner = 123;
+	ret = pthread_create(&thread, NULL, wait_thread, &thread_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(ETIMEDOUT, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &sem_args.sem);
+	EXPECT_EQ(0, ret);
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &mutex_args.mutex);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_for_thread(thread, 200);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(-1, thread_args.ret);
+	EXPECT_EQ(ETIMEDOUT, thread_args.err);
+
+	close(fd);
+}
+
 TEST_HARNESS_MAIN
