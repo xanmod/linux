@@ -21,5 +21,7 @@ struct winesync_sem_args {
 #define WINESYNC_IOC_CREATE_SEM		_IOWR(WINESYNC_IOC_BASE, 0, \
 					      struct winesync_sem_args)
 #define WINESYNC_IOC_DELETE		_IOW (WINESYNC_IOC_BASE, 1, __u32)
+#define WINESYNC_IOC_PUT_SEM		_IOWR(WINESYNC_IOC_BASE, 2, \
+					      struct winesync_sem_args)
 
 #endif
