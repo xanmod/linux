@@ -543,4 +543,97 @@ TEST(test_wait_all)
 	close(fd);
 }
 
+TEST(invalid_objects)
+{
+	struct winesync_mutex_args mutex_args = {0};
+	struct winesync_wait_args wait_args = {0};
+	struct winesync_sem_args sem_args = {0};
+	__u32 objs[2] = {0};
+	int fd, ret;
+
+	fd = open("/dev/winesync", O_CLOEXEC | O_RDONLY);
+	ASSERT_LE(0, fd);
+
+	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_READ_SEM, &sem_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_PUT_MUTEX, &mutex_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_READ_MUTEX, &mutex_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	wait_args.objs = (uintptr_t)objs;
+	wait_args.count = 1;
+	ret = ioctl(fd, WINESYNC_IOC_WAIT_ANY, &wait_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+	ret = ioctl(fd, WINESYNC_IOC_WAIT_ALL, &wait_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &objs[0]);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	sem_args.max = 1;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+
+	mutex_args.mutex = sem_args.sem;
+	ret = ioctl(fd, WINESYNC_IOC_PUT_MUTEX, &mutex_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_READ_MUTEX, &mutex_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	objs[0] = sem_args.sem;
+	objs[1] = sem_args.sem + 1;
+	wait_args.count = 2;
+	ret = ioctl(fd, WINESYNC_IOC_WAIT_ANY, &wait_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+	ret = ioctl(fd, WINESYNC_IOC_WAIT_ALL, &wait_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	objs[0] = sem_args.sem + 1;
+	objs[1] = sem_args.sem;
+	ret = ioctl(fd, WINESYNC_IOC_WAIT_ANY, &wait_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+	ret = ioctl(fd, WINESYNC_IOC_WAIT_ALL, &wait_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &sem_args.sem);
+	EXPECT_EQ(0, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_MUTEX, &mutex_args);
+	EXPECT_EQ(0, ret);
+
+	sem_args.sem = mutex_args.mutex;
+	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_READ_SEM, &sem_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &mutex_args.mutex);
+	EXPECT_EQ(0, ret);
+
+	close(fd);
+}
+
 TEST_HARNESS_MAIN
