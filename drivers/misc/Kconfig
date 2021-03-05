@@ -483,6 +483,17 @@ config OPEN_DICE
 
 	  If unsure, say N.
 
+config WINESYNC
+	tristate "Synchronization primitives for Wine"
+	help
+	  This module provides kernel support for synchronization primitives
+	  used by Wine. It is not a hardware driver.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called winesync.
+
+	  If unsure, say N.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
