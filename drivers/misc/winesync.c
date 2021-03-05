@@ -450,6 +450,71 @@ static int winesync_put_sem(struct winesync_device *dev, void __user *argp)
 	return ret;
 }
 
+/*
+ * Actually change the mutex state, returning -EPERM if not the owner.
+ */
+static int put_mutex_state(struct winesync_obj *mutex,
+			   const struct winesync_mutex_args *args)
+{
+	lockdep_assert_held(&mutex->lock);
+
+	if (mutex->u.mutex.owner != args->owner)
+		return -EPERM;
+
+	if (!--mutex->u.mutex.count)
+		mutex->u.mutex.owner = 0;
+	return 0;
+}
+
+static int winesync_put_mutex(struct winesync_device *dev, void __user *argp)
+{
+	struct winesync_mutex_args __user *user_args = argp;
+	struct winesync_mutex_args args;
+	struct winesync_obj *mutex;
+	__u32 prev_count;
+	int ret;
+
+	if (copy_from_user(&args, argp, sizeof(args)))
+		return -EFAULT;
+	if (!args.owner)
+		return -EINVAL;
+
+	mutex = get_obj_typed(dev, args.mutex, WINESYNC_TYPE_MUTEX);
+	if (!mutex)
+		return -EINVAL;
+
+	if (atomic_read(&mutex->all_hint) > 0) {
+		spin_lock(&dev->wait_all_lock);
+		spin_lock(&mutex->lock);
+
+		prev_count = mutex->u.mutex.count;
+		ret = put_mutex_state(mutex, &args);
+		if (!ret) {
+			try_wake_all_obj(dev, mutex);
+			try_wake_any_mutex(mutex);
+		}
+
+		spin_unlock(&mutex->lock);
+		spin_unlock(&dev->wait_all_lock);
+	} else {
+		spin_lock(&mutex->lock);
+
+		prev_count = mutex->u.mutex.count;
+		ret = put_mutex_state(mutex, &args);
+		if (!ret)
+			try_wake_any_mutex(mutex);
+
+		spin_unlock(&mutex->lock);
+	}
+
+	put_obj(mutex);
+
+	if (!ret && put_user(prev_count, &user_args->count))
+		ret = -EFAULT;
+
+	return ret;
+}
+
 static int winesync_schedule(const struct winesync_q *q, ktime_t *timeout)
 {
 	int ret = 0;
@@ -736,6 +801,8 @@ static long winesync_char_ioctl(struct file *file, unsigned int cmd,
 		return winesync_create_sem(dev, argp);
 	case WINESYNC_IOC_DELETE:
 		return winesync_delete(dev, argp);
+	case WINESYNC_IOC_PUT_MUTEX:
+		return winesync_put_mutex(dev, argp);
 	case WINESYNC_IOC_PUT_SEM:
 		return winesync_put_sem(dev, argp);
 	case WINESYNC_IOC_WAIT_ALL:
