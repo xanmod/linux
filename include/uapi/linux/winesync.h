@@ -49,5 +49,7 @@ struct winesync_wait_args {
 #define WINESYNC_IOC_KILL_OWNER		_IOW (WINESYNC_IOC_BASE, 7, __u32)
 #define WINESYNC_IOC_READ_SEM		_IOWR(WINESYNC_IOC_BASE, 8, \
 					      struct winesync_sem_args)
+#define WINESYNC_IOC_READ_MUTEX		_IOWR(WINESYNC_IOC_BASE, 9, \
+					      struct winesync_mutex_args)
 
 #endif

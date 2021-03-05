@@ -550,6 +550,35 @@ static int winesync_read_sem(struct winesync_device *dev, void __user *argp)
 	return 0;
 }
 
+static int winesync_read_mutex(struct winesync_device *dev, void __user *argp)
+{
+	struct winesync_mutex_args __user *user_args = argp;
+	struct winesync_mutex_args args;
+	struct winesync_obj *mutex;
+	__u32 id;
+	int ret;
+
+	if (get_user(id, &user_args->mutex))
+		return -EFAULT;
+
+	mutex = get_obj_typed(dev, id, WINESYNC_TYPE_MUTEX);
+	if (!mutex)
+		return -EINVAL;
+
+	args.mutex = id;
+	spin_lock(&mutex->lock);
+	args.count = mutex->u.mutex.count;
+	args.owner = mutex->u.mutex.owner;
+	ret = mutex->u.mutex.ownerdead ? -EOWNERDEAD : 0;
+	spin_unlock(&mutex->lock);
+
+	put_obj(mutex);
+
+	if (copy_to_user(user_args, &args, sizeof(args)))
+		return -EFAULT;
+	return ret;
+}
+
 /*
  * Actually change the mutex state to mark its owner as dead.
  */
@@ -908,6 +937,8 @@ static long winesync_char_ioctl(struct file *file, unsigned int cmd,
 		return winesync_put_mutex(dev, argp);
 	case WINESYNC_IOC_PUT_SEM:
 		return winesync_put_sem(dev, argp);
+	case WINESYNC_IOC_READ_MUTEX:
+		return winesync_read_mutex(dev, argp);
 	case WINESYNC_IOC_READ_SEM:
 		return winesync_read_sem(dev, argp);
 	case WINESYNC_IOC_WAIT_ALL:
