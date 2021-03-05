@@ -85,8 +85,8 @@ static int put_mutex(int fd, __u32 mutex, __u32 owner, __u32 *count)
 	return ret;
 }
 
-static int wait_any(int fd, __u32 count, const __u32 *objs, __u32 owner,
-		    __u32 *index)
+static int wait_objs(int fd, unsigned long request, __u32 count,
+		     const __u32 *objs, __u32 owner, __u32 *index)
 {
 	struct winesync_wait_args args = {0};
 	struct timespec timeout;
@@ -99,9 +99,21 @@ static int wait_any(int fd, __u32 count, const __u32 *objs, __u32 owner,
 	args.objs = (uintptr_t)objs;
 	args.owner = owner;
 	args.index = 0xdeadbeef;
-	ret = ioctl(fd, WINESYNC_IOC_WAIT_ANY, &args);
+	ret = ioctl(fd, request, &args);
 	*index = args.index;
 	return ret;
+}
+
+static int wait_any(int fd, __u32 count, const __u32 *objs,
+		    __u32 owner, __u32 *index)
+{
+	return wait_objs(fd, WINESYNC_IOC_WAIT_ANY, count, objs, owner, index);
+}
+
+static int wait_all(int fd, __u32 count, const __u32 *objs,
+		    __u32 owner, __u32 *index)
+{
+	return wait_objs(fd, WINESYNC_IOC_WAIT_ALL, count, objs, owner, index);
 }
 
 TEST(semaphore_state)
@@ -436,6 +448,92 @@ TEST(test_wait_any)
 	ret = wait_any(fd, 0, NULL, 456, &index);
 	EXPECT_EQ(-1, ret);
 	EXPECT_EQ(ETIMEDOUT, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &sem_args.sem);
+	EXPECT_EQ(0, ret);
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &mutex_args.mutex);
+	EXPECT_EQ(0, ret);
+
+	close(fd);
+}
+
+TEST(test_wait_all)
+{
+	struct winesync_mutex_args mutex_args = {0};
+	struct winesync_sem_args sem_args = {0};
+	__u32 objs[2], owner, index;
+	int fd, ret;
+
+	fd = open("/dev/winesync", O_CLOEXEC | O_RDONLY);
+	ASSERT_LE(0, fd);
+
+	sem_args.count = 2;
+	sem_args.max = 3;
+	sem_args.sem = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, sem_args.sem);
+
+	mutex_args.owner = 0;
+	mutex_args.count = 0;
+	mutex_args.mutex = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_MUTEX, &mutex_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, mutex_args.mutex);
+
+	objs[0] = sem_args.sem;
+	objs[1] = mutex_args.mutex;
+
+	ret = wait_all(fd, 2, objs, 123, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+	check_sem_state(fd, sem_args.sem, 1, 3);
+	check_mutex_state(fd, mutex_args.mutex, 1, 123);
+
+	ret = wait_all(fd, 2, objs, 456, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(ETIMEDOUT, errno);
+	check_sem_state(fd, sem_args.sem, 1, 3);
+	check_mutex_state(fd, mutex_args.mutex, 1, 123);
+
+	ret = wait_all(fd, 2, objs, 123, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+	check_sem_state(fd, sem_args.sem, 0, 3);
+	check_mutex_state(fd, mutex_args.mutex, 2, 123);
+
+	ret = wait_all(fd, 2, objs, 123, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(ETIMEDOUT, errno);
+	check_sem_state(fd, sem_args.sem, 0, 3);
+	check_mutex_state(fd, mutex_args.mutex, 2, 123);
+
+	sem_args.count = 3;
+	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, sem_args.count);
+
+	ret = wait_all(fd, 2, objs, 123, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+	check_sem_state(fd, sem_args.sem, 2, 3);
+	check_mutex_state(fd, mutex_args.mutex, 3, 123);
+
+	owner = 123;
+	ret = ioctl(fd, WINESYNC_IOC_KILL_OWNER, &owner);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_all(fd, 2, objs, 123, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EOWNERDEAD, errno);
+	check_sem_state(fd, sem_args.sem, 1, 3);
+	check_mutex_state(fd, mutex_args.mutex, 1, 123);
+
+	/* test waiting on the same object twice */
+	objs[0] = objs[1] = sem_args.sem;
+	ret = wait_all(fd, 2, objs, 123, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
 
 	ret = ioctl(fd, WINESYNC_IOC_DELETE, &sem_args.sem);
 	EXPECT_EQ(0, ret);
