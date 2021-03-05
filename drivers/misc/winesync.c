@@ -40,7 +40,7 @@ static const struct file_operations winesync_fops = {
 };
 
 static struct miscdevice winesync_misc = {
-	.minor		= MISC_DYNAMIC_MINOR,
+	.minor		= WINESYNC_MINOR,
 	.name		= WINESYNC_NAME,
 	.fops		= &winesync_fops,
 };
@@ -62,3 +62,4 @@ MODULE_AUTHOR("Zebediah Figura");
 MODULE_DESCRIPTION("Kernel driver for Wine synchronization primitives");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("devname:" WINESYNC_NAME);
+MODULE_ALIAS_MISCDEV(WINESYNC_MINOR);
