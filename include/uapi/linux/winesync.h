@@ -16,6 +16,15 @@ struct winesync_sem_args {
 	__u32 max;
 };
 
+struct winesync_wait_args {
+	__u64 timeout;
+	__u64 objs;
+	__u32 count;
+	__u32 owner;
+	__u32 index;
+	__u32 pad;
+};
+
 #define WINESYNC_IOC_BASE 0xf7
 
 #define WINESYNC_IOC_CREATE_SEM		_IOWR(WINESYNC_IOC_BASE, 0, \
@@ -23,5 +32,7 @@ struct winesync_sem_args {
 #define WINESYNC_IOC_DELETE		_IOW (WINESYNC_IOC_BASE, 1, __u32)
 #define WINESYNC_IOC_PUT_SEM		_IOWR(WINESYNC_IOC_BASE, 2, \
 					      struct winesync_sem_args)
+#define WINESYNC_IOC_WAIT_ANY		_IOWR(WINESYNC_IOC_BASE, 3, \
+					      struct winesync_wait_args)
 
 #endif
