@@ -559,23 +559,17 @@ static void kdb_msg_write(const char *msg, int msg_len)
 		cp++;
 	}
 
+	/* mirror output on atomic consoles */
 	for_each_console(c) {
 		if (!(c->flags & CON_ENABLED))
 			continue;
 		if (c == dbg_io_ops->cons)
 			continue;
-		/*
-		 * Set oops_in_progress to encourage the console drivers to
-		 * disregard their internal spin locks: in the current calling
-		 * context the risk of deadlock is a bigger problem than risks
-		 * due to re-entering the console driver. We operate directly on
-		 * oops_in_progress rather than using bust_spinlocks() because
-		 * the calls bust_spinlocks() makes on exit are not appropriate
-		 * for this calling context.
-		 */
-		++oops_in_progress;
-		c->write(c, msg, msg_len);
-		--oops_in_progress;
+
+		if (!c->write_atomic)
+			continue;
+		c->write_atomic(c, msg, msg_len);
+
 		touch_nmi_watchdog();
 	}
 }
