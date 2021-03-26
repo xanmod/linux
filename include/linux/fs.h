@@ -699,7 +699,7 @@ struct inode {
 		struct pipe_inode_info	*i_pipe;
 		struct cdev		*i_cdev;
 		char			*i_link;
-		unsigned		i_dir_seq;
+		unsigned		__i_dir_seq;
 	};
 
 	__u32			i_generation;

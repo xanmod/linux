@@ -915,7 +915,7 @@ asmlinkage void do_notify_resume(struct pt_regs *regs,
 				 unsigned long thread_flags)
 {
 	do {
-		if (thread_flags & _TIF_NEED_RESCHED) {
+		if (thread_flags & _TIF_NEED_RESCHED_MASK) {
 			/* Unmask Debug and SError for the next task */
 			local_daif_restore(DAIF_PROCCTX_NOIRQ);
 
