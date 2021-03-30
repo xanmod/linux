@@ -533,6 +533,7 @@ struct cfs_rq {
 	struct sched_entity	*curr;
 #ifdef CONFIG_CACULE_SCHED
 	struct cacule_node	*head;
+	struct cacule_node	*tail;
 
 #ifdef CONFIG_CACULE_RDB
 	unsigned int		IS_head;
