@@ -50,8 +50,15 @@ extern unsigned int sysctl_numa_balancing_scan_period_min;
 extern unsigned int sysctl_numa_balancing_scan_period_max;
 extern unsigned int sysctl_numa_balancing_scan_size;
 
+#ifdef CONFIG_CACULE_RDB
 #ifdef CONFIG_SCHED_DEBUG
 extern __read_mostly unsigned int sysctl_sched_migration_cost;
+#else
+extern unsigned int sysctl_sched_migration_cost;
+#endif
+#endif
+
+#ifdef CONFIG_SCHED_DEBUG
 extern __read_mostly unsigned int sysctl_sched_nr_migrate;
 
 int sched_proc_update_handler(struct ctl_table *table, int write,
