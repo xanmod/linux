@@ -106,9 +106,9 @@ static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
 #ifdef CONFIG_CACULE_RDB
 #ifdef CONFIG_SCHED_DEBUG
-const_debug unsigned int sysctl_sched_migration_cost   = 100000UL;
+const_debug unsigned int sysctl_sched_migration_cost   = 750000UL;
 #else
-unsigned int sysctl_sched_migration_cost	       = 100000UL;
+unsigned int sysctl_sched_migration_cost	       = 750000UL;
 #endif
 #else
 const_debug unsigned int sysctl_sched_migration_cost   = 500000UL;
@@ -7915,7 +7915,7 @@ static int task_hot(struct rq *src_rq)
 	if (sysctl_sched_migration_cost == 0)
 		return 0;
 
-	delta = rq_clock_task(src_rq) - p->se.exec_start;
+	delta = sched_clock() - p->se.exec_start;
 
 	return delta < (s64)sysctl_sched_migration_cost;
 }
