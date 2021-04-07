@@ -115,7 +115,7 @@ static inline void u64_stats_inc(u64_stats_t *p)
 }
 #endif
 
-#if BITS_PER_LONG == 32 && defined(CONFIG_SMP)
+#if BITS_PER_LONG == 32 && (defined(CONFIG_SMP) || defined(CONFIG_PREEMPT_RT))
 #define u64_stats_init(syncp)	seqcount_init(&(syncp)->seq)
 #else
 static inline void u64_stats_init(struct u64_stats_sync *syncp)

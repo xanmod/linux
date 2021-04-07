@@ -2994,7 +2994,7 @@ static void __ftrace_trace_stack(struct trace_buffer *buffer,
 	size = nr_entries * sizeof(unsigned long);
 	event = __trace_buffer_lock_reserve(buffer, TRACE_STACK,
 				    (sizeof(*entry) - sizeof(entry->caller)) + size,
-				    flags, pc);
+				    trace_ctx);
 	if (!event)
 		goto out;
 	entry = ring_buffer_event_data(event);
