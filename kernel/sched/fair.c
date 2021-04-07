@@ -138,7 +138,7 @@ int __weak arch_asym_cpu_priority(int cpu)
 #endif
 #ifdef CONFIG_CACULE_SCHED
 int cacule_max_lifetime					= 30000; // in ms
-int cacule_harsh_mode					= 1;
+int cacule_harsh_mode					= 0;
 int interactivity_factor				= 32768;
 #endif
 
