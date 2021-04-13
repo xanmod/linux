@@ -56,38 +56,45 @@ static inline void local_lock_acquire(local_lock_t *l) { }
 static inline void local_lock_release(local_lock_t *l) { }
 #endif /* !CONFIG_DEBUG_LOCK_ALLOC */
 
+#define ll_preempt_disable()		preempt_disable()
+#define ll_preempt_enable()		preempt_enable()
+#define ll_local_irq_disable()		local_irq_disable()
+#define ll_local_irq_enable()		local_irq_enable()
+#define ll_local_irq_save(flags)	local_irq_save(flags)
+#define ll_local_irq_restore(flags)	local_irq_restore(flags)
+
 #define __local_lock(lock)					\
 	do {							\
-		preempt_disable();				\
+		ll_preempt_disable();				\
 		local_lock_acquire(this_cpu_ptr(lock));		\
 	} while (0)
 
 #define __local_lock_irq(lock)					\
 	do {							\
-		local_irq_disable();				\
+		ll_local_irq_disable();				\
 		local_lock_acquire(this_cpu_ptr(lock));		\
 	} while (0)
 
 #define __local_lock_irqsave(lock, flags)			\
 	do {							\
-		local_irq_save(flags);				\
+		ll_local_irq_save(flags);			\
 		local_lock_acquire(this_cpu_ptr(lock));		\
 	} while (0)
 
 #define __local_unlock(lock)					\
 	do {							\
 		local_lock_release(this_cpu_ptr(lock));		\
-		preempt_enable();				\
+		ll_preempt_enable();				\
 	} while (0)
 
 #define __local_unlock_irq(lock)				\
 	do {							\
 		local_lock_release(this_cpu_ptr(lock));		\
-		local_irq_enable();				\
+		ll_local_irq_enable();				\
 	} while (0)
 
 #define __local_unlock_irqrestore(lock, flags)			\
 	do {							\
 		local_lock_release(this_cpu_ptr(lock));		\
-		local_irq_restore(flags);			\
+		ll_local_irq_restore(flags);			\
 	} while (0)
