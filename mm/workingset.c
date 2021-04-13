@@ -168,9 +168,9 @@
  * refault distance will immediately activate the refaulting page.
  */
 
-#define EVICTION_SHIFT	((BITS_PER_LONG - BITS_PER_XA_VALUE) +	\
-			 1 + NODES_SHIFT + MEM_CGROUP_ID_SHIFT)
-#define EVICTION_MASK	(~0UL >> EVICTION_SHIFT)
+#define EVICTION_SHIFT		(BITS_PER_XA_VALUE - MEM_CGROUP_ID_SHIFT - NODES_SHIFT)
+#define EVICTION_MASK		(BIT(EVICTION_SHIFT) - 1)
+#define WORKINGSET_WIDTH	1
 
 /*
  * Eviction timestamps need to be able to cover the full range of
@@ -182,37 +182,138 @@
  */
 static unsigned int bucket_order __read_mostly;
 
-static void *pack_shadow(int memcgid, pg_data_t *pgdat, unsigned long eviction,
-			 bool workingset)
+static void *pack_shadow(int memcg_id, struct pglist_data *pgdat, unsigned long val)
 {
-	eviction >>= bucket_order;
-	eviction &= EVICTION_MASK;
-	eviction = (eviction << MEM_CGROUP_ID_SHIFT) | memcgid;
-	eviction = (eviction << NODES_SHIFT) | pgdat->node_id;
-	eviction = (eviction << 1) | workingset;
+	val = (val << MEM_CGROUP_ID_SHIFT) | memcg_id;
+	val = (val << NODES_SHIFT) | pgdat->node_id;
 
-	return xa_mk_value(eviction);
+	return xa_mk_value(val);
 }
 
-static void unpack_shadow(void *shadow, int *memcgidp, pg_data_t **pgdat,
-			  unsigned long *evictionp, bool *workingsetp)
+static unsigned long unpack_shadow(void *shadow, int *memcg_id, struct pglist_data **pgdat)
 {
-	unsigned long entry = xa_to_value(shadow);
-	int memcgid, nid;
-	bool workingset;
+	unsigned long val = xa_to_value(shadow);
 
-	workingset = entry & 1;
-	entry >>= 1;
-	nid = entry & ((1UL << NODES_SHIFT) - 1);
-	entry >>= NODES_SHIFT;
-	memcgid = entry & ((1UL << MEM_CGROUP_ID_SHIFT) - 1);
-	entry >>= MEM_CGROUP_ID_SHIFT;
+	*pgdat = NODE_DATA(val & (BIT(NODES_SHIFT) - 1));
+	val >>= NODES_SHIFT;
+	*memcg_id = val & (BIT(MEM_CGROUP_ID_SHIFT) - 1);
 
-	*memcgidp = memcgid;
-	*pgdat = NODE_DATA(nid);
-	*evictionp = entry << bucket_order;
-	*workingsetp = workingset;
+	return val >> MEM_CGROUP_ID_SHIFT;
 }
+
+#ifdef CONFIG_LRU_GEN
+
+#if LRU_GEN_SHIFT + LRU_USAGE_SHIFT >= EVICTION_SHIFT
+#error "Please try smaller NODES_SHIFT, NR_LRU_GENS and TIERS_PER_GEN configurations"
+#endif
+
+static void page_set_usage(struct page *page, int usage)
+{
+	unsigned long old_flags, new_flags;
+
+	VM_BUG_ON(usage > BIT(LRU_USAGE_WIDTH));
+
+	if (!usage)
+		return;
+
+	do {
+		old_flags = READ_ONCE(page->flags);
+		new_flags = (old_flags & ~LRU_USAGE_MASK) | LRU_TIER_FLAGS |
+			    ((usage - 1UL) << LRU_USAGE_PGOFF);
+		if (old_flags == new_flags)
+			break;
+	} while (cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
+}
+
+/* Return a token to be stored in the shadow entry of a page being evicted. */
+static void *lru_gen_eviction(struct page *page)
+{
+	int sid, tier;
+	unsigned long token;
+	unsigned long min_seq;
+	struct lruvec *lruvec;
+	struct lrugen *lrugen;
+	int file = page_is_file_lru(page);
+	int usage = page_tier_usage(page);
+	struct mem_cgroup *memcg = page_memcg(page);
+	struct pglist_data *pgdat = page_pgdat(page);
+
+	if (!lru_gen_enabled())
+		return NULL;
+
+	lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	lrugen = &lruvec->evictable;
+	min_seq = READ_ONCE(lrugen->min_seq[file]);
+	token = (min_seq << LRU_USAGE_SHIFT) | usage;
+
+	sid = sid_from_seq_or_gen(min_seq);
+	tier = lru_tier_from_usage(usage);
+	atomic_long_add(thp_nr_pages(page), &lrugen->evicted[sid][file][tier]);
+
+	return pack_shadow(mem_cgroup_id(memcg), pgdat, token);
+}
+
+/* Account a refaulted page based on the token stored in its shadow entry. */
+static bool lru_gen_refault(struct page *page, void *shadow)
+{
+	int sid, tier, usage;
+	int memcg_id;
+	unsigned long token;
+	unsigned long min_seq;
+	struct lruvec *lruvec;
+	struct lrugen *lrugen;
+	struct pglist_data *pgdat;
+	struct mem_cgroup *memcg;
+	int file = page_is_file_lru(page);
+
+	if (!lru_gen_enabled())
+		return false;
+
+	token = unpack_shadow(shadow, &memcg_id, &pgdat);
+	if (page_pgdat(page) != pgdat)
+		return true;
+
+	rcu_read_lock();
+	memcg = page_memcg_rcu(page);
+	if (mem_cgroup_id(memcg) != memcg_id)
+		goto unlock;
+
+	usage = token & (BIT(LRU_USAGE_SHIFT) - 1);
+	token >>= LRU_USAGE_SHIFT;
+
+	lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	lrugen = &lruvec->evictable;
+	min_seq = READ_ONCE(lrugen->min_seq[file]);
+	if (token != (min_seq & (EVICTION_MASK >> LRU_USAGE_SHIFT)))
+		goto unlock;
+
+	page_set_usage(page, usage);
+
+	sid = sid_from_seq_or_gen(min_seq);
+	tier = lru_tier_from_usage(usage);
+	atomic_long_add(thp_nr_pages(page), &lrugen->refaulted[sid][file][tier]);
+	inc_lruvec_state(lruvec, WORKINGSET_REFAULT_BASE + file);
+	if (tier)
+		inc_lruvec_state(lruvec, WORKINGSET_RESTORE_BASE + file);
+unlock:
+	rcu_read_unlock();
+
+	return true;
+}
+
+#else /* CONFIG_LRU_GEN */
+
+static void *lru_gen_eviction(struct page *page)
+{
+	return NULL;
+}
+
+static bool lru_gen_refault(struct page *page, void *shadow)
+{
+	return false;
+}
+
+#endif /* CONFIG_LRU_GEN */
 
 /**
  * workingset_age_nonresident - age non-resident entries as LRU ages
@@ -256,18 +357,25 @@ void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg)
 	unsigned long eviction;
 	struct lruvec *lruvec;
 	int memcgid;
+	void *shadow;
 
 	/* Page is fully exclusive and pins page's memory cgroup pointer */
 	VM_BUG_ON_PAGE(PageLRU(page), page);
 	VM_BUG_ON_PAGE(page_count(page), page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 
+	shadow = lru_gen_eviction(page);
+	if (shadow)
+		return shadow;
+
 	lruvec = mem_cgroup_lruvec(target_memcg, pgdat);
 	/* XXX: target_memcg can be NULL, go through lruvec */
 	memcgid = mem_cgroup_id(lruvec_memcg(lruvec));
 	eviction = atomic_long_read(&lruvec->nonresident_age);
+	eviction >>= bucket_order;
+	eviction = (eviction << WORKINGSET_WIDTH) | PageWorkingset(page);
 	workingset_age_nonresident(lruvec, thp_nr_pages(page));
-	return pack_shadow(memcgid, pgdat, eviction, PageWorkingset(page));
+	return pack_shadow(memcgid, pgdat, eviction);
 }
 
 /**
@@ -294,7 +402,10 @@ void workingset_refault(struct page *page, void *shadow)
 	bool workingset;
 	int memcgid;
 
-	unpack_shadow(shadow, &memcgid, &pgdat, &eviction, &workingset);
+	if (lru_gen_refault(page, shadow))
+		return;
+
+	eviction = unpack_shadow(shadow, &memcgid, &pgdat);
 
 	rcu_read_lock();
 	/*
@@ -318,6 +429,8 @@ void workingset_refault(struct page *page, void *shadow)
 		goto out;
 	eviction_lruvec = mem_cgroup_lruvec(eviction_memcg, pgdat);
 	refault = atomic_long_read(&eviction_lruvec->nonresident_age);
+	workingset = eviction & (BIT(WORKINGSET_WIDTH) - 1);
+	eviction = (eviction >> WORKINGSET_WIDTH) << bucket_order;
 
 	/*
 	 * Calculate the refault distance
@@ -335,7 +448,7 @@ void workingset_refault(struct page *page, void *shadow)
 	 * longest time, so the occasional inappropriate activation
 	 * leading to pressure on the active list is not a problem.
 	 */
-	refault_distance = (refault - eviction) & EVICTION_MASK;
+	refault_distance = (refault - eviction) & (EVICTION_MASK >> WORKINGSET_WIDTH);
 
 	/*
 	 * The activation decision for this page is made at the level
@@ -594,7 +707,7 @@ static int __init workingset_init(void)
 	unsigned int max_order;
 	int ret;
 
-	BUILD_BUG_ON(BITS_PER_LONG < EVICTION_SHIFT);
+	BUILD_BUG_ON(EVICTION_SHIFT < WORKINGSET_WIDTH);
 	/*
 	 * Calculate the eviction bucket size to cover the longest
 	 * actionable refault distance, which is currently half of
@@ -602,7 +715,7 @@ static int __init workingset_init(void)
 	 * some more pages at runtime, so keep working with up to
 	 * double the initial memory by using totalram_pages as-is.
 	 */
-	timestamp_bits = BITS_PER_LONG - EVICTION_SHIFT;
+	timestamp_bits = EVICTION_SHIFT - WORKINGSET_WIDTH;
 	max_order = fls_long(totalram_pages() - 1);
 	if (max_order > timestamp_bits)
 		bucket_order = max_order - timestamp_bits;

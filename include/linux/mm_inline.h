@@ -95,6 +95,12 @@ static inline int lru_gen_from_seq(unsigned long seq)
 	return seq % MAX_NR_GENS;
 }
 
+/* Convert the level of usage to a tier. See the comment on MAX_NR_TIERS. */
+static inline int lru_tier_from_usage(int usage)
+{
+	return order_base_2(usage + 1);
+}
+
 /* Return a proper index regardless whether we keep a full history of stats. */
 static inline int sid_from_seq_or_gen(int seq_or_gen)
 {
@@ -238,10 +244,91 @@ static inline bool lru_gen_deletion(struct page *page, struct lruvec *lruvec)
 	return true;
 }
 
+/* Activate a page from page cache or swap cache after it's mapped. */
+static inline void lru_gen_activation(struct page *page, struct vm_area_struct *vma)
+{
+	if (!lru_gen_enabled())
+		return;
+
+	if (PageActive(page) || PageUnevictable(page) || vma_is_dax(vma) ||
+	    (vma->vm_flags & (VM_LOCKED | VM_SPECIAL)))
+		return;
+	/*
+	 * TODO: pass vm_fault to add_to_page_cache_lru() and
+	 * __read_swap_cache_async() so they can activate pages directly when in
+	 * the page fault path.
+	 */
+	activate_page(page);
+}
+
 /* Return -1 when a page is not on a list of the multigenerational lru. */
 static inline int page_lru_gen(struct page *page)
 {
 	return ((READ_ONCE(page->flags) & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+}
+
+/* This function works regardless whether the multigenerational lru is enabled. */
+static inline bool page_is_active(struct page *page, struct lruvec *lruvec)
+{
+	struct mem_cgroup *memcg;
+	int gen = page_lru_gen(page);
+	bool active = false;
+
+	VM_BUG_ON_PAGE(PageTail(page), page);
+
+	if (gen < 0)
+		return PageActive(page);
+
+	if (lruvec) {
+		VM_BUG_ON_PAGE(PageUnevictable(page), page);
+		VM_BUG_ON_PAGE(PageActive(page), page);
+		lockdep_assert_held(&lruvec->lru_lock);
+
+		return lru_gen_is_active(lruvec, gen);
+	}
+
+	rcu_read_lock();
+
+	memcg = page_memcg_rcu(page);
+	lruvec = mem_cgroup_lruvec(memcg, page_pgdat(page));
+	active = lru_gen_is_active(lruvec, gen);
+
+	rcu_read_unlock();
+
+	return active;
+}
+
+/* Return the level of usage of a page. See the comment on MAX_NR_TIERS. */
+static inline int page_tier_usage(struct page *page)
+{
+	unsigned long flags = READ_ONCE(page->flags);
+
+	return flags & BIT(PG_workingset) ?
+	       ((flags & LRU_USAGE_MASK) >> LRU_USAGE_PGOFF) + 1 : 0;
+}
+
+/* Increment the usage counter after a page is accessed via file descriptors. */
+static inline bool page_inc_usage(struct page *page)
+{
+	unsigned long old_flags, new_flags;
+
+	if (!lru_gen_enabled())
+		return PageActive(page);
+
+	do {
+		old_flags = READ_ONCE(page->flags);
+
+		if (!(old_flags & BIT(PG_workingset)))
+			new_flags = old_flags | BIT(PG_workingset);
+		else
+			new_flags = (old_flags & ~LRU_USAGE_MASK) | min(LRU_USAGE_MASK,
+				    (old_flags & LRU_USAGE_MASK) + BIT(LRU_USAGE_PGOFF));
+
+		if (old_flags == new_flags)
+			break;
+	} while (cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
+
+	return true;
 }
 
 #else /* CONFIG_LRU_GEN */
@@ -259,6 +346,20 @@ static inline bool lru_gen_addition(struct page *page, struct lruvec *lruvec, bo
 static inline bool lru_gen_deletion(struct page *page, struct lruvec *lruvec)
 {
 	return false;
+}
+
+static inline void lru_gen_activation(struct page *page, struct vm_area_struct *vma)
+{
+}
+
+static inline bool page_is_active(struct page *page, struct lruvec *lruvec)
+{
+	return PageActive(page);
+}
+
+static inline bool page_inc_usage(struct page *page)
+{
+	return PageActive(page);
 }
 
 #endif /* CONFIG_LRU_GEN */
