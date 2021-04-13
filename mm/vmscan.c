@@ -1114,6 +1114,10 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 		if (!sc->may_unmap && page_mapped(page))
 			goto keep_locked;
 
+		/* in case the page was found accessed by lru_gen_scan_around() */
+		if (lru_gen_enabled() && !ignore_references && PageReferenced(page))
+			goto keep_locked;
+
 		may_enter_fs = (sc->gfp_mask & __GFP_FS) ||
 			(PageSwapCache(page) && (sc->gfp_mask & __GFP_IO));
 
@@ -2233,6 +2237,10 @@ static void prepare_scan_count(pg_data_t *pgdat, struct scan_control *sc)
 	unsigned long file;
 	struct lruvec *target_lruvec;
 
+	/* the multigenerational lru doesn't use these counters */
+	if (lru_gen_enabled())
+		return;
+
 	target_lruvec = mem_cgroup_lruvec(sc->target_mem_cgroup, pgdat);
 
 	/*
@@ -2522,6 +2530,19 @@ out:
 	}
 }
 
+#ifdef CONFIG_LRU_GEN
+static void age_lru_gens(struct pglist_data *pgdat, struct scan_control *sc);
+static void shrink_lru_gens(struct lruvec *lruvec, struct scan_control *sc);
+#else
+static void age_lru_gens(struct pglist_data *pgdat, struct scan_control *sc)
+{
+}
+
+static void shrink_lru_gens(struct lruvec *lruvec, struct scan_control *sc)
+{
+}
+#endif
+
 static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 {
 	unsigned long nr[NR_LRU_LISTS];
@@ -2532,6 +2553,11 @@ static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 	unsigned long nr_to_reclaim = sc->nr_to_reclaim;
 	struct blk_plug plug;
 	bool scan_adjusted;
+
+	if (lru_gen_enabled()) {
+		shrink_lru_gens(lruvec, sc);
+		return;
+	}
 
 	get_scan_count(lruvec, sc, nr);
 
@@ -2999,6 +3025,10 @@ static void snapshot_refaults(struct mem_cgroup *target_memcg, pg_data_t *pgdat)
 	struct lruvec *target_lruvec;
 	unsigned long refaults;
 
+	/* the multigenerational lru doesn't use these counters */
+	if (lru_gen_enabled())
+		return;
+
 	target_lruvec = mem_cgroup_lruvec(target_memcg, pgdat);
 	refaults = lruvec_page_state(target_lruvec, WORKINGSET_ACTIVATE_ANON);
 	target_lruvec->refaults[0] = refaults;
@@ -3372,6 +3402,11 @@ static void age_active_anon(struct pglist_data *pgdat,
 {
 	struct mem_cgroup *memcg;
 	struct lruvec *lruvec;
+
+	if (lru_gen_enabled()) {
+		age_lru_gens(pgdat, sc);
+		return;
+	}
 
 	if (!total_swap_pages)
 		return;
@@ -5468,6 +5503,57 @@ static bool walk_mm_list(struct lruvec *lruvec, unsigned long max_seq,
 	return true;
 }
 
+void lru_gen_scan_around(struct page_vma_mapped_walk *pvmw)
+{
+	pte_t *pte;
+	unsigned long start, end;
+	int old_gen, new_gen;
+	unsigned long flags;
+	struct lruvec *lruvec;
+	struct mem_cgroup *memcg;
+	struct pglist_data *pgdat = page_pgdat(pvmw->page);
+
+	lockdep_assert_held(pvmw->ptl);
+
+	start = max(pvmw->address & PMD_MASK, pvmw->vma->vm_start);
+	end = pmd_addr_end(pvmw->address, pvmw->vma->vm_end);
+	pte = pvmw->pte - ((pvmw->address - start) >> PAGE_SHIFT);
+
+	memcg = lock_page_memcg(pvmw->page);
+	lruvec = lock_page_lruvec_irqsave(pvmw->page, &flags);
+
+	new_gen = lru_gen_from_seq(lruvec->evictable.max_seq);
+
+	for (; start != end; pte++, start += PAGE_SIZE) {
+		struct page *page;
+		unsigned long pfn = pte_pfn(*pte);
+
+		if (!pte_present(*pte) || !pte_young(*pte) || is_zero_pfn(pfn))
+			continue;
+
+		if (pfn < pgdat->node_start_pfn || pfn >= pgdat_end_pfn(pgdat))
+			continue;
+
+		page = compound_head(pfn_to_page(pfn));
+		if (page_to_nid(page) != pgdat->node_id)
+			continue;
+
+		if (page_memcg_rcu(page) != memcg)
+			continue;
+		/*
+		 * We may be holding many locks. So try to finish as fast as
+		 * possible and leave the accessed and the dirty bits to page
+		 * table walks.
+		 */
+		old_gen = page_update_gen(page, new_gen);
+		if (old_gen >= 0 && old_gen != new_gen)
+			lru_gen_update_size(page, lruvec, old_gen, new_gen);
+	}
+
+	unlock_page_lruvec_irqrestore(lruvec, flags);
+	unlock_page_memcg(pvmw->page);
+}
+
 /******************************************************************************
  *                          the eviction
  ******************************************************************************/
@@ -5807,6 +5893,156 @@ static bool evict_lru_gen_pages(struct lruvec *lruvec, struct scan_control *sc,
 	sc->nr_reclaimed += reclaimed;
 done:
 	return *nr_to_scan > 0 && sc->nr_reclaimed < sc->nr_to_reclaim;
+}
+
+/******************************************************************************
+ *                          page reclaim
+ ******************************************************************************/
+
+static int get_swappiness(struct lruvec *lruvec)
+{
+	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
+	int swappiness = mem_cgroup_get_nr_swap_pages(memcg) >= (long)SWAP_CLUSTER_MAX ?
+			 mem_cgroup_swappiness(memcg) : 0;
+
+	VM_BUG_ON(swappiness > 200U);
+
+	return swappiness;
+}
+
+static unsigned long get_nr_to_scan(struct lruvec *lruvec, struct scan_control *sc,
+				    int swappiness)
+{
+	int gen, file, zone;
+	long nr_to_scan = 0;
+	struct lrugen *lrugen = &lruvec->evictable;
+	DEFINE_MAX_SEQ();
+	DEFINE_MIN_SEQ();
+
+	lru_add_drain();
+
+	for (file = !swappiness; file < ANON_AND_FILE; file++) {
+		unsigned long seq;
+
+		for (seq = min_seq[file]; seq <= max_seq; seq++) {
+			gen = lru_gen_from_seq(seq);
+
+			for (zone = 0; zone <= sc->reclaim_idx; zone++)
+				nr_to_scan += READ_ONCE(lrugen->sizes[gen][file][zone]);
+		}
+	}
+
+	nr_to_scan = max(nr_to_scan, 0L);
+	nr_to_scan = round_up(nr_to_scan >> sc->priority, SWAP_CLUSTER_MAX);
+
+	if (max_nr_gens(max_seq, min_seq, swappiness) > MIN_NR_GENS)
+		return nr_to_scan;
+
+	/* kswapd uses age_lru_gens() */
+	if (current_is_kswapd())
+		return 0;
+
+	return walk_mm_list(lruvec, max_seq, sc, swappiness, NULL) ? nr_to_scan : 0;
+}
+
+static void shrink_lru_gens(struct lruvec *lruvec, struct scan_control *sc)
+{
+	struct blk_plug plug;
+	unsigned long scanned = 0;
+	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
+
+	blk_start_plug(&plug);
+
+	while (true) {
+		long nr_to_scan;
+		int swappiness = sc->may_swap ? get_swappiness(lruvec) : 0;
+
+		nr_to_scan = get_nr_to_scan(lruvec, sc, swappiness) - scanned;
+		if (nr_to_scan < (long)SWAP_CLUSTER_MAX)
+			break;
+
+		scanned += nr_to_scan;
+
+		if (!evict_lru_gen_pages(lruvec, sc, swappiness, &nr_to_scan))
+			break;
+
+		scanned -= nr_to_scan;
+
+		if (mem_cgroup_below_min(memcg) ||
+		    (mem_cgroup_below_low(memcg) && !sc->memcg_low_reclaim))
+			break;
+
+		cond_resched();
+	}
+
+	blk_finish_plug(&plug);
+}
+
+/******************************************************************************
+ *                          the background aging
+ ******************************************************************************/
+
+static int lru_gen_spread = MIN_NR_GENS;
+
+static void try_walk_mm_list(struct lruvec *lruvec, struct scan_control *sc)
+{
+	int gen, file, zone;
+	long old_and_young[2] = {};
+	struct mm_walk_args args = {};
+	int spread = READ_ONCE(lru_gen_spread);
+	int swappiness = get_swappiness(lruvec);
+	struct lrugen *lrugen = &lruvec->evictable;
+	DEFINE_MAX_SEQ();
+	DEFINE_MIN_SEQ();
+
+	lru_add_drain();
+
+	for (file = !swappiness; file < ANON_AND_FILE; file++) {
+		unsigned long seq;
+
+		for (seq = min_seq[file]; seq <= max_seq; seq++) {
+			gen = lru_gen_from_seq(seq);
+
+			for (zone = 0; zone < MAX_NR_ZONES; zone++)
+				old_and_young[seq == max_seq] +=
+					READ_ONCE(lrugen->sizes[gen][file][zone]);
+		}
+	}
+
+	old_and_young[0] = max(old_and_young[0], 0L);
+	old_and_young[1] = max(old_and_young[1], 0L);
+
+	if (old_and_young[0] + old_and_young[1] < SWAP_CLUSTER_MAX)
+		return;
+
+	/* try to spread pages out across spread+1 generations */
+	if (old_and_young[0] >= old_and_young[1] * spread &&
+	    min_nr_gens(max_seq, min_seq, swappiness) > max(spread, MIN_NR_GENS))
+		return;
+
+	walk_mm_list(lruvec, max_seq, sc, swappiness, &args);
+}
+
+static void age_lru_gens(struct pglist_data *pgdat, struct scan_control *sc)
+{
+	struct mem_cgroup *memcg;
+
+	VM_BUG_ON(!current_is_kswapd());
+
+	memcg = mem_cgroup_iter(NULL, NULL, NULL);
+	do {
+		struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
+		struct lrugen *lrugen = &lruvec->evictable;
+
+		if (!mem_cgroup_below_min(memcg) &&
+		    (!mem_cgroup_below_low(memcg) || sc->memcg_low_reclaim))
+			try_walk_mm_list(lruvec, sc);
+
+		if (!mem_cgroup_disabled())
+			atomic_add_unless(&lrugen->priority, 1, DEF_PRIORITY);
+
+		cond_resched();
+	} while ((memcg = mem_cgroup_iter(NULL, memcg, NULL)));
 }
 
 /******************************************************************************
