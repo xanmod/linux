@@ -334,7 +334,7 @@ static bool need_activate_page_drain(int cpu)
 	return pagevec_count(&per_cpu(lru_pvecs.activate_page, cpu)) != 0;
 }
 
-static void activate_page(struct page *page)
+static void activate_page_on_lru(struct page *page)
 {
 	page = compound_head(page);
 	if (PageLRU(page) && !PageActive(page) && !PageUnevictable(page)) {
@@ -354,7 +354,7 @@ static inline void activate_page_drain(int cpu)
 {
 }
 
-static void activate_page(struct page *page)
+static void activate_page_on_lru(struct page *page)
 {
 	struct lruvec *lruvec;
 
@@ -368,10 +368,21 @@ static void activate_page(struct page *page)
 }
 #endif
 
-static void __lru_cache_activate_page(struct page *page)
+/*
+ * If the page is on the LRU, queue it for activation via
+ * lru_pvecs.activate_page. Otherwise, assume the page is on a
+ * pagevec, mark it active and it'll be moved to the active
+ * LRU on the next drain.
+ */
+void activate_page(struct page *page)
 {
 	struct pagevec *pvec;
 	int i;
+
+	if (PageLRU(page)) {
+		activate_page_on_lru(page);
+		return;
+	}
 
 	local_lock(&lru_pvecs.lock);
 	pvec = this_cpu_ptr(&lru_pvecs.lru_add);
@@ -421,16 +432,7 @@ void mark_page_accessed(struct page *page)
 		 * evictable page accessed has no effect.
 		 */
 	} else if (!PageActive(page)) {
-		/*
-		 * If the page is on the LRU, queue it for activation via
-		 * lru_pvecs.activate_page. Otherwise, assume the page is on a
-		 * pagevec, mark it active and it'll be moved to the active
-		 * LRU on the next drain.
-		 */
-		if (PageLRU(page))
-			activate_page(page);
-		else
-			__lru_cache_activate_page(page);
+		activate_page(page);
 		ClearPageReferenced(page);
 		workingset_activation(page);
 	}
