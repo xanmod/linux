@@ -22,6 +22,12 @@ int main(void)
 	DEFINE(NR_CPUS_BITS, ilog2(CONFIG_NR_CPUS));
 #endif
 	DEFINE(SPINLOCK_SIZE, sizeof(spinlock_t));
+#ifdef CONFIG_LRU_GEN
+	/* bits needed to represent internal values stored in page->flags */
+	DEFINE(LRU_GEN_WIDTH, order_base_2(CONFIG_NR_LRU_GENS + 1));
+	/* bits needed to represent normalized values for external uses */
+	DEFINE(LRU_GEN_SHIFT, order_base_2(CONFIG_NR_LRU_GENS));
+#endif
 	/* End of constants */
 
 	return 0;

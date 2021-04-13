@@ -49,6 +49,7 @@
 #include <linux/printk.h>
 #include <linux/dax.h>
 #include <linux/psi.h>
+#include <linux/memory.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -4314,3 +4315,307 @@ void check_move_unevictable_pages(struct pagevec *pvec)
 	}
 }
 EXPORT_SYMBOL_GPL(check_move_unevictable_pages);
+
+#ifdef CONFIG_LRU_GEN
+
+/*
+ * After pages are faulted in, the aging must scan them twice before the
+ * eviction can. The first scan clears the accessed bit set during initial
+ * faults. And the second scan makes sure they haven't been used since the
+ * first.
+ */
+#define MIN_NR_GENS	2
+
+#define MAX_BATCH_SIZE	8192
+
+/******************************************************************************
+ *                          shorthand helpers
+ ******************************************************************************/
+
+#define DEFINE_MAX_SEQ()						\
+	unsigned long max_seq = READ_ONCE(lruvec->evictable.max_seq)
+
+#define DEFINE_MIN_SEQ()						\
+	unsigned long min_seq[ANON_AND_FILE] = {			\
+		READ_ONCE(lruvec->evictable.min_seq[0]),		\
+		READ_ONCE(lruvec->evictable.min_seq[1]),		\
+	}
+
+#define for_each_type_zone(file, zone)					\
+	for ((file) = 0; (file) < ANON_AND_FILE; (file)++)		\
+		for ((zone) = 0; (zone) < MAX_NR_ZONES; (zone)++)
+
+#define for_each_gen_type_zone(gen, file, zone)				\
+	for ((gen) = 0; (gen) < MAX_NR_GENS; (gen)++)			\
+		for ((file) = 0; (file) < ANON_AND_FILE; (file)++)	\
+			for ((zone) = 0; (zone) < MAX_NR_ZONES; (zone)++)
+
+static int get_nr_gens(struct lruvec *lruvec, int file)
+{
+	return lruvec->evictable.max_seq - lruvec->evictable.min_seq[file] + 1;
+}
+
+static int min_nr_gens(unsigned long max_seq, unsigned long *min_seq, int swappiness)
+{
+	return max_seq - max(min_seq[!swappiness], min_seq[1]) + 1;
+}
+
+static int max_nr_gens(unsigned long max_seq, unsigned long *min_seq, int swappiness)
+{
+	return max_seq - min(min_seq[!swappiness], min_seq[1]) + 1;
+}
+
+static bool __maybe_unused seq_is_valid(struct lruvec *lruvec)
+{
+	lockdep_assert_held(&lruvec->lru_lock);
+
+	return get_nr_gens(lruvec, 0) >= MIN_NR_GENS &&
+	       get_nr_gens(lruvec, 0) <= MAX_NR_GENS &&
+	       get_nr_gens(lruvec, 1) >= MIN_NR_GENS &&
+	       get_nr_gens(lruvec, 1) <= MAX_NR_GENS;
+}
+
+/******************************************************************************
+ *                          state change
+ ******************************************************************************/
+
+#ifdef CONFIG_LRU_GEN_ENABLED
+DEFINE_STATIC_KEY_TRUE(lru_gen_static_key);
+#else
+DEFINE_STATIC_KEY_FALSE(lru_gen_static_key);
+#endif
+
+static DEFINE_MUTEX(lru_gen_state_mutex);
+static int lru_gen_nr_swapfiles __read_mostly;
+
+static bool __maybe_unused state_is_valid(struct lruvec *lruvec)
+{
+	int gen, file, zone;
+	enum lru_list lru;
+	struct lrugen *lrugen = &lruvec->evictable;
+
+	for_each_evictable_lru(lru) {
+		file = is_file_lru(lru);
+
+		if (lrugen->enabled[file] && !list_empty(&lruvec->lists[lru]))
+			return false;
+	}
+
+	for_each_gen_type_zone(gen, file, zone) {
+		if (!lrugen->enabled[file] && !list_empty(&lrugen->lists[gen][file][zone]))
+			return false;
+
+		VM_WARN_ONCE(!lrugen->enabled[file] && lrugen->sizes[gen][file][zone],
+			     "lru_gen: possible unbalanced number of pages");
+	}
+
+	return true;
+}
+
+static bool fill_lru_gen_lists(struct lruvec *lruvec)
+{
+	enum lru_list lru;
+	int batch_size = 0;
+
+	for_each_evictable_lru(lru) {
+		int file = is_file_lru(lru);
+		bool active = is_active_lru(lru);
+		struct list_head *head = &lruvec->lists[lru];
+
+		if (!lruvec->evictable.enabled[file])
+			continue;
+
+		while (!list_empty(head)) {
+			bool success;
+			struct page *page = lru_to_page(head);
+
+			VM_BUG_ON_PAGE(PageTail(page), page);
+			VM_BUG_ON_PAGE(PageUnevictable(page), page);
+			VM_BUG_ON_PAGE(PageActive(page) != active, page);
+			VM_BUG_ON_PAGE(page_lru_gen(page) != -1, page);
+			VM_BUG_ON_PAGE(page_is_file_lru(page) != file, page);
+
+			prefetchw_prev_lru_page(page, head, flags);
+
+			del_page_from_lru_list(page, lruvec);
+			success = lru_gen_addition(page, lruvec, true);
+			VM_BUG_ON(!success);
+
+			if (++batch_size == MAX_BATCH_SIZE)
+				return false;
+		}
+	}
+
+	return true;
+}
+
+static bool drain_lru_gen_lists(struct lruvec *lruvec)
+{
+	int gen, file, zone;
+	int batch_size = 0;
+
+	for_each_gen_type_zone(gen, file, zone) {
+		struct list_head *head = &lruvec->evictable.lists[gen][file][zone];
+
+		if (lruvec->evictable.enabled[file])
+			continue;
+
+		while (!list_empty(head)) {
+			bool success;
+			struct page *page = lru_to_page(head);
+
+			VM_BUG_ON_PAGE(PageTail(page), page);
+			VM_BUG_ON_PAGE(PageUnevictable(page), page);
+			VM_BUG_ON_PAGE(PageActive(page), page);
+			VM_BUG_ON_PAGE(page_is_file_lru(page) != file, page);
+			VM_BUG_ON_PAGE(page_zonenum(page) != zone, page);
+
+			prefetchw_prev_lru_page(page, head, flags);
+
+			success = lru_gen_deletion(page, lruvec);
+			VM_BUG_ON(!success);
+			add_page_to_lru_list(page, lruvec);
+
+			if (++batch_size == MAX_BATCH_SIZE)
+				return false;
+		}
+	}
+
+	return true;
+}
+
+/*
+ * For file page tracking, we enable/disable it according to the main switch.
+ * For anon page tracking, we only enabled it when the main switch is on and
+ * there is at least one swapfile; we disable it when there are no swapfiles
+ * regardless of the value of the main switch. Otherwise, we will eventually
+ * reach the max size of the sliding window and have to call inc_min_seq(),
+ * which brings an unnecessary overhead.
+ */
+void lru_gen_set_state(bool enable, bool main, bool swap)
+{
+	struct mem_cgroup *memcg;
+
+	mem_hotplug_begin();
+	mutex_lock(&lru_gen_state_mutex);
+	cgroup_lock();
+
+	main = main && enable != lru_gen_enabled();
+	swap = swap && !(enable ? lru_gen_nr_swapfiles++ : --lru_gen_nr_swapfiles);
+	swap = swap && lru_gen_enabled();
+	if (!main && !swap)
+		goto unlock;
+
+	if (main) {
+		if (enable)
+			static_branch_enable(&lru_gen_static_key);
+		else
+			static_branch_disable(&lru_gen_static_key);
+	}
+
+	memcg = mem_cgroup_iter(NULL, NULL, NULL);
+	do {
+		int nid;
+
+		for_each_node_state(nid, N_MEMORY) {
+			struct lruvec *lruvec = mem_cgroup_lruvec(memcg, NODE_DATA(nid));
+			struct lrugen *lrugen = &lruvec->evictable;
+
+			spin_lock_irq(&lruvec->lru_lock);
+
+			VM_BUG_ON(!seq_is_valid(lruvec));
+			VM_BUG_ON(!state_is_valid(lruvec));
+
+			WRITE_ONCE(lrugen->enabled[0], lru_gen_enabled() && lru_gen_nr_swapfiles);
+			WRITE_ONCE(lrugen->enabled[1], lru_gen_enabled());
+
+			while (!(enable ? fill_lru_gen_lists(lruvec) :
+					  drain_lru_gen_lists(lruvec))) {
+				spin_unlock_irq(&lruvec->lru_lock);
+				cond_resched();
+				spin_lock_irq(&lruvec->lru_lock);
+			}
+
+			spin_unlock_irq(&lruvec->lru_lock);
+		}
+
+		cond_resched();
+	} while ((memcg = mem_cgroup_iter(NULL, memcg, NULL)));
+unlock:
+	cgroup_unlock();
+	mutex_unlock(&lru_gen_state_mutex);
+	mem_hotplug_done();
+}
+
+static int __meminit __maybe_unused lru_gen_online_mem(struct notifier_block *self,
+						       unsigned long action, void *arg)
+{
+	struct mem_cgroup *memcg;
+	struct memory_notify *mnb = arg;
+	int nid = mnb->status_change_nid;
+
+	if (action != MEM_GOING_ONLINE || nid == NUMA_NO_NODE)
+		return NOTIFY_DONE;
+
+	mutex_lock(&lru_gen_state_mutex);
+	cgroup_lock();
+
+	memcg = mem_cgroup_iter(NULL, NULL, NULL);
+	do {
+		struct lruvec *lruvec = mem_cgroup_lruvec(memcg, NODE_DATA(nid));
+		struct lrugen *lrugen = &lruvec->evictable;
+
+		VM_BUG_ON(!seq_is_valid(lruvec));
+		VM_BUG_ON(!state_is_valid(lruvec));
+
+		WRITE_ONCE(lrugen->enabled[0], lru_gen_enabled() && lru_gen_nr_swapfiles);
+		WRITE_ONCE(lrugen->enabled[1], lru_gen_enabled());
+	} while ((memcg = mem_cgroup_iter(NULL, memcg, NULL)));
+
+	cgroup_unlock();
+	mutex_unlock(&lru_gen_state_mutex);
+
+	return NOTIFY_DONE;
+}
+
+/******************************************************************************
+ *                          initialization
+ ******************************************************************************/
+
+void lru_gen_init_lruvec(struct lruvec *lruvec)
+{
+	int i;
+	int gen, file, zone;
+	struct lrugen *lrugen = &lruvec->evictable;
+
+	atomic_set(&lrugen->priority, DEF_PRIORITY);
+
+	lrugen->max_seq = MIN_NR_GENS + 1;
+	lrugen->enabled[0] = lru_gen_enabled() && lru_gen_nr_swapfiles;
+	lrugen->enabled[1] = lru_gen_enabled();
+
+	for (i = 0; i <= MIN_NR_GENS + 1; i++)
+		lrugen->timestamps[i] = jiffies;
+
+	for_each_gen_type_zone(gen, file, zone)
+		INIT_LIST_HEAD(&lrugen->lists[gen][file][zone]);
+}
+
+static int __init init_lru_gen(void)
+{
+	BUILD_BUG_ON(MIN_NR_GENS + 1 >= MAX_NR_GENS);
+	BUILD_BUG_ON(BIT(LRU_GEN_WIDTH) <= MAX_NR_GENS);
+
+	if (hotplug_memory_notifier(lru_gen_online_mem, 0))
+		pr_err("lru_gen: failed to subscribe hotplug notifications\n");
+
+	return 0;
+};
+/*
+ * We want to run as early as possible because some debug code, e.g.,
+ * dma_resv_lockdep(), calls mm_alloc() and mmput(). We only depend on mm_kobj,
+ * which is initialized one stage earlier.
+ */
+arch_initcall(init_lru_gen);
+
+#endif /* CONFIG_LRU_GEN */
