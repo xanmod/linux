@@ -1245,7 +1245,7 @@ config SCHED_AUTOGROUP
 
 config SCHED_AUTOGROUP_DEFAULT_ENABLED
 	bool "Enable automatic process group scheduling feature"
-	default y
+	default y if !CACULE_SCHED
 	depends on SCHED_AUTOGROUP
 	help
 	  If set, automatic process group scheduling will be enabled per
