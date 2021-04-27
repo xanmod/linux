@@ -26,6 +26,11 @@
  */
 #include "sched.h"
 
+#ifdef CONFIG_CACULE_SCHED
+/* Default XanMod's CacULE latency: 2ms * (1 + ilog(ncpus)) */
+unsigned int sysctl_sched_latency			= 2000000ULL;
+static unsigned int normalized_sysctl_sched_latency	= 2000000ULL;
+#else
 /*
  * Targeted preemption latency for CPU-bound tasks:
  *
@@ -41,6 +46,7 @@
  */
 unsigned int sysctl_sched_latency			= 6000000ULL;
 static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
+#endif
 
 /*
  * The initial- and re-scaling of tunables is configurable
@@ -55,6 +61,11 @@ static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
  */
 enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
 
+#ifdef CONFIG_CACULE_SCHED
+/* Default XanMod's CacULE granularity: 0.25 msec * (1 + ilog(ncpus)) */
+unsigned int sysctl_sched_min_granularity			= 250000ULL;
+static unsigned int normalized_sysctl_sched_min_granularity	= 250000ULL;
+#else
 /*
  * Minimal preemption granularity for CPU-bound tasks:
  *
@@ -62,6 +73,7 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_L
  */
 unsigned int sysctl_sched_min_granularity			= 750000ULL;
 static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
+#endif
 
 /*
  * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
