@@ -535,10 +535,6 @@ struct cfs_rq {
 	struct cacule_node	*head;
 	struct cacule_node	*tail;
 
-#ifdef CONFIG_CACULE_RDB
-	unsigned int		IS_head;
-#endif
-
 #else
 	struct sched_entity	*next;
 	struct sched_entity	*last;
@@ -2107,12 +2103,7 @@ extern void deactivate_task(struct rq *rq, struct task_struct *p, int flags);
 extern void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags);
 
 extern const_debug unsigned int sysctl_sched_nr_migrate;
-
-#ifdef CONFIG_CACULE_RDB
-extern unsigned int sysctl_sched_migration_cost;
-#else
 extern const_debug unsigned int sysctl_sched_migration_cost;
-#endif
 
 #ifdef CONFIG_SCHED_HRTICK
 

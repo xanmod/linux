@@ -8110,12 +8110,8 @@ void __init sched_init(void)
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
 #endif
 
-#if defined(CONFIG_CACULE_SCHED) && !defined(CONFIG_CACULE_RDB)
+#ifdef CONFIG_CACULE_SCHED
 	printk(KERN_INFO "CacULE CPU scheduler v5.12 by Hamad Al Marri.");
-#endif
-
-#ifdef CONFIG_CACULE_RDB
-	printk(KERN_INFO "CacULE CPU scheduler (RDB) v5.12 by Hamad Al Marri.");
 #endif
 
 	wait_bit_init();

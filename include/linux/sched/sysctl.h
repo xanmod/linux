@@ -53,11 +53,6 @@ extern unsigned int sysctl_numa_balancing_scan_size;
 
 #ifdef CONFIG_SCHED_DEBUG
 extern __read_mostly unsigned int sysctl_sched_migration_cost;
-#elif CONFIG_CACULE_RDB
-extern unsigned int sysctl_sched_migration_cost;
-#endif
-
-#ifdef CONFIG_SCHED_DEBUG
 extern __read_mostly unsigned int sysctl_sched_nr_migrate;
 
 int sched_proc_update_handler(struct ctl_table *table, int write,
