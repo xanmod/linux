@@ -1690,6 +1690,13 @@ static struct ctl_table kern_table[] = {
 		.proc_handler	= proc_dointvec,
 	},
 	{
+		.procname	= "sched_interactivity_threshold",
+		.data		= &interactivity_threshold,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
 		.procname	= "sched_max_lifetime_ms",
 		.data		= &cacule_max_lifetime,
 		.maxlen		= sizeof(int),

@@ -139,9 +139,10 @@ int __weak arch_asym_cpu_priority(int cpu)
 
 #endif
 #ifdef CONFIG_CACULE_SCHED
-int cacule_max_lifetime					= 30000; // in ms
-int cacule_harsh_mode					= 0;
-int interactivity_factor				= 32768;
+int __read_mostly cacule_max_lifetime			= 30000; // in ms
+int __read_mostly cacule_harsh_mode			= 0;
+int __read_mostly interactivity_factor			= 32768;
+unsigned int __read_mostly interactivity_threshold	= 20480;
 #endif
 
 #ifdef CONFIG_CFS_BANDWIDTH
@@ -640,6 +641,14 @@ calc_interactivity(u64 now, struct cacule_node *se)
 		score_se = (u64_factor << 1) - (u64_factor / (vr_se / sleep_se));
 
 	return score_se;
+}
+
+static inline int is_interactive(struct cacule_node *cn)
+{
+	if (cn->vruntime == 0)
+		return 0;
+
+	return calc_interactivity(sched_clock(), cn) < interactivity_threshold;
 }
 
 static inline int
@@ -7139,6 +7148,56 @@ fail:
 }
 #endif /* CONFIG_CACULE_SCHED */
 
+#ifdef CONFIG_CACULE_SCHED
+static int
+find_least_IS_cpu(struct task_struct *p)
+{
+	struct cfs_rq *cfs_rq;
+	unsigned int max_IS = 0;
+	unsigned int IS, IS_c, IS_h;
+	struct sched_entity *curr_se;
+	struct cacule_node *cn, *head;
+	int cpu_i;
+	int new_cpu = -1;
+
+	for_each_online_cpu(cpu_i) {
+		if (!cpumask_test_cpu(cpu_i, p->cpus_ptr))
+			continue;
+
+		cn = NULL;
+		cfs_rq = &cpu_rq(cpu_i)->cfs;
+
+		curr_se = cfs_rq->curr;
+		head = cfs_rq->head;
+
+		if (!curr_se && head)
+			cn = head;
+		else if (curr_se && !head)
+			cn = &curr_se->cacule_node;
+		else if (curr_se && head) {
+			IS_c = calc_interactivity(sched_clock(), &curr_se->cacule_node);
+			IS_h = calc_interactivity(sched_clock(), head);
+
+			IS = IS_c > IS_h? IS_c : IS_h;
+			goto compare;
+		}
+
+		if (!cn)
+			return cpu_i;
+
+		IS = calc_interactivity(sched_clock(), cn);
+
+compare:
+		if (IS > max_IS) {
+			max_IS = IS;
+			new_cpu = cpu_i;
+		}
+	}
+
+	return new_cpu;
+}
+#endif
+
 /*
  * select_task_rq_fair: Select target runqueue for the waking task in domains
  * that have the relevant SD flag set. In practice, this is SD_BALANCE_WAKE,
@@ -7165,7 +7224,25 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	/* SD_flags and WF_flags share the first nibble */
 	int sd_flag = wake_flags & 0xF;
 
-#if !defined(CONFIG_CACULE_SCHED)
+#ifdef CONFIG_CACULE_SCHED
+	struct sched_entity *se = &p->se;
+	unsigned int autogroup_enabled = 0;
+
+#ifdef CONFIG_SCHED_AUTOGROUP
+	autogroup_enabled = sysctl_sched_autogroup_enabled;
+#endif
+
+	if (autogroup_enabled || !is_interactive(&se->cacule_node))
+		goto cfs_way;
+
+	new_cpu = find_least_IS_cpu(p);
+
+	if (likely(new_cpu != -1))
+		return new_cpu;
+
+	new_cpu = prev_cpu;
+cfs_way:
+#else
 	if (wake_flags & WF_TTWU) {
 		record_wakee(p);
 
@@ -7178,7 +7255,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 
 		want_affine = !wake_wide(p) && cpumask_test_cpu(cpu, p->cpus_ptr);
 	}
-#endif
+#endif /* CONFIG_CACULE_SCHED */
 
 	rcu_read_lock();
 	for_each_domain(cpu, tmp) {
@@ -7214,7 +7291,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	rcu_read_unlock();
 
 	return new_cpu;
-#endif
+#endif /* CONFIG_CACULE_RDB */
 }
 
 #if !defined(CONFIG_CACULE_RDB)
