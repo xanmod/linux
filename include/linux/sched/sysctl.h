@@ -35,7 +35,6 @@ extern unsigned int sysctl_sched_child_runs_first;
 extern int interactivity_factor;
 extern unsigned int interactivity_threshold;
 extern int cacule_max_lifetime;
-extern int cacule_harsh_mode;
 #endif
 
 enum sched_tunable_scaling {

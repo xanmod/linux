@@ -3847,10 +3847,7 @@ void wake_up_new_task(struct task_struct *p)
 	post_init_entity_util_avg(p);
 
 #ifdef CONFIG_CACULE_SCHED
-	if (cacule_harsh_mode)
-		p->se.cacule_node.cacule_start_time = p->start_time;
-	else
-		p->se.cacule_node.cacule_start_time = sched_clock();
+	p->se.cacule_node.cacule_start_time = sched_clock();
 #endif
 
 	activate_task(rq, p, ENQUEUE_NOCLOCK);
