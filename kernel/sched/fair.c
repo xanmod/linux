@@ -1036,7 +1036,7 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 #endif /* CONFIG_SMP */
 
 #ifdef CONFIG_CACULE_SCHED
-static void reset_lifetime(u64 now, struct sched_entity *se)
+static void normalize_lifetime(u64 now, struct sched_entity *se)
 {
 	struct cacule_node *cn;
 	u64 max_life_ns, life_time;
@@ -1098,7 +1098,7 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 #ifdef CONFIG_CACULE_SCHED
 	curr->cacule_node.vruntime += calc_delta_fair(delta_exec, curr);
-	reset_lifetime(now, curr);
+	normalize_lifetime(now, curr);
 #else
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
 	update_min_vruntime(cfs_rq);
