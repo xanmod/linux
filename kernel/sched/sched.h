@@ -522,7 +522,7 @@ struct cfs_rq {
 #ifndef CONFIG_64BIT
 	u64			min_vruntime_copy;
 #endif
-#endif // CONFIG_CACULE_SCHED
+#endif /* CONFIG_CACULE_SCHED */
 
 	struct rb_root_cached	tasks_timeline;
 
