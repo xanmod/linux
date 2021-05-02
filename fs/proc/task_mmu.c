@@ -19,6 +19,7 @@
 #include <linux/shmem_fs.h>
 #include <linux/uaccess.h>
 #include <linux/pkeys.h>
+#include <linux/mm_inline.h>
 
 #include <asm/elf.h>
 #include <asm/tlb.h>
@@ -1718,7 +1719,7 @@ static void gather_stats(struct page *page, struct numa_maps *md, int pte_dirty,
 	if (PageSwapCache(page))
 		md->swapcache += nr_pages;
 
-	if (PageActive(page) || PageUnevictable(page))
+	if (PageUnevictable(page) || page_is_active(compound_head(page), NULL))
 		md->active += nr_pages;
 
 	if (PageWriteback(page))
