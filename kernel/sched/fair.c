@@ -7141,11 +7141,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	struct sched_entity *se = &p->se;
 	unsigned int autogroup_enabled = 0;
 
-#ifdef CONFIG_SCHED_AUTOGROUP
-	autogroup_enabled = sysctl_sched_autogroup_enabled;
-#endif
-
-	if (autogroup_enabled || !is_interactive(&se->cacule_node))
+	if (!is_interactive(&se->cacule_node))
 		goto cfs_way;
 
 	new_cpu = find_least_IS_cpu(p);
