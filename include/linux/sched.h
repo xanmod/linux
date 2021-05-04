@@ -492,14 +492,13 @@ struct sched_entity {
 	struct rb_node			run_node;
 #ifdef CONFIG_CACULE_SCHED
 	struct cacule_node		cacule_node;
-#else
-	u64				vruntime;
 #endif
 	struct list_head		group_node;
 	unsigned int			on_rq;
 
 	u64				exec_start;
 	u64				sum_exec_runtime;
+	u64				vruntime;
 	u64				prev_sum_exec_runtime;
 
 	u64				nr_migrations;
