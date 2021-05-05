@@ -158,4 +158,11 @@ config LRNG_COLLECTION_SIZE
 	default 4096 if LRNG_COLLECTION_SIZE_4096
 	default 8192 if LRNG_COLLECTION_SIZE_8192
 
+menuconfig LRNG_DRNG_SWITCH
+	bool "Support DRNG runtime switching"
+	help
+	  The Linux RNG per default uses a ChaCha20 DRNG that is
+	  accessible via the external interfaces. With this configuration
+	  option other DRNGs can be selected and loaded at runtime.
+
 endif # LRNG
