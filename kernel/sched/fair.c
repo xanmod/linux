@@ -1037,7 +1037,7 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 #ifdef CONFIG_CACULE_SCHED
 static void normalize_lifetime(u64 now, struct sched_entity *se)
 {
-	struct cacule_node *cn;
+	struct cacule_node *cn = &se->cacule_node;
 	u64 max_life_ns, life_time;
 	s64 diff;
 
@@ -1047,25 +1047,21 @@ static void normalize_lifetime(u64 now, struct sched_entity *se)
 	 * Ex. for 30s, with left shift (20bits) == 31.457s
 	 */
 	max_life_ns	= ((u64) cacule_max_lifetime) << 20;
+	life_time	= now - cn->cacule_start_time;
+	diff		= life_time - max_life_ns;
 
-	for_each_sched_entity(se) {
-		cn		= &se->cacule_node;
-		life_time	= now - cn->cacule_start_time;
-		diff		= life_time - max_life_ns;
+	if (diff > 0) {
+		// multiply life_time by 1024 for more precision
+		u64 old_hrrn_x	= (life_time << 7) / ((cn->vruntime >> 3) | 1);
 
-		if (unlikely(diff > 0)) {
-			// multiply life_time by 8 for more precision
-			u64 old_hrrn_x8	= life_time / ((cn->vruntime >> 3) | 1);
+		// reset life to half max_life (i.e ~15s)
+		cn->cacule_start_time = now - (max_life_ns >> 1);
 
-			// reset life to half max_life (i.e ~15s)
-			cn->cacule_start_time = now - (max_life_ns >> 1);
+		// avoid division by zero
+		if (old_hrrn_x == 0) old_hrrn_x = 1;
 
-			// avoid division by zero
-			if (old_hrrn_x8 == 0) old_hrrn_x8 = 1;
-
-			// reset vruntime based on old hrrn ratio
-			cn->vruntime = (max_life_ns << 2) / old_hrrn_x8;
-		}
+		// reset vruntime based on old hrrn ratio
+		cn->vruntime = (max_life_ns << 9) / old_hrrn_x;
 	}
 }
 #endif /* CONFIG_CACULE_SCHED */
