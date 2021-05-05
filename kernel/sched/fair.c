@@ -7137,6 +7137,12 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	if (!is_interactive(&se->cacule_node))
 		goto cfs_way;
 
+	// check first if the prev cpu
+	// has 0 tasks
+	if (cpumask_test_cpu(prev_cpu, p->cpus_ptr) &&
+	    cpu_rq(prev_cpu)->cfs.nr_running == 0)
+		return prev_cpu;
+
 	new_cpu = find_least_IS_cpu(p);
 
 	if (likely(new_cpu != -1))
