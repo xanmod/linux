@@ -7145,7 +7145,7 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 
 	new_cpu = find_least_IS_cpu(p);
 
-	if (likely(new_cpu != -1))
+	if (new_cpu != -1)
 		return new_cpu;
 
 	new_cpu = prev_cpu;
