@@ -51,6 +51,7 @@
 #include <linux/psi.h>
 #include <linux/memory.h>
 #include <linux/pagewalk.h>
+#include <linux/shmem_fs.h>
 #include <linux/ctype.h>
 #include <linux/debugfs.h>
 
@@ -4883,6 +4884,7 @@ static int page_update_gen(struct page *page, int new_gen)
 
 static int should_skip_vma(unsigned long start, unsigned long end, struct mm_walk *walk)
 {
+	struct address_space *mapping;
 	struct vm_area_struct *vma = walk->vma;
 	struct mm_walk_args *args = walk->private;
 
@@ -4893,13 +4895,18 @@ static int should_skip_vma(unsigned long start, unsigned long end, struct mm_wal
 	if (vma_is_anonymous(vma))
 		return !args->should_walk[0];
 
-	if (vma_is_shmem(vma))
+	if (WARN_ON_ONCE(!vma->vm_file || !vma->vm_file->f_mapping))
+		return true;
+
+	mapping = vma->vm_file->f_mapping;
+	if (!mapping->a_ops->writepage)
+		return true;
+
+	if (shmem_mapping(mapping))
 		return !args->should_walk[0] ||
 		       mapping_unevictable(vma->vm_file->f_mapping);
 
-	return !args->should_walk[1] || vma_is_dax(vma) ||
-	       vma == get_gate_vma(vma->vm_mm) ||
-	       mapping_unevictable(vma->vm_file->f_mapping);
+	return !args->should_walk[1] || mapping_unevictable(mapping);
 }
 
 /*
@@ -4937,8 +4944,7 @@ static bool get_next_interval(struct mm_walk *walk, unsigned long mask, unsigned
 		if ((next & mask) != (walk->vma->vm_start & mask))
 			return false;
 
-		if (next <= walk->vma->vm_start &&
-		    should_skip_vma(walk->vma->vm_start, walk->vma->vm_end, walk)) {
+		if (should_skip_vma(walk->vma->vm_start, walk->vma->vm_end, walk)) {
 			walk->vma = walk->vma->vm_next;
 			continue;
 		}
@@ -4979,6 +4985,9 @@ restart:
 			args->mm_stats[MM_LEAF_HOLE]++;
 			continue;
 		}
+
+		if (WARN_ON_ONCE(pte_devmap(pte[i]) || pte_special(pte[i])))
+			continue;
 
 		if (!pte_young(pte[i])) {
 			args->mm_stats[MM_LEAF_OLD]++;
@@ -5118,6 +5127,9 @@ static void walk_pmd_range_locked(pud_t *pud, unsigned long start, unsigned long
 			args->mm_stats[MM_LEAF_HOLE]++;
 			continue;
 		}
+
+		if (WARN_ON_ONCE(pmd_devmap(pmd[i])))
+			continue;
 
 		if (!pmd_young(pmd[i])) {
 			args->mm_stats[MM_LEAF_OLD]++;
