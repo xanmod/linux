@@ -535,8 +535,11 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 {
-	s64 MIN_vruntime = -1, min_vruntime, max_vruntime = -1,
-		spread, rq0_min_vruntime, spread0;
+	s64 MIN_vruntime = -1, max_vruntime = -1,
+#if !defined(CONFIG_CACULE_SCHED)
+	min_vruntime, rq0_min_vruntime, spread0,
+#endif
+		spread;
 	struct rq *rq = cpu_rq(cpu);
 	struct sched_entity *last;
 	unsigned long flags;
