@@ -6103,7 +6103,7 @@ static int wake_wide(struct task_struct *p)
 		return 0;
 	return 1;
 }
-#endif
+#endif /* CONFIG_CACULE_SCHED */
 
 /*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
