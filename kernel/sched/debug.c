@@ -539,7 +539,7 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 #if !defined(CONFIG_CACULE_SCHED)
 	min_vruntime, rq0_min_vruntime, spread0,
 #endif
-		spread;
+	spread;
 	struct rq *rq = cpu_rq(cpu);
 	struct sched_entity *last;
 	unsigned long flags;
