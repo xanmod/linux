@@ -788,7 +788,6 @@ int close_fd_get_file(unsigned int fd, struct file **res)
 
 	return ret;
 }
-EXPORT_SYMBOL(close_fd_get_file);
 
 void do_close_on_exec(struct files_struct *files)
 {
