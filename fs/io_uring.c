@@ -1008,7 +1008,7 @@ static void io_uring_del_task_file(unsigned long index);
 static void io_uring_try_cancel_requests(struct io_ring_ctx *ctx,
 					 struct task_struct *task,
 					 struct files_struct *files);
-static void io_uring_cancel_sqpoll(struct io_ring_ctx *ctx);
+static void io_uring_cancel_sqpoll(struct io_sq_data *sqd);
 static void destroy_fixed_rsrc_ref_node(struct fixed_rsrc_ref_node *ref_node);
 static struct fixed_rsrc_ref_node *alloc_fixed_rsrc_ref_node(
 			struct io_ring_ctx *ctx);
@@ -6710,6 +6710,10 @@ static int __io_sq_thread(struct io_ring_ctx *ctx, bool cap_entries)
 		if (!list_empty(&ctx->iopoll_list))
 			io_do_iopoll(ctx, &nr_events, 0);
 
+		/*
+		 * Don't submit if refs are dying, good for io_uring_register(),
+		 * but also it is relied upon by io_ring_exit_work()
+		 */
 		if (to_submit && likely(!percpu_ref_is_dying(&ctx->refs)) &&
 		    !(ctx->flags & IORING_SETUP_R_DISABLED))
 			ret = io_submit_sqes(ctx, to_submit);
@@ -6832,15 +6836,14 @@ static int io_sq_thread(void *data)
 		timeout = jiffies + sqd->sq_thread_idle;
 	}
 
-	list_for_each_entry(ctx, &sqd->ctx_list, sqd_list)
-		io_uring_cancel_sqpoll(ctx);
+	io_uring_cancel_sqpoll(sqd);
 	sqd->thread = NULL;
 	list_for_each_entry(ctx, &sqd->ctx_list, sqd_list)
 		io_ring_set_wakeup_flag(ctx);
-	mutex_unlock(&sqd->lock);
-
 	io_run_task_work();
 	io_run_task_work_head(&sqd->park_task_work);
+	mutex_unlock(&sqd->lock);
+
 	complete(&sqd->exited);
 	do_exit(0);
 }
@@ -7200,8 +7203,6 @@ static void io_sq_thread_finish(struct io_ring_ctx *ctx)
 
 		io_put_sq_data(sqd);
 		ctx->sq_data = NULL;
-		if (ctx->sq_creds)
-			put_cred(ctx->sq_creds);
 	}
 }
 
@@ -8469,6 +8470,8 @@ static void io_ring_ctx_free(struct io_ring_ctx *ctx)
 	mutex_unlock(&ctx->uring_lock);
 	io_eventfd_unregister(ctx);
 	io_destroy_buffers(ctx);
+	if (ctx->sq_creds)
+		put_cred(ctx->sq_creds);
 
 #if defined(CONFIG_UNIX)
 	if (ctx->ring_sock) {
@@ -8568,6 +8571,13 @@ static void io_tctx_exit_cb(struct callback_head *cb)
 	complete(&work->completion);
 }
 
+static bool io_cancel_ctx_cb(struct io_wq_work *work, void *data)
+{
+	struct io_kiocb *req = container_of(work, struct io_kiocb, work);
+
+	return req->ctx == data;
+}
+
 static void io_ring_exit_work(struct work_struct *work)
 {
 	struct io_ring_ctx *ctx = container_of(work, struct io_ring_ctx, exit_work);
@@ -8575,14 +8585,6 @@ static void io_ring_exit_work(struct work_struct *work)
 	struct io_tctx_exit exit;
 	struct io_tctx_node *node;
 	int ret;
-
-	/* prevent SQPOLL from submitting new requests */
-	if (ctx->sq_data) {
-		io_sq_thread_park(ctx->sq_data);
-		list_del_init(&ctx->sqd_list);
-		io_sqd_update_thread_idle(ctx->sq_data);
-		io_sq_thread_unpark(ctx->sq_data);
-	}
 
 	/*
 	 * If we're doing polled IO and end up having requests being
@@ -8592,6 +8594,17 @@ static void io_ring_exit_work(struct work_struct *work)
 	 */
 	do {
 		io_uring_try_cancel_requests(ctx, NULL, NULL);
+		if (ctx->sq_data) {
+			struct io_sq_data *sqd = ctx->sq_data;
+			struct task_struct *tsk;
+
+			io_sq_thread_park(sqd);
+			tsk = sqd->thread;
+			if (tsk && tsk->io_uring && tsk->io_uring->io_wq)
+				io_wq_cancel_cb(tsk->io_uring->io_wq,
+						io_cancel_ctx_cb, ctx, true);
+			io_sq_thread_unpark(sqd);
+		}
 
 		WARN_ON_ONCE(time_after(jiffies, timeout));
 	} while (!wait_for_completion_timeout(&ctx->ref_comp, HZ/20));
@@ -8734,13 +8747,6 @@ static bool io_cancel_defer_files(struct io_ring_ctx *ctx,
 		kfree(de);
 	}
 	return true;
-}
-
-static bool io_cancel_ctx_cb(struct io_wq_work *work, void *data)
-{
-	struct io_kiocb *req = container_of(work, struct io_kiocb, work);
-
-	return req->ctx == data;
 }
 
 static bool io_uring_try_cancel_iowq(struct io_ring_ctx *ctx)
@@ -8935,11 +8941,11 @@ static s64 tctx_inflight(struct io_uring_task *tctx)
 static void io_sqpoll_cancel_cb(struct callback_head *cb)
 {
 	struct io_tctx_exit *work = container_of(cb, struct io_tctx_exit, task_work);
-	struct io_ring_ctx *ctx = work->ctx;
-	struct io_sq_data *sqd = ctx->sq_data;
+	struct io_sq_data *sqd = work->ctx->sq_data;
 
 	if (sqd->thread)
-		io_uring_cancel_sqpoll(ctx);
+		io_uring_cancel_sqpoll(sqd);
+	list_del_init(&work->ctx->sqd_list);
 	complete(&work->completion);
 }
 
@@ -8950,7 +8956,6 @@ static void io_sqpoll_cancel_sync(struct io_ring_ctx *ctx)
 	struct task_struct *task;
 
 	io_sq_thread_park(sqd);
-	list_del_init(&ctx->sqd_list);
 	io_sqd_update_thread_idle(sqd);
 	task = sqd->thread;
 	if (task) {
@@ -8958,6 +8963,8 @@ static void io_sqpoll_cancel_sync(struct io_ring_ctx *ctx)
 		init_task_work(&work.task_work, io_sqpoll_cancel_cb);
 		io_task_work_add_head(&sqd->park_task_work, &work.task_work);
 		wake_up_process(task);
+	} else {
+		list_del_init(&ctx->sqd_list);
 	}
 	io_sq_thread_unpark(sqd);
 
@@ -8991,14 +8998,16 @@ void __io_uring_files_cancel(struct files_struct *files)
 }
 
 /* should only be called by SQPOLL task */
-static void io_uring_cancel_sqpoll(struct io_ring_ctx *ctx)
+static void io_uring_cancel_sqpoll(struct io_sq_data *sqd)
 {
-	struct io_sq_data *sqd = ctx->sq_data;
 	struct io_uring_task *tctx = current->io_uring;
+	struct io_ring_ctx *ctx;
 	s64 inflight;
 	DEFINE_WAIT(wait);
 
-	WARN_ON_ONCE(!sqd || ctx->sq_data->thread != current);
+	if (!current->io_uring)
+		return;
+	WARN_ON_ONCE(!sqd || sqd->thread != current);
 
 	atomic_inc(&tctx->in_idle);
 	do {
@@ -9006,7 +9015,8 @@ static void io_uring_cancel_sqpoll(struct io_ring_ctx *ctx)
 		inflight = tctx_inflight(tctx);
 		if (!inflight)
 			break;
-		io_uring_try_cancel_requests(ctx, current, NULL);
+		list_for_each_entry(ctx, &sqd->ctx_list, sqd_list)
+			io_uring_try_cancel_requests(ctx, current, NULL);
 
 		prepare_to_wait(&tctx->wait, &wait, TASK_UNINTERRUPTIBLE);
 		/*
