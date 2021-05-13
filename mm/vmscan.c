@@ -123,19 +123,6 @@ struct scan_control {
 	/* The file pages on the current node are dangerously low */
 	unsigned int file_is_tiny:1;
 
-	/*
-	 * The clean file pages on the current node won't be reclaimed when
-	 * their amount is below vm.clean_low_kbytes *unless* we threaten
-	 * to OOM or have no free swap space or vm.swappiness=0.
-	 */
-	unsigned int clean_below_low:1;
-
-	/*
-	 * The clean file pages on the current node won't be reclaimed when
-	 * their amount is below vm.clean_min_kbytes.
-	 */
-	unsigned int clean_below_min:1;
-
 	/* Allocation order */
 	s8 order;
 
@@ -181,17 +168,6 @@ struct scan_control {
 #else
 #define prefetchw_prev_lru_page(_page, _base, _field) do { } while (0)
 #endif
-
-#if CONFIG_CLEAN_LOW_KBYTES < 0
-#error "CONFIG_CLEAN_LOW_KBYTES must be >= 0"
-#endif
-
-#if CONFIG_CLEAN_MIN_KBYTES < 0
-#error "CONFIG_CLEAN_MIN_KBYTES must be >= 0"
-#endif
-
-unsigned long sysctl_clean_low_kbytes __read_mostly = CONFIG_CLEAN_LOW_KBYTES;
-unsigned long sysctl_clean_min_kbytes __read_mostly = CONFIG_CLEAN_MIN_KBYTES;
 
 /*
  * From 0 .. 200.  Higher means more swappy.
@@ -2357,34 +2333,6 @@ static void prepare_scan_count(pg_data_t *pgdat, struct scan_control *sc)
 			file + free <= total_high_wmark &&
 			!(sc->may_deactivate & DEACTIVATE_ANON) &&
 			anon >> sc->priority;
-
-		/*
-		* Check the number of clean file pages to protect them from
-		* reclaiming if their amount is below the specified.
-		*/
-		if (sysctl_clean_low_kbytes || sysctl_clean_min_kbytes) {
-			unsigned long reclaimable_file, dirty, clean;
-
-			reclaimable_file =
-				node_page_state(pgdat, NR_ACTIVE_FILE) +
-				node_page_state(pgdat, NR_INACTIVE_FILE) +
-				node_page_state(pgdat, NR_ISOLATED_FILE);
-			dirty = node_page_state(pgdat, NR_FILE_DIRTY);
-			/*
-			* node_page_state() sum can go out of sync since
-			* all the values are not read at once.
-			*/
-			if (likely(reclaimable_file > dirty))
-				clean = (reclaimable_file - dirty) << (PAGE_SHIFT - 10);
-			else
-				clean = 0;
-
-			sc->clean_below_low = clean < sysctl_clean_low_kbytes;
-			sc->clean_below_min = clean < sysctl_clean_min_kbytes;
-		} else {
-			sc->clean_below_low = false;
-			sc->clean_below_min = false;
-		}
 	}
 }
 
@@ -2441,16 +2389,6 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	 * If the system is almost out of file pages, force-scan anon.
 	 */
 	if (sc->file_is_tiny) {
-		scan_balance = SCAN_ANON;
-		goto out;
-	}
-
-	/*
-	 * Force-scan anon if clean file pages is under vm.clean_min_kbytes
-	 * or vm.clean_low_kbytes (unless the swappiness setting
-	 * disagrees with swapping).
-	 */
-	if ((sc->clean_below_low || sc->clean_below_min) && swappiness) {
 		scan_balance = SCAN_ANON;
 		goto out;
 	}
@@ -2590,13 +2528,6 @@ out:
 			/* Look ma, no brain */
 			BUG();
 		}
-
-		/*
-		 * Don't reclaim clean file pages when their amount is below
-		 * vm.clean_min_kbytes.
-		 */
-		if (file && sc->clean_below_min)
-			scan = 0;
 
 		nr[lru] = scan;
 	}

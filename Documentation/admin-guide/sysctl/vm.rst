@@ -26,8 +26,6 @@ Currently, these files are in /proc/sys/vm:
 
 - admin_reserve_kbytes
 - block_dump
-- clean_low_kbytes
-- clean_min_kbytes
 - compact_memory
 - compaction_proactiveness
 - compact_unevictable_allowed
@@ -113,41 +111,6 @@ block_dump
 
 block_dump enables block I/O debugging when set to a nonzero value. More
 information on block I/O debugging is in Documentation/admin-guide/laptops/laptop-mode.rst.
-
-
-clean_low_kbytes
-=====================
-
-This knob provides *best-effort* protection of clean file pages. The clean file
-pages on the current node won't be reclaimed under memory pressure when their
-amount is below vm.clean_low_kbytes *unless* we threaten to OOM or have no
-free swap space or vm.swappiness=0.
-
-Protection of clean file pages may be used to prevent thrashing and
-reducing I/O under low-memory conditions.
-
-Setting it to a high value may result in a early eviction of anonymous pages
-into the swap space by attempting to hold the protected amount of clean file
-pages in memory.
-
-The default value is defined by CONFIG_CLEAN_LOW_KBYTES.
-
-
-clean_min_kbytes
-=====================
-
-This knob provides *hard* protection of clean file pages. The clean file pages
-on the current node won't be reclaimed under memory pressure when their amount
-is below vm.clean_min_kbytes.
-
-Hard protection of clean file pages may be used to avoid high latency and
-prevent livelock in near-OOM conditions.
-
-Setting it to a high value may result in a early out-of-memory condition due to
-the inability to reclaim the protected amount of clean file pages when other
-types of pages cannot be reclaimed.
-
-The default value is defined by CONFIG_CLEAN_MIN_KBYTES.
 
 
 compact_memory
