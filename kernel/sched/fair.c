@@ -1064,8 +1064,13 @@ static void normalize_lifetime(u64 now, struct sched_entity *se)
 static void update_curr(struct cfs_rq *cfs_rq)
 {
 	struct sched_entity *curr = cfs_rq->curr;
+#ifdef CONFIG_CACULE_SCHED
 	u64 now = sched_clock();
 	u64 delta_exec, delta_fair;
+#else
+	u64 now = rq_clock_task(rq_of(cfs_rq));
+	u64 delta_exec;
+#endif
 
 	if (unlikely(!curr))
 		return;
@@ -1289,7 +1294,11 @@ update_stats_curr_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	/*
 	 * We are starting a new run period:
 	 */
+#ifdef CONFIG_CACULE_SCHED
 	se->exec_start = sched_clock();
+#else
+	se->exec_start = rq_clock_task(rq_of(cfs_rq));
+#endif
 }
 
 /**************************************************
