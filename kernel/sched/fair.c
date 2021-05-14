@@ -4640,10 +4640,8 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 static void
 check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 {
-	u64 now	= sched_clock();
-
 	// does head have higher IS than curr
-	if (entity_before(now, &curr->cacule_node, cfs_rq->head) == 1)
+	if (entity_before(sched_clock(), &curr->cacule_node, cfs_rq->head) == 1)
 		resched_curr(rq_of(cfs_rq));
 }
 #else
