@@ -4,7 +4,11 @@
 #
 
 # to check robot warnings
-ccflags-y += -Wunused-but-set-variable -Wold-style-declaration -Wint-to-pointer-cast
+ccflags-y += -Wint-to-pointer-cast
+condflags := \
+	$(call cc-option, -Wunused-but-set-variable) \
+	$(call cc-option, -Wold-style-declaration)
+ccflags-y += $(condflags)
 
 obj-$(CONFIG_NTFS3_FS) += ntfs3.o
 
