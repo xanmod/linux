@@ -201,6 +201,110 @@ static unsigned long unpack_shadow(void *shadow, int *memcg_id, struct pglist_da
 	return val >> MEM_CGROUP_ID_SHIFT;
 }
 
+#ifdef CONFIG_LRU_GEN
+
+#if LRU_GEN_SHIFT + LRU_USAGE_SHIFT >= EVICTION_SHIFT
+#error "Please try smaller NODES_SHIFT, NR_LRU_GENS and TIERS_PER_GEN configurations"
+#endif
+
+static void page_set_usage(struct page *page, int usage)
+{
+	unsigned long old_flags, new_flags;
+
+	VM_BUG_ON(usage > BIT(LRU_USAGE_WIDTH));
+
+	if (!usage)
+		return;
+
+	do {
+		old_flags = READ_ONCE(page->flags);
+		new_flags = (old_flags & ~LRU_USAGE_MASK) | LRU_TIER_FLAGS |
+			    ((usage - 1UL) << LRU_USAGE_PGOFF);
+	} while (new_flags != old_flags &&
+		 cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
+}
+
+/* Return a token to be stored in the shadow entry of a page being evicted. */
+static void *lru_gen_eviction(struct page *page)
+{
+	int hist, tier;
+	unsigned long token;
+	unsigned long min_seq;
+	struct lruvec *lruvec;
+	struct lrugen *lrugen;
+	int type = page_is_file_lru(page);
+	int usage = page_tier_usage(page);
+	struct mem_cgroup *memcg = page_memcg(page);
+	struct pglist_data *pgdat = page_pgdat(page);
+
+	lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	lrugen = &lruvec->evictable;
+	min_seq = READ_ONCE(lrugen->min_seq[type]);
+	token = (min_seq << LRU_USAGE_SHIFT) | usage;
+
+	hist = hist_from_seq_or_gen(min_seq);
+	tier = lru_tier_from_usage(usage);
+	atomic_long_add(thp_nr_pages(page), &lrugen->evicted[hist][type][tier]);
+
+	return pack_shadow(mem_cgroup_id(memcg), pgdat, token);
+}
+
+/* Account a refaulted page based on the token stored in its shadow entry. */
+static void lru_gen_refault(struct page *page, void *shadow)
+{
+	int hist, tier, usage;
+	int memcg_id;
+	unsigned long token;
+	unsigned long min_seq;
+	struct lruvec *lruvec;
+	struct lrugen *lrugen;
+	struct pglist_data *pgdat;
+	struct mem_cgroup *memcg;
+	int type = page_is_file_lru(page);
+
+	token = unpack_shadow(shadow, &memcg_id, &pgdat);
+	if (page_pgdat(page) != pgdat)
+		return;
+
+	rcu_read_lock();
+	memcg = page_memcg_rcu(page);
+	if (mem_cgroup_id(memcg) != memcg_id)
+		goto unlock;
+
+	usage = token & (BIT(LRU_USAGE_SHIFT) - 1);
+	token >>= LRU_USAGE_SHIFT;
+
+	lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	lrugen = &lruvec->evictable;
+	min_seq = READ_ONCE(lrugen->min_seq[type]);
+	if (token != (min_seq & (EVICTION_MASK >> LRU_USAGE_SHIFT)))
+		goto unlock;
+
+	page_set_usage(page, usage);
+
+	hist = hist_from_seq_or_gen(min_seq);
+	tier = lru_tier_from_usage(usage);
+	atomic_long_add(thp_nr_pages(page), &lrugen->refaulted[hist][type][tier]);
+	inc_lruvec_state(lruvec, WORKINGSET_REFAULT_BASE + type);
+	if (tier)
+		inc_lruvec_state(lruvec, WORKINGSET_RESTORE_BASE + type);
+unlock:
+	rcu_read_unlock();
+}
+
+#else /* CONFIG_LRU_GEN */
+
+static void *lru_gen_eviction(struct page *page)
+{
+	return NULL;
+}
+
+static void lru_gen_refault(struct page *page, void *shadow)
+{
+}
+
+#endif /* CONFIG_LRU_GEN */
+
 /**
  * workingset_age_nonresident - age non-resident entries as LRU ages
  * @lruvec: the lruvec that was aged
@@ -249,6 +353,9 @@ void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg)
 	VM_BUG_ON_PAGE(page_count(page), page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 
+	if (lru_gen_enabled())
+		return lru_gen_eviction(page);
+
 	lruvec = mem_cgroup_lruvec(target_memcg, pgdat);
 	/* XXX: target_memcg can be NULL, go through lruvec */
 	memcgid = mem_cgroup_id(lruvec_memcg(lruvec));
@@ -282,6 +389,11 @@ void workingset_refault(struct page *page, void *shadow)
 	unsigned long refault;
 	bool workingset;
 	int memcgid;
+
+	if (lru_gen_enabled()) {
+		lru_gen_refault(page, shadow);
+		return;
+	}
 
 	eviction = unpack_shadow(shadow, &memcgid, &pgdat);
 

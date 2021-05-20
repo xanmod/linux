@@ -103,6 +103,12 @@ static inline int lru_gen_from_seq(unsigned long seq)
 	return seq % MAX_NR_GENS;
 }
 
+/* Convert the level of usage to a tier. See the comment on MAX_NR_TIERS. */
+static inline int lru_tier_from_usage(int usage)
+{
+	return order_base_2(usage + 1);
+}
+
 /* Return a proper index regardless whether we keep a full history of stats. */
 static inline int hist_from_seq_or_gen(int seq_or_gen)
 {
@@ -245,6 +251,36 @@ static inline bool lru_gen_deletion(struct page *page, struct lruvec *lruvec)
 	return true;
 }
 
+/* Return the level of usage of a page. See the comment on MAX_NR_TIERS. */
+static inline int page_tier_usage(struct page *page)
+{
+	unsigned long flags = READ_ONCE(page->flags);
+
+	return flags & BIT(PG_workingset) ?
+	       ((flags & LRU_USAGE_MASK) >> LRU_USAGE_PGOFF) + 1 : 0;
+}
+
+/* Increment the usage counter after a page is accessed via file descriptors. */
+static inline void page_inc_usage(struct page *page)
+{
+	unsigned long usage;
+	unsigned long old_flags, new_flags;
+
+	do {
+		old_flags = READ_ONCE(page->flags);
+
+		if (!(old_flags & BIT(PG_workingset))) {
+			new_flags = old_flags | BIT(PG_workingset);
+			continue;
+		}
+
+		usage = (old_flags & LRU_USAGE_MASK) + BIT(LRU_USAGE_PGOFF);
+
+		new_flags = (old_flags & ~LRU_USAGE_MASK) | min(usage, LRU_USAGE_MASK);
+	} while (new_flags != old_flags &&
+		 cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
+}
+
 #else /* CONFIG_LRU_GEN */
 
 static inline bool lru_gen_enabled(void)
@@ -260,6 +296,10 @@ static inline bool lru_gen_addition(struct page *page, struct lruvec *lruvec, bo
 static inline bool lru_gen_deletion(struct page *page, struct lruvec *lruvec)
 {
 	return false;
+}
+
+static inline void page_inc_usage(struct page *page)
+{
 }
 
 #endif /* CONFIG_LRU_GEN */
