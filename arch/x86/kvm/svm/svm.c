@@ -1416,6 +1416,9 @@ static void svm_prepare_guest_switch(struct kvm_vcpu *vcpu)
 	struct svm_cpu_data *sd = per_cpu(svm_data, vcpu->cpu);
 	unsigned int i;
 
+	if (sev_es_guest(vcpu->kvm))
+		sev_es_unmap_ghcb(svm);
+
 	if (svm->guest_state_loaded)
 		return;
 
@@ -2738,7 +2741,8 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (!boot_cpu_has(X86_FEATURE_RDTSCP))
 			return 1;
 		if (!msr_info->host_initiated &&
-		    !guest_cpuid_has(vcpu, X86_FEATURE_RDTSCP))
+		    !guest_cpuid_has(vcpu, X86_FEATURE_RDTSCP) &&
+		    !guest_cpuid_has(vcpu, X86_FEATURE_RDPID))
 			return 1;
 		msr_info->data = svm->tsc_aux;
 		break;
@@ -2811,7 +2815,7 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 static int svm_complete_emulated_msr(struct kvm_vcpu *vcpu, int err)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
-	if (!sev_es_guest(svm->vcpu.kvm) || !err)
+	if (!err || !sev_es_guest(vcpu->kvm) || WARN_ON_ONCE(!svm->ghcb))
 		return kvm_complete_insn_gp(&svm->vcpu, err);
 
 	ghcb_set_sw_exit_info_1(svm->ghcb, 1);
@@ -2949,7 +2953,8 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 			return 1;
 
 		if (!msr->host_initiated &&
-		    !guest_cpuid_has(vcpu, X86_FEATURE_RDTSCP))
+		    !guest_cpuid_has(vcpu, X86_FEATURE_RDTSCP) &&
+		    !guest_cpuid_has(vcpu, X86_FEATURE_RDPID))
 			return 1;
 
 		/*
