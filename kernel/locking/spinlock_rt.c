@@ -32,6 +32,7 @@ static __always_inline void rtlock_lock(struct rt_mutex *rtm)
 
 static __always_inline void __rt_spin_lock(spinlock_t *lock)
 {
+	___might_sleep(__FILE__, __LINE__, 0);
 	rtlock_lock(&lock->lock);
 	rcu_read_lock();
 	migrate_disable();
