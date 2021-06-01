@@ -133,7 +133,13 @@ int __weak arch_asym_cpu_priority(int cpu)
 #ifdef CONFIG_CACULE_SCHED
 int __read_mostly cacule_max_lifetime			= 22000; // in ms
 int __read_mostly interactivity_factor			= 32768;
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
+unsigned int __read_mostly interactivity_threshold	= 0;
+#else
 unsigned int __read_mostly interactivity_threshold	= 1000;
+#endif
+
 #endif
 
 #ifdef CONFIG_CFS_BANDWIDTH
@@ -635,7 +641,7 @@ calc_interactivity(u64 now, struct cacule_node *se)
 
 static inline int is_interactive(struct cacule_node *cn)
 {
-	if (se_of(cn)->vruntime == 0)
+	if (!interactivity_threshold || se_of(cn)->vruntime == 0)
 		return 0;
 
 	return calc_interactivity(sched_clock(), cn) < interactivity_threshold;
