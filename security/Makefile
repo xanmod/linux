@@ -14,6 +14,7 @@ subdir-$(CONFIG_SECURITY_SAFESETID)    += safesetid
 subdir-$(CONFIG_SECURITY_LOCKDOWN_LSM)	+= lockdown
 subdir-$(CONFIG_BPF_LSM)		+= bpf
 subdir-$(CONFIG_SECURITY_LANDLOCK)	+= landlock
+subdir-$(CONFIG_SECURITY_FORK_BRUTE)	+= brute
 
 # always enable default capabilities
 obj-y					+= commoncap.o
@@ -34,6 +35,7 @@ obj-$(CONFIG_SECURITY_LOCKDOWN_LSM)	+= lockdown/
 obj-$(CONFIG_CGROUPS)			+= device_cgroup.o
 obj-$(CONFIG_BPF_LSM)			+= bpf/
 obj-$(CONFIG_SECURITY_LANDLOCK)		+= landlock/
+obj-$(CONFIG_SECURITY_FORK_BRUTE)	+= brute/
 
 # Object integrity file lists
 subdir-$(CONFIG_INTEGRITY)		+= integrity
