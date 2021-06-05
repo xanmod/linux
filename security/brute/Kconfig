@@ -9,6 +9,7 @@ config SECURITY_FORK_BRUTE
 	  offending tasks are killed. Also, the executable file involved in the
 	  attack will be marked as "not allowed" and new execve system calls
 	  using this file will fail. Like capabilities, this security module
-	  stacks with other LSMs.
+	  stacks with other LSMs. Further information can be found in
+	  Documentation/admin-guide/LSM/Brute.rst.
 
 	  If you are unsure how to answer this question, answer N.
