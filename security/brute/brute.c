@@ -57,6 +57,59 @@ struct brute_raw_stats {
 } __packed;
 
 /**
+ * struct brute_task - Task info.
+ * @killed: Task killed to mitigate a brute force attack.
+ */
+struct brute_task {
+	u8 killed : 1;
+};
+
+/*
+ * brute_blob_sizes - LSM blob sizes.
+ */
+static struct lsm_blob_sizes brute_blob_sizes __lsm_ro_after_init = {
+	.lbs_task = sizeof(struct brute_task),
+};
+
+/**
+ * brute_task() - Get the task info.
+ * @task: The task to get the info.
+ *
+ * Return: A pointer to the brute_task structure.
+ */
+static inline struct brute_task *brute_task(const struct task_struct *task)
+{
+	return task->security + brute_blob_sizes.lbs_task;
+}
+
+/**
+ * brute_set_task_killed() - Set task killed to mitigate a brute force attack.
+ * @task: The task to set.
+ */
+static inline void brute_set_task_killed(struct task_struct *task)
+{
+	struct brute_task *task_info;
+
+	task_info = brute_task(task);
+	task_info->killed = true;
+}
+
+/**
+ * brute_task_killed() - Test if a task has been killed to mitigate an attack.
+ * @task: The task to test.
+ *
+ * Return: True if the task has been killed to mitigate a brute force attack.
+ *         False otherwise.
+ */
+inline bool brute_task_killed(const struct task_struct *task)
+{
+	struct brute_task *task_info;
+
+	task_info = brute_task(task);
+	return task_info->killed;
+}
+
+/**
  * brute_get_current_exe_file() - Get the current task's executable file.
  *
  * Since all the kernel threads associated with a task share the same executable
@@ -296,8 +349,10 @@ static void brute_kill_offending_tasks(const struct file *file)
 
 	read_lock(&tasklist_lock);
 	for_each_process(task) {
-		if (task->group_leader == current->group_leader)
+		if (task->group_leader == current->group_leader) {
+			brute_set_task_killed(task);
 			continue;
+		}
 
 		exe_file = get_task_exe_file(task);
 		if (!exe_file)
@@ -311,6 +366,7 @@ static void brute_kill_offending_tasks(const struct file *file)
 		do_send_sig_info(SIGKILL, SEND_SIG_PRIV, task, PIDTYPE_PID);
 		pr_warn_ratelimited("offending process %d [%s] killed\n",
 				    task->pid, task->comm);
+		brute_set_task_killed(task);
 	}
 	read_unlock(&tasklist_lock);
 }
@@ -735,4 +791,5 @@ static int __init brute_init(void)
 DEFINE_LSM(brute) = {
 	.name = KBUILD_MODNAME,
 	.init = brute_init,
+	.blobs = &brute_blob_sizes,
 };

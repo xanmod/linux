@@ -69,6 +69,8 @@
 #include <asm/unistd.h>
 #include <asm/mmu_context.h>
 
+#include <brute/brute.h>
+
 static void __unhash_process(struct task_struct *p, bool group_dead)
 {
 	nr_threads--;
@@ -1001,6 +1003,7 @@ static int wait_task_zombie(struct wait_opts *wo, struct task_struct *p)
 	pid_t pid = task_pid_vnr(p);
 	uid_t uid = from_kuid_munged(current_user_ns(), task_uid(p));
 	struct waitid_info *infop;
+	bool killed_by_brute = brute_task_killed(p);
 
 	if (!likely(wo->wo_flags & WEXITED))
 		return 0;
@@ -1114,7 +1117,8 @@ out_info:
 			infop->cause = CLD_EXITED;
 			infop->status = status >> 8;
 		} else {
-			infop->cause = (status & 0x80) ? CLD_DUMPED : CLD_KILLED;
+			infop->cause = (status & 0x80) ? CLD_DUMPED :
+				killed_by_brute ? CLD_BRUTE : CLD_KILLED;
 			infop->status = status & 0x7f;
 		}
 		infop->pid = pid;

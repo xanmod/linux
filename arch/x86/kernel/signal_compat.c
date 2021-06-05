@@ -30,7 +30,7 @@ static inline void signal_compat_build_tests(void)
 	BUILD_BUG_ON(NSIGSEGV != 9);
 	BUILD_BUG_ON(NSIGBUS  != 5);
 	BUILD_BUG_ON(NSIGTRAP != 6);
-	BUILD_BUG_ON(NSIGCHLD != 6);
+	BUILD_BUG_ON(NSIGCHLD != 7);
 	BUILD_BUG_ON(NSIGSYS  != 2);
 
 	/* This is part of the ABI and can never change in size: */
