@@ -234,6 +234,88 @@ static inline void brute_print_attack_running(void)
 }
 
 /**
+ * brute_print_file_not_allowed() - Warn about a file not allowed.
+ * @dentry: The dentry of the file not allowed.
+ */
+static void brute_print_file_not_allowed(struct dentry *dentry)
+{
+	char *buf, *path;
+
+	buf = __getname();
+	if (WARN_ON_ONCE(!buf))
+		return;
+
+	path = dentry_path_raw(dentry, buf, PATH_MAX);
+	if (WARN_ON_ONCE(IS_ERR(path)))
+		goto free;
+
+	pr_warn_ratelimited("%s not allowed\n", path);
+free:
+	__putname(buf);
+}
+
+/**
+ * brute_is_same_file() - Test if two files are the same.
+ * @file1: First file to compare. Cannot be NULL.
+ * @file2: Second file to compare. Cannot be NULL.
+ *
+ * Two files are the same if they have the same inode number and the same block
+ * device.
+ *
+ * Return: True if the two files are the same. False otherwise.
+ */
+static inline bool brute_is_same_file(const struct file *file1,
+				      const struct file *file2)
+{
+	struct inode *inode1 = file_inode(file1);
+	struct inode *inode2 = file_inode(file2);
+
+	return inode1->i_ino == inode2->i_ino &&
+		inode1->i_sb->s_dev == inode2->i_sb->s_dev;
+}
+
+/**
+ * brute_kill_offending_tasks() - Kill the offending tasks.
+ * @file: The file executed during a brute force attack. Cannot be NULL.
+ *
+ * When a brute force attack is detected all the offending tasks involved in the
+ * attack must be killed. In other words, it is necessary to kill all the tasks
+ * that are executing the same file that is running during the brute force
+ * attack. Moreover, the processes that have the same group_leader that the
+ * current task must be avoided since they are in the path to be killed.
+ *
+ * The for_each_process loop is protected by the tasklist_lock acquired in read
+ * mode instead of rcu_read_lock to avoid that the newly created processes
+ * escape this RCU read lock.
+ */
+static void brute_kill_offending_tasks(const struct file *file)
+{
+	struct task_struct *task;
+	struct file *exe_file;
+	bool is_same_file;
+
+	read_lock(&tasklist_lock);
+	for_each_process(task) {
+		if (task->group_leader == current->group_leader)
+			continue;
+
+		exe_file = get_task_exe_file(task);
+		if (!exe_file)
+			continue;
+
+		is_same_file = brute_is_same_file(exe_file, file);
+		fput(exe_file);
+		if (!is_same_file)
+			continue;
+
+		do_send_sig_info(SIGKILL, SEND_SIG_PRIV, task, PIDTYPE_PID);
+		pr_warn_ratelimited("offending process %d [%s] killed\n",
+				    task->pid, task->comm);
+	}
+	read_unlock(&tasklist_lock);
+}
+
+/**
  * brute_get_xattr_stats() - Get the stats from an extended attribute.
  * @dentry: The dentry of the file to get the extended attribute.
  * @inode: The inode of the file to get the extended attribute.
@@ -295,6 +377,10 @@ static int brute_set_xattr_stats(struct dentry *dentry, struct inode *inode,
  * created. This way, the scenario where an application has not crossed any
  * privilege boundary is avoided since the existence of the extended attribute
  * denotes the crossing of bounds.
+ *
+ * Also, do not update the statistics if the execution of the file is not
+ * allowed and kill all the offending tasks when a brute force attack is
+ * detected.
  */
 static void brute_update_xattr_stats(const struct file *file)
 {
@@ -306,7 +392,7 @@ static void brute_update_xattr_stats(const struct file *file)
 	inode_lock(inode);
 	rc = brute_get_xattr_stats(dentry, inode, &stats);
 	WARN_ON_ONCE(rc && rc != -ENODATA);
-	if (rc) {
+	if (rc || (!rc && stats.not_allowed)) {
 		inode_unlock(inode);
 		return;
 	}
@@ -320,6 +406,9 @@ static void brute_update_xattr_stats(const struct file *file)
 	rc = brute_set_xattr_stats(dentry, inode, &stats);
 	WARN_ON_ONCE(rc);
 	inode_unlock(inode);
+
+	if (stats.not_allowed)
+		brute_kill_offending_tasks(file);
 }
 
 /**
@@ -433,21 +522,17 @@ static void brute_task_fatal_signal(const kernel_siginfo_t *siginfo)
  * @bprm: Contains the linux_binprm structure.
  * @file: Binary that will be executed without an interpreter.
  *
- * This hook is useful to mark that a privilege boundary (setuid/setgid process)
- * has been crossed. This is done based on the "secureexec" flag.
+ * If there are statistics, test the "not_allowed" flag and avoid the file
+ * execution based on this. Also, this hook is useful to mark that a privilege
+ * boundary (setuid/setgid process) has been crossed. This is done based on the
+ * "secureexec" flag.
  *
  * To be defensive return an error code if it is not possible to get or set the
  * stats using an extended attribute since this blocks the execution of the
  * file. This scenario is treated as an attack.
  *
- * It is important to note that here the brute_new_xattr_stats function could be
- * used with a previous test of the secureexec flag. However it is better to use
- * the basic xattr functions since in a future commit a test if the execution is
- * allowed (via the brute_stats::not_allowed flag) will be necessary. This way,
- * the stats of the file will be get only once.
- *
- * Return: An error code if it is not possible to get or set the statistical
- *         data. Zero otherwise.
+ * Return: -EPERM if the execution of the file is not allowed. An error code if
+ *         it is not possible to get or set the statistical data. Zero otherwise.
  */
 static int brute_task_execve(struct linux_binprm *bprm, struct file *file)
 {
@@ -460,6 +545,12 @@ static int brute_task_execve(struct linux_binprm *bprm, struct file *file)
 	rc = brute_get_xattr_stats(dentry, inode, &stats);
 	if (WARN_ON_ONCE(rc && rc != -ENODATA))
 		goto unlock;
+
+	if (!rc && stats.not_allowed) {
+		brute_print_file_not_allowed(dentry);
+		rc = -EPERM;
+		goto unlock;
+	}
 
 	if (rc == -ENODATA && bprm->secureexec) {
 		brute_reset_stats(&stats);
