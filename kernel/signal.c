@@ -2764,6 +2764,7 @@ relock:
 		/*
 		 * Anything else is fatal, maybe with a core dump.
 		 */
+		security_task_fatal_signal(&ksig->info);
 		current->flags |= PF_SIGNALED;
 
 		if (sig_kernel_coredump(signr)) {
