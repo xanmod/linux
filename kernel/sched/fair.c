@@ -628,7 +628,7 @@ calc_interactivity(u64 now, struct cacule_node *se)
 	 * make sure that the least sig. bit is 1
 	 */
 	l_se		= now - se->cacule_start_time;
-	vr_se		= se->vruntime		| 1;
+	vr_se		= se->vruntime | 1;
 	u64_factor	= interactivity_factor;
 
 	/* safety check */
