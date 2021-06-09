@@ -135,8 +135,8 @@ int __weak arch_asym_cpu_priority(int cpu)
 
 #endif
 #ifdef CONFIG_CACULE_SCHED
-int __read_mostly cacule_max_lifetime			= 22000; // in ms
-int __read_mostly interactivity_factor			= 32768;
+unsigned int __read_mostly cacule_max_lifetime		= 22000; // in ms
+unsigned int __read_mostly interactivity_factor		= 32768;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 unsigned int __read_mostly interactivity_threshold	= 0;
