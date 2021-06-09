@@ -8119,6 +8119,9 @@ void __init sched_init(void)
 	 * This patch is on top cacule-5.12.patch
 	 */
 	printk(KERN_INFO "CacULE CPU scheduler (RDB) v5.12 by Hamad Al Marri.");
+
+#elif defined(CONFIG_CACULE_SCHED)
+	printk(KERN_INFO "CacULE CPU scheduler v5.12 by Hamad Al Marri.");
 #endif
 
 	wait_bit_init();
