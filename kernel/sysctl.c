@@ -1703,6 +1703,15 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
+#ifdef CONFIG_RDB_TASKS_GROUP
+	{
+		.procname	= "rdb_tasks_group_enabled",
+		.data		= &average_vruntime_enabled,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+#endif
 #endif
 #ifdef CONFIG_SCHED_DEBUG
 	{

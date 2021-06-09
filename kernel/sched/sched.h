@@ -542,6 +542,10 @@ struct cfs_rq {
 	struct cacule_node	*head;
 	struct cacule_node	*tail;
 
+#ifdef CONFIG_CACULE_RDB
+	unsigned int		IS_head;
+#endif
+
 #else
 	struct sched_entity	*next;
 	struct sched_entity	*last;
@@ -949,7 +953,6 @@ struct rq {
 	struct cfs_rq		cfs;
 	struct rt_rq		rt;
 	struct dl_rq		dl;
-
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this CPU: */
 	struct list_head	leaf_cfs_rq_list;

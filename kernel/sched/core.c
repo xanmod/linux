@@ -3558,6 +3558,10 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 
 #ifdef CONFIG_CACULE_SCHED
 	p->se.cacule_node.vruntime	= 0;
+
+#ifdef CONFIG_RDB_TASKS_GROUP
+	p->nr_forks			= 0;
+#endif
 #endif
 
 	INIT_LIST_HEAD(&p->se.group_node);
@@ -4549,7 +4553,11 @@ void scheduler_tick(void)
 
 	update_rq_clock(rq);
 	thermal_pressure = arch_scale_thermal_pressure(cpu_of(rq));
+
+#if !defined(CONFIG_CACULE_RDB)
 	update_thermal_load_avg(rq_clock_thermal(rq), rq, thermal_pressure);
+#endif
+
 	curr->sched_class->task_tick(rq, curr, 0);
 	calc_global_load_tick(rq);
 	psi_task_tick(rq);
@@ -8106,8 +8114,11 @@ void __init sched_init(void)
 	BUG_ON(&dl_sched_class + 1 != &stop_sched_class);
 #endif
 
-#ifdef CONFIG_CACULE_SCHED
-	printk(KERN_INFO "CacULE CPU scheduler v5.12-r2 by Hamad Al Marri.");
+#ifdef CONFIG_CACULE_RDB
+	/*
+	 * This patch is on top cacule-5.12.patch
+	 */
+	printk(KERN_INFO "CacULE CPU scheduler (RDB) v5.12 by Hamad Al Marri.");
 #endif
 
 	wait_bit_init();

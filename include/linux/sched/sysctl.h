@@ -35,6 +35,10 @@ extern unsigned int sysctl_sched_child_runs_first;
 extern unsigned int interactivity_factor;
 extern unsigned int interactivity_threshold;
 extern unsigned int cacule_max_lifetime;
+
+#ifdef CONFIG_RDB_TASKS_GROUP
+extern unsigned int average_vruntime_enabled;
+#endif
 #endif
 
 enum sched_tunable_scaling {
