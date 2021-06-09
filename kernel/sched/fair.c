@@ -98,7 +98,11 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
 unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
 static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 
+#ifdef CONFIG_CACULE_SCHED
+const_debug unsigned int sysctl_sched_migration_cost	= 200000UL;
+#else
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
+#endif
 
 int sched_thermal_decay_shift;
 static int __init setup_sched_thermal_decay_shift(char *str)
@@ -10988,9 +10992,11 @@ static void nohz_newidle_balance(struct rq *this_rq)
 	if (!housekeeping_cpu(this_cpu, HK_FLAG_SCHED))
 		return;
 
+#if !defined(CONFIG_CACULE_SCHED)
 	/* Will wake up very soon. No time for doing anything else*/
 	if (this_rq->avg_idle < sysctl_sched_migration_cost)
 		return;
+#endif
 
 	/* Don't need to update blocked load of idle CPUs*/
 	if (!READ_ONCE(nohz.has_blocked) ||
@@ -11058,7 +11064,10 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	 */
 	rq_unpin_lock(this_rq, rf);
 
-	if (this_rq->avg_idle < sysctl_sched_migration_cost ||
+	if (
+#if !defined(CONFIG_CACULE_SCHED)
+	    this_rq->avg_idle < sysctl_sched_migration_cost ||
+#endif
 	    !READ_ONCE(this_rq->rd->overload)) {
 
 		rcu_read_lock();
