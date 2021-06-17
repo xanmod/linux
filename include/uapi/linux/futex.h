@@ -42,7 +42,9 @@
 					 FUTEX_PRIVATE_FLAG)
 #define FUTEX_CMP_REQUEUE_PI_PRIVATE	(FUTEX_CMP_REQUEUE_PI | \
 					 FUTEX_PRIVATE_FLAG)
-
+#define FUTEX_32	2
+#define FUTEX_SHARED_FLAG 8
+#define FUTEX_SIZE_MASK	0x3
 /*
  * Support for robust futexes: the kernel cleans up held futexes at
  * thread exit time.
