@@ -209,4 +209,12 @@ menuconfig LRNG_DRNG_SWITCH
 	  accessible via the external interfaces. With this configuration
 	  option other DRNGs can be selected and loaded at runtime.
 
+if LRNG_DRNG_SWITCH
+
+config LRNG_KCAPI_HASH
+	bool
+	select CRYPTO_HASH
+
+endif # LRNG_DRNG_SWITCH
+
 endif # LRNG
