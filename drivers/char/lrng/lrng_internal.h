@@ -114,7 +114,11 @@ void lrng_cc20_init_state(struct chacha20_state *state);
 
 /********************************** /proc *************************************/
 
+#ifdef CONFIG_SYSCTL
+void lrng_pool_inc_numa_node(void);
+#else
 static inline void lrng_pool_inc_numa_node(void) { }
+#endif
 
 /****************************** LRNG interfaces *******************************/
 
