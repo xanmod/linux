@@ -171,57 +171,6 @@ struct futex_pi_state {
 	union futex_key key;
 } __randomize_layout;
 
-/**
- * struct futex_q - The hashed futex queue entry, one per waiting task
- * @list:		priority-sorted list of tasks waiting on this futex
- * @task:		the task waiting on the futex
- * @lock_ptr:		the hash bucket lock
- * @key:		the key the futex is hashed on
- * @pi_state:		optional priority inheritance state
- * @rt_waiter:		rt_waiter storage for use with requeue_pi
- * @requeue_pi_key:	the requeue_pi target futex key
- * @bitset:		bitset for the optional bitmasked wakeup
- *
- * We use this hashed waitqueue, instead of a normal wait_queue_entry_t, so
- * we can wake only the relevant ones (hashed queues may be shared).
- *
- * A futex_q has a woken state, just like tasks have TASK_RUNNING.
- * It is considered woken when plist_node_empty(&q->list) || q->lock_ptr == 0.
- * The order of wakeup is always to make the first condition true, then
- * the second.
- *
- * PI futexes are typically woken before they are removed from the hash list via
- * the rt_mutex code. See unqueue_me_pi().
- */
-struct futex_q {
-	struct plist_node list;
-
-	struct task_struct *task;
-	spinlock_t *lock_ptr;
-	union futex_key key;
-	struct futex_pi_state *pi_state;
-	struct rt_mutex_waiter *rt_waiter;
-	union futex_key *requeue_pi_key;
-	u32 bitset;
-} __randomize_layout;
-
-static const struct futex_q futex_q_init = {
-	/* list gets initialized in queue_me()*/
-	.key = FUTEX_KEY_INIT,
-	.bitset = FUTEX_BITSET_MATCH_ANY
-};
-
-/*
- * Hash buckets are shared by all the futex_keys that hash to the same
- * location.  Each key may have multiple futex_q structures, one for each task
- * waiting on a futex.
- */
-struct futex_hash_bucket {
-	atomic_t waiters;
-	spinlock_t lock;
-	struct plist_head chain;
-} ____cacheline_aligned_in_smp;
-
 /*
  * The base of the bucket array and its size are always used together
  * (after initialization only in hash_futex()), so ensure that they
@@ -364,11 +313,6 @@ static inline int match_futex(union futex_key *key1, union futex_key *key2)
 		&& key1->both.offset == key2->both.offset);
 }
 
-enum futex_access {
-	FUTEX_READ,
-	FUTEX_WRITE
-};
-
 /**
  * futex_setup_timer - set up the sleeping hrtimer.
  * @time:	ptr to the given timeout value
@@ -379,7 +323,7 @@ enum futex_access {
  * Return: Initialized hrtimer_sleeper structure or NULL if no timeout
  *	   value given
  */
-static inline struct hrtimer_sleeper *
+inline struct hrtimer_sleeper *
 futex_setup_timer(ktime_t *time, struct hrtimer_sleeper *timeout,
 		  int flags, u64 range_ns)
 {
@@ -465,7 +409,7 @@ static u64 get_inode_sequence_number(struct inode *inode)
  *
  * lock_page() might sleep, the caller should not hold a spinlock.
  */
-static int get_futex_key(u32 __user *uaddr, bool fshared, union futex_key *key,
+int get_futex_key(u32 __user *uaddr, bool fshared, union futex_key *key,
 			 enum futex_access rw)
 {
 	unsigned long address = (unsigned long)uaddr;
@@ -698,7 +642,7 @@ static int cmpxchg_futex_value_locked(u32 *curval, u32 __user *uaddr,
 	return ret;
 }
 
-static int get_futex_value_locked(u32 *dest, u32 __user *from)
+inline int get_futex_value_locked(u32 *dest, u32 __user *from)
 {
 	int ret;
 
@@ -2173,7 +2117,7 @@ out_unlock:
 }
 
 /* The key must be already stored in q->key. */
-static inline struct futex_hash_bucket *queue_lock(struct futex_q *q)
+inline struct futex_hash_bucket *queue_lock(struct futex_q *q)
 	__acquires(&hb->lock)
 {
 	struct futex_hash_bucket *hb;
@@ -2196,7 +2140,7 @@ static inline struct futex_hash_bucket *queue_lock(struct futex_q *q)
 	return hb;
 }
 
-static inline void
+inline void
 queue_unlock(struct futex_hash_bucket *hb)
 	__releases(&hb->lock)
 {
@@ -2235,7 +2179,7 @@ static inline void __queue_me(struct futex_q *q, struct futex_hash_bucket *hb)
  * state is implicit in the state of woken task (see futex_wait_requeue_pi() for
  * an example).
  */
-static inline void queue_me(struct futex_q *q, struct futex_hash_bucket *hb)
+inline void queue_me(struct futex_q *q, struct futex_hash_bucket *hb)
 	__releases(&hb->lock)
 {
 	__queue_me(q, hb);
@@ -2253,7 +2197,7 @@ static inline void queue_me(struct futex_q *q, struct futex_hash_bucket *hb)
  *  - 1 - if the futex_q was still queued (and we removed unqueued it);
  *  - 0 - if the futex_q was already removed by the waking thread
  */
-static int unqueue_me(struct futex_q *q)
+int unqueue_me(struct futex_q *q)
 {
 	spinlock_t *lock_ptr;
 	int ret = 0;
