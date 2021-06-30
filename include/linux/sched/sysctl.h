@@ -32,6 +32,12 @@ extern unsigned int sysctl_sched_latency;
 extern unsigned int sysctl_sched_min_granularity;
 extern unsigned int sysctl_sched_wakeup_granularity;
 
+#ifdef CONFIG_CACULE_SCHED
+extern unsigned int interactivity_factor;
+extern unsigned int interactivity_threshold;
+extern unsigned int cacule_max_lifetime;
+#endif
+
 enum sched_tunable_scaling {
 	SCHED_TUNABLESCALING_NONE,
 	SCHED_TUNABLESCALING_LOG,

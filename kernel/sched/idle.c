@@ -262,10 +262,12 @@ static void do_idle(void)
 {
 	int cpu = smp_processor_id();
 
+#if !defined(CONFIG_CACULE_RDB)
 	/*
 	 * Check if we need to update blocked load
 	 */
 	nohz_run_idle_balance(cpu);
+#endif
 
 	/*
 	 * If the arch has a polling bit, we maintain an invariant:
