@@ -1088,6 +1088,10 @@ Model available). If your platform happens to meet the
 requirements for EAS but you do not want to use it, change
 this value to 0.
 
+sched_interactivity_factor (CacULE scheduler only)
+==================================================
+Sets the value *m* for interactivity score calculations. See
+Figure 1 in https://web.cs.ucdavis.edu/~roper/ecs150/ULE.pdf
 
 sched_schedstats
 ================
