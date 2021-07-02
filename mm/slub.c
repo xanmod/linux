@@ -2846,7 +2846,11 @@ redo:
 
 load_freelist:
 
+#ifdef CONFIG_PREEMPT_RT
+	lockdep_assert_held(this_cpu_ptr(&s->cpu_slab->lock.lock));
+#else
 	lockdep_assert_held(this_cpu_ptr(&s->cpu_slab->lock));
+#endif
 
 	/*
 	 * freelist is pointing to the list of objects to be used.
