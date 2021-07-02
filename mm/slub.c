@@ -426,9 +426,9 @@ static __always_inline void
 __slab_unlock(struct page *page, unsigned long *flags, bool disable_irqs)
 {
 	VM_BUG_ON_PAGE(PageTail(page), page);
+	__bit_spin_unlock(PG_locked, &page->flags);
 	if (disable_irqs)
 		local_irq_restore(*flags);
-	__bit_spin_unlock(PG_locked, &page->flags);
 }
 
 static __always_inline void
