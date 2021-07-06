@@ -76,9 +76,9 @@ extern int __rt_mutex_futex_trylock(struct rt_mutex *l);
 
 extern void rt_mutex_futex_unlock(struct rt_mutex *lock);
 extern bool __rt_mutex_futex_unlock(struct rt_mutex *lock,
-				struct wake_q_head *wake_q);
+				struct rt_mutex_wake_q_head *wqh);
 
-extern void rt_mutex_postunlock(struct wake_q_head *wake_q);
+extern void rt_mutex_postunlock(struct rt_mutex_wake_q_head *wqh);
 
 /* Special interfaces for RT lock substitutions */
 int rwsem_rt_mutex_slowlock_locked(struct rt_mutex *lock, unsigned int state);
