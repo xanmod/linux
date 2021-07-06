@@ -464,4 +464,54 @@ int __sched rwsem_rt_mutex_slowlock_locked(struct rt_mutex *lock,
 {
 	return __rt_mutex_slowlock_locked(lock, state);
 }
+
+/**
+ * rwsem_rt_mutex_lock_state - Lock a rt_mutex with a given state
+ * @lock:      The rt_mutex to be locked
+ * @state:     The state to set when blocking on the rt_mutex
+ *
+ * The function does no lockdep operations on @lock. The lockdep state
+ * changes have to be done on the callsite related to the locking primitive
+ * which embeds the rtmutex. Otherwise lockdep has double tracking.
+ */
+int __sched rwsem_rt_mutex_lock_state(struct rt_mutex *lock, unsigned int state)
+{
+	return __rt_mutex_lock(lock, state);
+}
+
+/**
+ * rwsem_rt_mutex_try_lock_nolockdep - Try to lock a rt_mutex
+ * @lock:      The rt_mutex to be locked
+ *
+ * The function does no lockdep operations on @lock. The lockdep state
+ * changes have to be done on the callsite related to the locking primitive
+ * which embeds the rtmutex. Otherwise lockdep has double tracking.
+ */
+int __sched rwsem_rt_mutex_trylock(struct rt_mutex *lock)
+{
+	if (IS_ENABLED(CONFIG_DEBUG_RT_MUTEXES) &&
+	    WARN_ON_ONCE(in_nmi() | in_hardirq()))
+			return 0;
+
+	if (likely(rt_mutex_cmpxchg_acquire(lock, NULL, current)))
+		return 1;
+
+	return rt_mutex_slowtrylock(lock);
+}
+
+/**
+ * rwsem_rt_mutex_unlock - Unlock a rt_mutex
+ * @lock:      The rt_mutex to be unlocked
+ *
+ * The function does no lockdep operations on @lock. The lockdep state
+ * changes have to be done on the callsite related to the locking primitive
+ * which embeds the rtmutex. Otherwise lockdep has double tracking.
+ */
+void rwsem_rt_mutex_unlock(struct rt_mutex *lock)
+{
+	if (likely(rt_mutex_cmpxchg_acquire(lock, current, NULL)))
+		return;
+
+	rt_mutex_slowunlock(lock);
+}
 #endif

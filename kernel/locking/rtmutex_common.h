@@ -66,6 +66,9 @@ extern void rt_mutex_postunlock(struct wake_q_head *wake_q);
 
 /* Special interfaces for RT lock substitutions */
 int rwsem_rt_mutex_slowlock_locked(struct rt_mutex *lock, unsigned int state);
+int rwsem_rt_mutex_lock_state(struct rt_mutex *lock, unsigned int state);
+int rwsem_rt_mutex_trylock(struct rt_mutex *lock);
+void rwsem_rt_mutex_unlock(struct rt_mutex *lock);
 
 /*
  * Must be guarded because this header is included from rcu/tree_plugin.h
