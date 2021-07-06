@@ -64,7 +64,12 @@
  * built on the regular mutex code in RT kernels while mutex itself is
  * substituted by a rt_mutex.
  */
-typedef struct mutex {
+#ifndef CONFIG_PREEMPT_RT
+typedef struct mutex
+#else
+typedef struct __mutex
+#endif
+{
 	atomic_long_t		owner;
 	raw_spinlock_t		wait_lock;
 #ifdef CONFIG_MUTEX_SPIN_ON_OWNER
@@ -94,6 +99,7 @@ extern void _mutex_t_destroy(_mutex_t *lock);
 static inline void _mutex_t_destroy(_mutex_t *lock) {}
 #endif
 
+#ifndef CONFIG_PREEMPT_RT
 /**
  * mutex_init - initialize the mutex
  * @mutex: the mutex to be initialized
@@ -158,6 +164,51 @@ static __always_inline int mutex_trylock(struct mutex *lock)
 {
 	return _mutex_t_trylock(lock);
 }
+
+#else /* !CONFIG_PREEMPT_RT */
+/*
+ * Preempt-RT variant based on rtmutexes.
+ */
+#include <linux/rtmutex.h>
+
+struct mutex {
+	struct rt_mutex		rtmutex;
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	struct lockdep_map	dep_map;
+#endif
+};
+
+#define __MUTEX_INITIALIZER(mutexname)					\
+	{								\
+		.rtmutex = __RT_MUTEX_INITIALIZER(mutexname.rtmutex)	\
+		__DEP_MAP_MUTEX_INITIALIZER(mutexname)			\
+	}
+
+#define DEFINE_MUTEX(mutexname)						\
+	struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
+
+extern void __mutex_rt_init(struct mutex *lock, const char *name,
+			    struct lock_class_key *key);
+extern int mutex_trylock(struct mutex *lock);
+
+static inline void mutex_destroy(struct mutex *lock) { }
+
+#define mutex_is_locked(l)	rt_mutex_is_locked(&(l)->rtmutex)
+
+#define mutex_init(mutex)				\
+do {							\
+	static struct lock_class_key __key;		\
+							\
+	rt_mutex_init(&(mutex)->rtmutex);		\
+	__mutex_rt_init((mutex), #mutex, &__key);	\
+} while (0)
+
+#define __mutex_init(mutex, name, key)			\
+do {							\
+	rt_mutex_init(&(mutex)->rtmutex);		\
+	__mutex_rt_init((mutex), name, key);		\
+} while (0)
+#endif /* CONFIG_PREEMPT_RT */
 
 /*
  * See kernel/locking/mutex.c for detailed documentation of these APIs.
