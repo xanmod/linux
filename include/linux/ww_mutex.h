@@ -29,7 +29,7 @@ struct ww_class {
 };
 
 struct ww_mutex {
-	struct mutex base;
+	_mutex_t base;
 	struct ww_acquire_ctx *ctx;
 #ifdef CONFIG_DEBUG_MUTEXES
 	struct ww_class *ww_class;
@@ -330,7 +330,7 @@ extern void ww_mutex_unlock(struct ww_mutex *lock);
  */
 static inline int __must_check ww_mutex_trylock(struct ww_mutex *lock)
 {
-	return mutex_trylock(&lock->base);
+	return _mutex_t_trylock(&lock->base);
 }
 
 /***
@@ -343,7 +343,7 @@ static inline int __must_check ww_mutex_trylock(struct ww_mutex *lock)
  */
 static inline void ww_mutex_destroy(struct ww_mutex *lock)
 {
-	mutex_destroy(&lock->base);
+	_mutex_t_destroy(&lock->base);
 }
 
 /**
@@ -354,7 +354,7 @@ static inline void ww_mutex_destroy(struct ww_mutex *lock)
  */
 static inline bool ww_mutex_is_locked(struct ww_mutex *lock)
 {
-	return mutex_is_locked(&lock->base);
+	return _mutex_t_is_locked(&lock->base);
 }
 
 #endif
