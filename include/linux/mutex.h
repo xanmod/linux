@@ -48,7 +48,13 @@
  * - detects multi-task circular deadlocks and prints out all affected
  *   locks and tasks (and only those tasks)
  */
-struct mutex {
+
+/*
+ * Typedef _mutex_t for ww_mutex and core code to allow ww_mutex being
+ * built on the regular mutex code in RT kernels while mutex itself is
+ * substituted by a rt_mutex.
+ */
+typedef struct mutex {
 	atomic_long_t		owner;
 	raw_spinlock_t		wait_lock;
 #ifdef CONFIG_MUTEX_SPIN_ON_OWNER
@@ -61,7 +67,7 @@ struct mutex {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	dep_map;
 #endif
-};
+} _mutex_t;
 
 #ifdef CONFIG_DEBUG_MUTEXES
 
