@@ -337,7 +337,7 @@ int __sched rt_mutex_wait_proxy_lock(struct rt_mutex *lock,
 	raw_spin_lock_irq(&lock->wait_lock);
 	/* sleep on the mutex */
 	set_current_state(TASK_INTERRUPTIBLE);
-	ret = __rt_mutex_slowlock(lock, TASK_INTERRUPTIBLE, to, waiter);
+	ret = rt_mutex_slowlock_block(lock, TASK_INTERRUPTIBLE, to, waiter);
 	/*
 	 * try_to_take_rt_mutex() sets the waiter bit unconditionally. We might
 	 * have to fix that up.
@@ -449,5 +449,19 @@ void rt_mutex_debug_task_free(struct task_struct *task)
 {
 	DEBUG_LOCKS_WARN_ON(!RB_EMPTY_ROOT(&task->pi_waiters.rb_root));
 	DEBUG_LOCKS_WARN_ON(task->pi_blocked_on);
+}
+#endif
+
+/* Interfaces for PREEMPT_RT lock substitutions */
+#ifdef CONFIG_PREEMPT_RT
+/**
+ * rwsem_rt_mutex_slowlock_locked - Lock slowpath invoked with @lock::wait_lock held
+ * @lock:	The rtmutex to acquire
+ * @state:	The task state for blocking
+ */
+int __sched rwsem_rt_mutex_slowlock_locked(struct rt_mutex *lock,
+					  unsigned int state)
+{
+	return __rt_mutex_slowlock_locked(lock, state);
 }
 #endif
