@@ -89,17 +89,16 @@ void debug_mutex_init(struct mutex *lock, const char *name,
 }
 
 /***
- * mutex_destroy - mark a mutex unusable
+ * _mutex_t_destroy - mark a mutex unusable
  * @lock: the mutex to be destroyed
  *
  * This function marks the mutex uninitialized, and any subsequent
  * use of the mutex is forbidden. The mutex must not be locked when
  * this function is called.
  */
-void mutex_destroy(struct mutex *lock)
+void _mutex_t_destroy(_mutex_t *lock)
 {
-	DEBUG_LOCKS_WARN_ON(mutex_is_locked(lock));
+	DEBUG_LOCKS_WARN_ON(_mutex_t_is_locked(lock));
 	lock->magic = NULL;
 }
-
-EXPORT_SYMBOL_GPL(mutex_destroy);
+EXPORT_SYMBOL_GPL(_mutex_t_destroy);

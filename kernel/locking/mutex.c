@@ -33,7 +33,7 @@
 #include "mutex.h"
 
 void
-__mutex_init(struct mutex *lock, const char *name, struct lock_class_key *key)
+__mutex_t_init(_mutex_t *lock, const char *name, struct lock_class_key *key)
 {
 	atomic_long_set(&lock->owner, 0);
 	raw_spin_lock_init(&lock->wait_lock);
@@ -44,7 +44,7 @@ __mutex_init(struct mutex *lock, const char *name, struct lock_class_key *key)
 
 	debug_mutex_init(lock, name, key);
 }
-EXPORT_SYMBOL(__mutex_init);
+EXPORT_SYMBOL(__mutex_t_init);
 
 /*
  * @owner: contains: 'struct task_struct *' to the current lock owner,
@@ -76,11 +76,11 @@ static inline struct task_struct *__owner_task(unsigned long owner)
 	return (struct task_struct *)(owner & ~MUTEX_FLAGS);
 }
 
-bool mutex_is_locked(struct mutex *lock)
+bool _mutex_t_is_locked(_mutex_t *lock)
 {
 	return __mutex_owner(lock) != NULL;
 }
-EXPORT_SYMBOL(mutex_is_locked);
+EXPORT_SYMBOL(_mutex_t_is_locked);
 
 static inline unsigned long __owner_flags(unsigned long owner)
 {
@@ -1390,21 +1390,7 @@ __ww_mutex_lock_interruptible_slowpath(struct ww_mutex *lock,
 
 #endif
 
-/**
- * mutex_trylock - try to acquire the mutex, without waiting
- * @lock: the mutex to be acquired
- *
- * Try to acquire the mutex atomically. Returns 1 if the mutex
- * has been acquired successfully, and 0 on contention.
- *
- * NOTE: this function follows the spin_trylock() convention, so
- * it is negated from the down_trylock() return values! Be careful
- * about this when converting semaphore users to mutexes.
- *
- * This function must not be used in interrupt context. The
- * mutex must be released by the same task that acquired it.
- */
-int __sched mutex_trylock(struct mutex *lock)
+int __sched _mutex_t_trylock(_mutex_t *lock)
 {
 	bool locked;
 
@@ -1418,7 +1404,7 @@ int __sched mutex_trylock(struct mutex *lock)
 
 	return locked;
 }
-EXPORT_SYMBOL(mutex_trylock);
+EXPORT_SYMBOL(_mutex_t_trylock);
 
 #ifndef CONFIG_DEBUG_LOCK_ALLOC
 int __sched

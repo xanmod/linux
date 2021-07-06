@@ -69,19 +69,19 @@ typedef struct mutex {
 #endif
 } _mutex_t;
 
-#ifdef CONFIG_DEBUG_MUTEXES
+extern void __mutex_t_init(_mutex_t *lock, const char *name,
+			   struct lock_class_key *key);
+extern int _mutex_t_trylock(_mutex_t *lock);
+extern bool _mutex_t_is_locked(_mutex_t *lock);
 
-#define __DEBUG_MUTEX_INITIALIZER(lockname)				\
+#ifdef CONFIG_DEBUG_MUTEXES
+# define __DEBUG_MUTEX_INITIALIZER(lockname)	\
 	, .magic = &lockname
 
-extern void mutex_destroy(struct mutex *lock);
-
+extern void _mutex_t_destroy(_mutex_t *lock);
 #else
-
 # define __DEBUG_MUTEX_INITIALIZER(lockname)
-
-static inline void mutex_destroy(struct mutex *lock) {}
-
+static inline void _mutex_t_destroy(_mutex_t *lock) {}
 #endif
 
 /**
@@ -96,7 +96,12 @@ static inline void mutex_destroy(struct mutex *lock) {}
 do {									\
 	static struct lock_class_key __key;				\
 									\
-	__mutex_init((mutex), #mutex, &__key);				\
+	__mutex_t_init((mutex), #mutex, &__key);			\
+} while (0)
+
+#define __mutex_init(mutex, name, key)					\
+do {									\
+	__mutex_t_init((mutex), name, key);				\
 } while (0)
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
@@ -119,8 +124,10 @@ do {									\
 #define DEFINE_MUTEX(mutexname) \
 	struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
-extern void __mutex_init(struct mutex *lock, const char *name,
-			 struct lock_class_key *key);
+static __always_inline void mutex_destroy(struct mutex *lock)
+{
+	_mutex_t_destroy(lock);
+}
 
 /**
  * mutex_is_locked - is the mutex locked
@@ -128,7 +135,29 @@ extern void __mutex_init(struct mutex *lock, const char *name,
  *
  * Returns true if the mutex is locked, false if unlocked.
  */
-extern bool mutex_is_locked(struct mutex *lock);
+static __always_inline bool mutex_is_locked(struct mutex *lock)
+{
+	return _mutex_t_is_locked(lock);
+}
+
+/**
+ * mutex_trylock - try to acquire the mutex, without waiting
+ * @lock: the mutex to be acquired
+ *
+ * Try to acquire the mutex atomically. Returns 1 if the mutex
+ * has been acquired successfully, and 0 on contention.
+ *
+ * NOTE: this function follows the spin_trylock() convention, so
+ * it is negated from the down_trylock() return values! Be careful
+ * about this when converting semaphore users to mutexes.
+ *
+ * This function must not be used in interrupt context. The
+ * mutex must be released by the same task that acquired it.
+ */
+static __always_inline int mutex_trylock(struct mutex *lock)
+{
+	return _mutex_t_trylock(lock);
+}
 
 /*
  * See kernel/locking/mutex.c for detailed documentation of these APIs.
@@ -168,13 +197,6 @@ extern void mutex_lock_io(struct mutex *lock);
 # define mutex_lock_io_nested(lock, subclass) mutex_lock_io(lock)
 #endif
 
-/*
- * NOTE: mutex_trylock() follows the spin_trylock() convention,
- *       not the down_trylock() convention!
- *
- * Returns 1 if the mutex has been acquired successfully, and 0 on contention.
- */
-extern int mutex_trylock(struct mutex *lock);
 extern void mutex_unlock(struct mutex *lock);
 
 extern int atomic_dec_and_mutex_lock(atomic_t *cnt, struct mutex *lock);
