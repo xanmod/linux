@@ -5039,8 +5039,14 @@ restart:
  */
 #define	SM_NONE			0x0
 #define	SM_PREEMPT		0x1
-#define SM_MASK_PREEMPT		UINT_MAX
-#define SM_MASK_STATE		SM_MASK_PREEMPT
+#ifndef CONFIG_PREEMPT_RT
+# define SM_MASK_PREEMPT	UINT_MAX
+# define SM_MASK_STATE		SM_MASK_PREEMPT
+#else
+# define SM_RTLOCK_WAIT		0x2
+# define SM_MASK_PREEMPT	SM_PREEMPT
+# define SM_MASK_STATE		(SM_PREEMPT | SM_RTLOCK_WAIT)
+#endif
 
 /*
  * __schedule() is the main scheduler function.
@@ -5344,6 +5350,18 @@ void __sched schedule_preempt_disabled(void)
 	schedule();
 	preempt_disable();
 }
+
+#ifdef CONFIG_PREEMPT_RT
+void __sched notrace schedule_rtlock(void)
+{
+	do {
+		preempt_disable();
+		__schedule(SM_RTLOCK_WAIT);
+		sched_preempt_enable_no_resched();
+	} while (need_resched());
+}
+NOKPROBE_SYMBOL(schedule_rtlock);
+#endif
 
 static void __sched notrace preempt_schedule_common(void)
 {
