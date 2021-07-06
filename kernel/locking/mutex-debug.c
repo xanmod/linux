@@ -25,14 +25,14 @@
 /*
  * Must be called with lock->wait_lock held.
  */
-void debug_mutex_lock_common(struct mutex *lock, struct mutex_waiter *waiter)
+void debug_mutex_lock_common(_mutex_t *lock, struct mutex_waiter *waiter)
 {
 	memset(waiter, MUTEX_DEBUG_INIT, sizeof(*waiter));
 	waiter->magic = waiter;
 	INIT_LIST_HEAD(&waiter->list);
 }
 
-void debug_mutex_wake_waiter(struct mutex *lock, struct mutex_waiter *waiter)
+void debug_mutex_wake_waiter(_mutex_t *lock, struct mutex_waiter *waiter)
 {
 	lockdep_assert_held(&lock->wait_lock);
 	DEBUG_LOCKS_WARN_ON(list_empty(&lock->wait_list));
@@ -46,7 +46,7 @@ void debug_mutex_free_waiter(struct mutex_waiter *waiter)
 	memset(waiter, MUTEX_DEBUG_FREE, sizeof(*waiter));
 }
 
-void debug_mutex_add_waiter(struct mutex *lock, struct mutex_waiter *waiter,
+void debug_mutex_add_waiter(_mutex_t *lock, struct mutex_waiter *waiter,
 			    struct task_struct *task)
 {
 	lockdep_assert_held(&lock->wait_lock);
@@ -55,7 +55,7 @@ void debug_mutex_add_waiter(struct mutex *lock, struct mutex_waiter *waiter,
 	task->blocked_on = waiter;
 }
 
-void debug_mutex_remove_waiter(struct mutex *lock, struct mutex_waiter *waiter,
+void debug_mutex_remove_waiter(_mutex_t *lock, struct mutex_waiter *waiter,
 			 struct task_struct *task)
 {
 	DEBUG_LOCKS_WARN_ON(list_empty(&waiter->list));
@@ -67,7 +67,7 @@ void debug_mutex_remove_waiter(struct mutex *lock, struct mutex_waiter *waiter,
 	waiter->task = NULL;
 }
 
-void debug_mutex_unlock(struct mutex *lock)
+void debug_mutex_unlock(_mutex_t *lock)
 {
 	if (likely(debug_locks)) {
 		DEBUG_LOCKS_WARN_ON(lock->magic != lock);
@@ -75,7 +75,7 @@ void debug_mutex_unlock(struct mutex *lock)
 	}
 }
 
-void debug_mutex_init(struct mutex *lock, const char *name,
+void debug_mutex_init(_mutex_t *lock, const char *name,
 		      struct lock_class_key *key)
 {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
