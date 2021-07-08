@@ -1,9 +1,13 @@
 #ifndef __LINUX_RWLOCK_TYPES_H
 #define __LINUX_RWLOCK_TYPES_H
 
+#if !defined(__LINUX_SPINLOCK_TYPES_H)
+# error "Do not include directly, include spinlock_types.h"
+#endif
+
+#ifndef CONFIG_PREEMPT_RT
 /*
- * include/linux/rwlock_types.h - generic rwlock type definitions
- *				  and initializers
+ * generic rwlock type definitions and initializers
  *
  * portions Copyright 2005, Red Hat, Inc., Ingo Molnar
  * Released under the General Public License (GPL).
@@ -45,5 +49,36 @@ typedef struct {
 #endif
 
 #define DEFINE_RWLOCK(x)	rwlock_t x = __RW_LOCK_UNLOCKED(x)
+
+#else /* !CONFIG_PREEMPT_RT */
+
+#include <linux/rwbase_rt.h>
+
+typedef struct {
+	struct rwbase_rt	rwbase;
+	atomic_t		readers;
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	struct lockdep_map	dep_map;
+#endif
+} rwlock_t;
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+# define RW_DEP_MAP_INIT(lockname)	.dep_map = { .name = #lockname }
+#else
+# define RW_DEP_MAP_INIT(lockname)
+#endif
+
+#define __RW_LOCK_UNLOCKED(name) __RWLOCK_RT_INITIALIZER(name)
+
+#define DEFINE_RWLOCK(name) \
+	rwlock_t name = __RW_LOCK_UNLOCKED(name)
+
+#define __RWLOCK_RT_INITIALIZER(name)					\
+{									\
+	.rwbase = __RWBASE_INITIALIZER(name),				\
+	RW_DEP_MAP_INIT(name)						\
+}
+
+#endif /* CONFIG_PREEMPT_RT */
 
 #endif /* __LINUX_RWLOCK_TYPES_H */

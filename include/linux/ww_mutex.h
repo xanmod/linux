@@ -28,6 +28,14 @@ struct ww_class {
 	unsigned int is_wait_die;
 };
 
+struct ww_mutex {
+	_mutex_t base;
+	struct ww_acquire_ctx *ctx;
+#ifdef CONFIG_DEBUG_MUTEXES
+	struct ww_class *ww_class;
+#endif
+};
+
 struct ww_acquire_ctx {
 	struct task_struct *task;
 	unsigned long stamp;
@@ -74,7 +82,7 @@ struct ww_acquire_ctx {
 static inline void ww_mutex_init(struct ww_mutex *lock,
 				 struct ww_class *ww_class)
 {
-	__mutex_init(&lock->base, ww_class->mutex_name, &ww_class->mutex_key);
+	__mutex_t_init(&lock->base, ww_class->mutex_name, &ww_class->mutex_key);
 	lock->ctx = NULL;
 #ifdef CONFIG_DEBUG_MUTEXES
 	lock->ww_class = ww_class;
@@ -322,7 +330,7 @@ extern void ww_mutex_unlock(struct ww_mutex *lock);
  */
 static inline int __must_check ww_mutex_trylock(struct ww_mutex *lock)
 {
-	return mutex_trylock(&lock->base);
+	return _mutex_t_trylock(&lock->base);
 }
 
 /***
@@ -335,7 +343,7 @@ static inline int __must_check ww_mutex_trylock(struct ww_mutex *lock)
  */
 static inline void ww_mutex_destroy(struct ww_mutex *lock)
 {
-	mutex_destroy(&lock->base);
+	_mutex_t_destroy(&lock->base);
 }
 
 /**
@@ -346,7 +354,7 @@ static inline void ww_mutex_destroy(struct ww_mutex *lock)
  */
 static inline bool ww_mutex_is_locked(struct ww_mutex *lock)
 {
-	return mutex_is_locked(&lock->base);
+	return _mutex_t_is_locked(&lock->base);
 }
 
 #endif

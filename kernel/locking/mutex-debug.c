@@ -1,6 +1,4 @@
 /*
- * kernel/mutex-debug.c
- *
  * Debugging code for mutexes
  *
  * Started by Ingo Molnar:
@@ -22,19 +20,19 @@
 #include <linux/interrupt.h>
 #include <linux/debug_locks.h>
 
-#include "mutex-debug.h"
+#include "mutex.h"
 
 /*
  * Must be called with lock->wait_lock held.
  */
-void debug_mutex_lock_common(struct mutex *lock, struct mutex_waiter *waiter)
+void debug_mutex_lock_common(_mutex_t *lock, struct mutex_waiter *waiter)
 {
 	memset(waiter, MUTEX_DEBUG_INIT, sizeof(*waiter));
 	waiter->magic = waiter;
 	INIT_LIST_HEAD(&waiter->list);
 }
 
-void debug_mutex_wake_waiter(struct mutex *lock, struct mutex_waiter *waiter)
+void debug_mutex_wake_waiter(_mutex_t *lock, struct mutex_waiter *waiter)
 {
 	lockdep_assert_held(&lock->wait_lock);
 	DEBUG_LOCKS_WARN_ON(list_empty(&lock->wait_list));
@@ -48,7 +46,7 @@ void debug_mutex_free_waiter(struct mutex_waiter *waiter)
 	memset(waiter, MUTEX_DEBUG_FREE, sizeof(*waiter));
 }
 
-void debug_mutex_add_waiter(struct mutex *lock, struct mutex_waiter *waiter,
+void debug_mutex_add_waiter(_mutex_t *lock, struct mutex_waiter *waiter,
 			    struct task_struct *task)
 {
 	lockdep_assert_held(&lock->wait_lock);
@@ -57,7 +55,7 @@ void debug_mutex_add_waiter(struct mutex *lock, struct mutex_waiter *waiter,
 	task->blocked_on = waiter;
 }
 
-void debug_mutex_remove_waiter(struct mutex *lock, struct mutex_waiter *waiter,
+void debug_mutex_remove_waiter(_mutex_t *lock, struct mutex_waiter *waiter,
 			 struct task_struct *task)
 {
 	DEBUG_LOCKS_WARN_ON(list_empty(&waiter->list));
@@ -69,7 +67,7 @@ void debug_mutex_remove_waiter(struct mutex *lock, struct mutex_waiter *waiter,
 	waiter->task = NULL;
 }
 
-void debug_mutex_unlock(struct mutex *lock)
+void debug_mutex_unlock(_mutex_t *lock)
 {
 	if (likely(debug_locks)) {
 		DEBUG_LOCKS_WARN_ON(lock->magic != lock);
@@ -77,7 +75,7 @@ void debug_mutex_unlock(struct mutex *lock)
 	}
 }
 
-void debug_mutex_init(struct mutex *lock, const char *name,
+void debug_mutex_init(_mutex_t *lock, const char *name,
 		      struct lock_class_key *key)
 {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
@@ -91,17 +89,16 @@ void debug_mutex_init(struct mutex *lock, const char *name,
 }
 
 /***
- * mutex_destroy - mark a mutex unusable
+ * _mutex_t_destroy - mark a mutex unusable
  * @lock: the mutex to be destroyed
  *
  * This function marks the mutex uninitialized, and any subsequent
  * use of the mutex is forbidden. The mutex must not be locked when
  * this function is called.
  */
-void mutex_destroy(struct mutex *lock)
+void _mutex_t_destroy(_mutex_t *lock)
 {
-	DEBUG_LOCKS_WARN_ON(mutex_is_locked(lock));
+	DEBUG_LOCKS_WARN_ON(_mutex_t_is_locked(lock));
 	lock->magic = NULL;
 }
-
-EXPORT_SYMBOL_GPL(mutex_destroy);
+EXPORT_SYMBOL_GPL(_mutex_t_destroy);

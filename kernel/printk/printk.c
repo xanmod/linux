@@ -44,6 +44,10 @@
 #include <linux/irq_work.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#include <linux/kdb.h>
+#include <linux/kgdb.h>
+#include <linux/kthread.h>
+#include <linux/clocksource.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
@@ -58,7 +62,6 @@
 #include "printk_ringbuffer.h"
 #include "console_cmdline.h"
 #include "braille.h"
-#include "internal.h"
 
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
@@ -225,19 +228,7 @@ static int nr_ext_console_drivers;
 
 static int __down_trylock_console_sem(unsigned long ip)
 {
-	int lock_failed;
-	unsigned long flags;
-
-	/*
-	 * Here and in __up_console_sem() we need to be in safe mode,
-	 * because spindump/WARN/etc from under console ->lock will
-	 * deadlock in printk()->down_trylock_console_sem() otherwise.
-	 */
-	printk_safe_enter_irqsave(flags);
-	lock_failed = down_trylock(&console_sem);
-	printk_safe_exit_irqrestore(flags);
-
-	if (lock_failed)
+	if (down_trylock(&console_sem))
 		return 1;
 	mutex_acquire(&console_lock_dep_map, 0, 1, ip);
 	return 0;
@@ -246,13 +237,9 @@ static int __down_trylock_console_sem(unsigned long ip)
 
 static void __up_console_sem(unsigned long ip)
 {
-	unsigned long flags;
-
 	mutex_release(&console_lock_dep_map, ip);
 
-	printk_safe_enter_irqsave(flags);
 	up(&console_sem);
-	printk_safe_exit_irqrestore(flags);
 }
 #define up_console_sem() __up_console_sem(_RET_IP_)
 
@@ -265,11 +252,6 @@ static void __up_console_sem(unsigned long ip)
  * locked without the console semaphore held).
  */
 static int console_locked, console_suspended;
-
-/*
- * If exclusive_console is non-NULL then only this console is to be printed to.
- */
-static struct console *exclusive_console;
 
 /*
  *	Array of consoles built from command line options (console=)
@@ -355,27 +337,19 @@ enum log_flags {
 	LOG_CONT	= 8,	/* text is a fragment of a continuation line */
 };
 
-/* syslog_lock protects syslog_* variables and write access to clear_seq. */
-static DEFINE_RAW_SPINLOCK(syslog_lock);
-
 #ifdef CONFIG_PRINTK
+/* syslog_lock protects syslog_* variables and write access to clear_seq. */
+static DEFINE_SPINLOCK(syslog_lock);
+
+/* Set to enable sync mode. Once set, it is never cleared. */
+static bool sync_mode;
+
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 /* All 3 protected by @syslog_lock. */
 /* the next printk record to read by syslog(READ) or /proc/kmsg */
 static u64 syslog_seq;
 static size_t syslog_partial;
 static bool syslog_time;
-
-/* All 3 protected by @console_sem. */
-/* the next printk record to write to the console */
-static u64 console_seq;
-static u64 exclusive_console_stop_seq;
-static unsigned long console_dropped;
-
-struct latched_seq {
-	seqcount_latch_t	latch;
-	u64			val[2];
-};
 
 /*
  * The next printk record to read after the last 'clear' command. There are
@@ -393,9 +367,6 @@ static struct latched_seq clear_seq = {
 #else
 #define PREFIX_MAX		32
 #endif
-
-/* the maximum size of a formatted record (i.e. with prefix added per line) */
-#define CONSOLE_LOG_MAX		1024
 
 /* the maximum size allowed to be reserved for a record */
 #define LOG_LINE_MAX		(CONSOLE_LOG_MAX - PREFIX_MAX)
@@ -435,12 +406,12 @@ static struct printk_ringbuffer *prb = &printk_rb_static;
  */
 static bool __printk_percpu_data_ready __read_mostly;
 
-bool printk_percpu_data_ready(void)
+static bool printk_percpu_data_ready(void)
 {
 	return __printk_percpu_data_ready;
 }
 
-/* Must be called under syslog_lock. */
+/* Must be called under associated write-protection lock. */
 static void latched_seq_write(struct latched_seq *ls, u64 val)
 {
 	raw_write_seqcount_latch(&ls->latch);
@@ -732,27 +703,22 @@ static ssize_t devkmsg_read(struct file *file, char __user *buf,
 	if (ret)
 		return ret;
 
-	printk_safe_enter_irq();
 	if (!prb_read_valid(prb, atomic64_read(&user->seq), r)) {
 		if (file->f_flags & O_NONBLOCK) {
 			ret = -EAGAIN;
-			printk_safe_exit_irq();
 			goto out;
 		}
 
-		printk_safe_exit_irq();
 		ret = wait_event_interruptible(log_wait,
 				prb_read_valid(prb, atomic64_read(&user->seq), r));
 		if (ret)
 			goto out;
-		printk_safe_enter_irq();
 	}
 
 	if (r->info->seq != atomic64_read(&user->seq)) {
 		/* our last seen message is gone, return error and reset */
 		atomic64_set(&user->seq, r->info->seq);
 		ret = -EPIPE;
-		printk_safe_exit_irq();
 		goto out;
 	}
 
@@ -762,7 +728,6 @@ static ssize_t devkmsg_read(struct file *file, char __user *buf,
 				  &r->info->dev_info);
 
 	atomic64_set(&user->seq, r->info->seq + 1);
-	printk_safe_exit_irq();
 
 	if (len > count) {
 		ret = -EINVAL;
@@ -797,7 +762,6 @@ static loff_t devkmsg_llseek(struct file *file, loff_t offset, int whence)
 	if (offset)
 		return -ESPIPE;
 
-	printk_safe_enter_irq();
 	switch (whence) {
 	case SEEK_SET:
 		/* the first record */
@@ -818,7 +782,6 @@ static loff_t devkmsg_llseek(struct file *file, loff_t offset, int whence)
 	default:
 		ret = -EINVAL;
 	}
-	printk_safe_exit_irq();
 	return ret;
 }
 
@@ -833,7 +796,6 @@ static __poll_t devkmsg_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &log_wait, wait);
 
-	printk_safe_enter_irq();
 	if (prb_read_valid_info(prb, atomic64_read(&user->seq), &info, NULL)) {
 		/* return error when data has vanished underneath us */
 		if (info.seq != atomic64_read(&user->seq))
@@ -841,7 +803,6 @@ static __poll_t devkmsg_poll(struct file *file, poll_table *wait)
 		else
 			ret = EPOLLIN|EPOLLRDNORM;
 	}
-	printk_safe_exit_irq();
 
 	return ret;
 }
@@ -874,9 +835,7 @@ static int devkmsg_open(struct inode *inode, struct file *file)
 	prb_rec_init_rd(&user->record, &user->info,
 			&user->text_buf[0], sizeof(user->text_buf));
 
-	printk_safe_enter_irq();
 	atomic64_set(&user->seq, prb_first_valid_seq(prb));
-	printk_safe_exit_irq();
 
 	file->private_data = user;
 	return 0;
@@ -1042,9 +1001,6 @@ static inline void log_buf_add_cpu(void) {}
 
 static void __init set_percpu_data_ready(void)
 {
-	printk_safe_init();
-	/* Make sure we set this flag only after printk_safe() init is done */
-	barrier();
 	__printk_percpu_data_ready = true;
 }
 
@@ -1084,7 +1040,6 @@ void __init setup_log_buf(int early)
 	struct printk_record r;
 	size_t new_descs_size;
 	size_t new_infos_size;
-	unsigned long flags;
 	char *new_log_buf;
 	unsigned int free;
 	u64 seq;
@@ -1142,8 +1097,6 @@ void __init setup_log_buf(int early)
 		 new_descs, ilog2(new_descs_count),
 		 new_infos);
 
-	printk_safe_enter_irqsave(flags);
-
 	log_buf_len = new_log_buf_len;
 	log_buf = new_log_buf;
 	new_log_buf_len = 0;
@@ -1158,8 +1111,6 @@ void __init setup_log_buf(int early)
 	 * appear during the transition to the dynamic buffer.
 	 */
 	prb = &printk_rb_dynamic;
-
-	printk_safe_exit_irqrestore(flags);
 
 	if (seq != prb_next_seq(&printk_rb_static)) {
 		pr_err("dropped %llu messages\n",
@@ -1498,11 +1449,9 @@ static int syslog_print(char __user *buf, int size)
 		size_t n;
 		size_t skip;
 
-		printk_safe_enter_irq();
-		raw_spin_lock(&syslog_lock);
+		spin_lock_irq(&syslog_lock);
 		if (!prb_read_valid(prb, syslog_seq, &r)) {
-			raw_spin_unlock(&syslog_lock);
-			printk_safe_exit_irq();
+			spin_unlock_irq(&syslog_lock);
 			break;
 		}
 		if (r.info->seq != syslog_seq) {
@@ -1531,8 +1480,7 @@ static int syslog_print(char __user *buf, int size)
 			syslog_partial += n;
 		} else
 			n = 0;
-		raw_spin_unlock(&syslog_lock);
-		printk_safe_exit_irq();
+		spin_unlock_irq(&syslog_lock);
 
 		if (!n)
 			break;
@@ -1566,7 +1514,6 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 		return -ENOMEM;
 
 	time = printk_time;
-	printk_safe_enter_irq();
 	/*
 	 * Find first record that fits, including all following records,
 	 * into the user-provided buffer for this dump.
@@ -1587,23 +1534,20 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 			break;
 		}
 
-		printk_safe_exit_irq();
 		if (copy_to_user(buf + len, text, textlen))
 			len = -EFAULT;
 		else
 			len += textlen;
-		printk_safe_enter_irq();
 
 		if (len < 0)
 			break;
 	}
 
 	if (clear) {
-		raw_spin_lock(&syslog_lock);
+		spin_lock_irq(&syslog_lock);
 		latched_seq_write(&clear_seq, seq);
-		raw_spin_unlock(&syslog_lock);
+		spin_unlock_irq(&syslog_lock);
 	}
-	printk_safe_exit_irq();
 
 	kfree(text);
 	return len;
@@ -1611,11 +1555,9 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 
 static void syslog_clear(void)
 {
-	printk_safe_enter_irq();
-	raw_spin_lock(&syslog_lock);
+	spin_lock_irq(&syslog_lock);
 	latched_seq_write(&clear_seq, prb_next_seq(prb));
-	raw_spin_unlock(&syslog_lock);
-	printk_safe_exit_irq();
+	spin_unlock_irq(&syslog_lock);
 }
 
 /* Return a consistent copy of @syslog_seq. */
@@ -1623,9 +1565,9 @@ static u64 read_syslog_seq_irq(void)
 {
 	u64 seq;
 
-	raw_spin_lock_irq(&syslog_lock);
+	spin_lock_irq(&syslog_lock);
 	seq = syslog_seq;
-	raw_spin_unlock_irq(&syslog_lock);
+	spin_unlock_irq(&syslog_lock);
 
 	return seq;
 }
@@ -1703,12 +1645,10 @@ int do_syslog(int type, char __user *buf, int len, int source)
 		break;
 	/* Number of chars in the log buffer */
 	case SYSLOG_ACTION_SIZE_UNREAD:
-		printk_safe_enter_irq();
-		raw_spin_lock(&syslog_lock);
+		spin_lock_irq(&syslog_lock);
 		if (!prb_read_valid_info(prb, syslog_seq, &info, NULL)) {
 			/* No unread messages. */
-			raw_spin_unlock(&syslog_lock);
-			printk_safe_exit_irq();
+			spin_unlock_irq(&syslog_lock);
 			return 0;
 		}
 		if (info.seq != syslog_seq) {
@@ -1736,8 +1676,7 @@ int do_syslog(int type, char __user *buf, int len, int source)
 			}
 			error -= syslog_partial;
 		}
-		raw_spin_unlock(&syslog_lock);
-		printk_safe_exit_irq();
+		spin_unlock_irq(&syslog_lock);
 		break;
 	/* Size of the log buffer */
 	case SYSLOG_ACTION_SIZE_BUFFER:
@@ -1756,194 +1695,12 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 	return do_syslog(type, buf, len, SYSLOG_FROM_READER);
 }
 
-/*
- * Special console_lock variants that help to reduce the risk of soft-lockups.
- * They allow to pass console_lock to another printk() call using a busy wait.
- */
-
-#ifdef CONFIG_LOCKDEP
-static struct lockdep_map console_owner_dep_map = {
-	.name = "console_owner"
-};
-#endif
-
-static DEFINE_RAW_SPINLOCK(console_owner_lock);
-static struct task_struct *console_owner;
-static bool console_waiter;
-
-/**
- * console_lock_spinning_enable - mark beginning of code where another
- *	thread might safely busy wait
- *
- * This basically converts console_lock into a spinlock. This marks
- * the section where the console_lock owner can not sleep, because
- * there may be a waiter spinning (like a spinlock). Also it must be
- * ready to hand over the lock at the end of the section.
- */
-static void console_lock_spinning_enable(void)
-{
-	raw_spin_lock(&console_owner_lock);
-	console_owner = current;
-	raw_spin_unlock(&console_owner_lock);
-
-	/* The waiter may spin on us after setting console_owner */
-	spin_acquire(&console_owner_dep_map, 0, 0, _THIS_IP_);
-}
-
-/**
- * console_lock_spinning_disable_and_check - mark end of code where another
- *	thread was able to busy wait and check if there is a waiter
- *
- * This is called at the end of the section where spinning is allowed.
- * It has two functions. First, it is a signal that it is no longer
- * safe to start busy waiting for the lock. Second, it checks if
- * there is a busy waiter and passes the lock rights to her.
- *
- * Important: Callers lose the lock if there was a busy waiter.
- *	They must not touch items synchronized by console_lock
- *	in this case.
- *
- * Return: 1 if the lock rights were passed, 0 otherwise.
- */
-static int console_lock_spinning_disable_and_check(void)
-{
-	int waiter;
-
-	raw_spin_lock(&console_owner_lock);
-	waiter = READ_ONCE(console_waiter);
-	console_owner = NULL;
-	raw_spin_unlock(&console_owner_lock);
-
-	if (!waiter) {
-		spin_release(&console_owner_dep_map, _THIS_IP_);
-		return 0;
-	}
-
-	/* The waiter is now free to continue */
-	WRITE_ONCE(console_waiter, false);
-
-	spin_release(&console_owner_dep_map, _THIS_IP_);
-
-	/*
-	 * Hand off console_lock to waiter. The waiter will perform
-	 * the up(). After this, the waiter is the console_lock owner.
-	 */
-	mutex_release(&console_lock_dep_map, _THIS_IP_);
-	return 1;
-}
-
-/**
- * console_trylock_spinning - try to get console_lock by busy waiting
- *
- * This allows to busy wait for the console_lock when the current
- * owner is running in specially marked sections. It means that
- * the current owner is running and cannot reschedule until it
- * is ready to lose the lock.
- *
- * Return: 1 if we got the lock, 0 othrewise
- */
-static int console_trylock_spinning(void)
-{
-	struct task_struct *owner = NULL;
-	bool waiter;
-	bool spin = false;
-	unsigned long flags;
-
-	if (console_trylock())
-		return 1;
-
-	printk_safe_enter_irqsave(flags);
-
-	raw_spin_lock(&console_owner_lock);
-	owner = READ_ONCE(console_owner);
-	waiter = READ_ONCE(console_waiter);
-	if (!waiter && owner && owner != current) {
-		WRITE_ONCE(console_waiter, true);
-		spin = true;
-	}
-	raw_spin_unlock(&console_owner_lock);
-
-	/*
-	 * If there is an active printk() writing to the
-	 * consoles, instead of having it write our data too,
-	 * see if we can offload that load from the active
-	 * printer, and do some printing ourselves.
-	 * Go into a spin only if there isn't already a waiter
-	 * spinning, and there is an active printer, and
-	 * that active printer isn't us (recursive printk?).
-	 */
-	if (!spin) {
-		printk_safe_exit_irqrestore(flags);
-		return 0;
-	}
-
-	/* We spin waiting for the owner to release us */
-	spin_acquire(&console_owner_dep_map, 0, 0, _THIS_IP_);
-	/* Owner will clear console_waiter on hand off */
-	while (READ_ONCE(console_waiter))
-		cpu_relax();
-	spin_release(&console_owner_dep_map, _THIS_IP_);
-
-	printk_safe_exit_irqrestore(flags);
-	/*
-	 * The owner passed the console lock to us.
-	 * Since we did not spin on console lock, annotate
-	 * this as a trylock. Otherwise lockdep will
-	 * complain.
-	 */
-	mutex_acquire(&console_lock_dep_map, 0, 1, _THIS_IP_);
-
-	return 1;
-}
-
-/*
- * Call the console drivers, asking them to write out
- * log_buf[start] to log_buf[end - 1].
- * The console_lock must be held.
- */
-static void call_console_drivers(const char *ext_text, size_t ext_len,
-				 const char *text, size_t len)
-{
-	static char dropped_text[64];
-	size_t dropped_len = 0;
-	struct console *con;
-
-	trace_console_rcuidle(text, len);
-
-	if (!console_drivers)
-		return;
-
-	if (console_dropped) {
-		dropped_len = snprintf(dropped_text, sizeof(dropped_text),
-				       "** %lu printk messages dropped **\n",
-				       console_dropped);
-		console_dropped = 0;
-	}
-
-	for_each_console(con) {
-		if (exclusive_console && con != exclusive_console)
-			continue;
-		if (!(con->flags & CON_ENABLED))
-			continue;
-		if (!con->write)
-			continue;
-		if (!cpu_online(smp_processor_id()) &&
-		    !(con->flags & CON_ANYTIME))
-			continue;
-		if (con->flags & CON_EXTENDED)
-			con->write(con, ext_text, ext_len);
-		else {
-			if (dropped_len)
-				con->write(con, dropped_text, dropped_len);
-			con->write(con, text, len);
-		}
-	}
-}
-
 int printk_delay_msec __read_mostly;
 
-static inline void printk_delay(void)
+static inline void printk_delay(int level)
 {
+	boot_delay_msec(level);
+
 	if (unlikely(printk_delay_msec)) {
 		int m = printk_delay_msec;
 
@@ -1952,6 +1709,199 @@ static inline void printk_delay(void)
 			touch_nmi_watchdog();
 		}
 	}
+}
+
+static bool kernel_sync_mode(void)
+{
+	return (oops_in_progress || sync_mode);
+}
+
+static bool console_may_sync(struct console *con)
+{
+	if (!(con->flags & CON_ENABLED))
+		return false;
+	if (con->write_atomic && kernel_sync_mode())
+		return true;
+	if (con->write_atomic && (con->flags & CON_HANDOVER) && !con->thread)
+		return true;
+	if (con->write && (con->flags & CON_BOOT) && !con->thread)
+		return true;
+	return false;
+}
+
+static bool call_sync_console_driver(struct console *con, const char *text, size_t text_len)
+{
+	if (!(con->flags & CON_ENABLED))
+		return false;
+
+	if (con->write_atomic && kernel_sync_mode()) {
+		con->write_atomic(con, text, text_len);
+		return true;
+	}
+
+	if (con->write_atomic && (con->flags & CON_HANDOVER) && !con->thread) {
+		if (console_trylock()) {
+			con->write_atomic(con, text, text_len);
+			console_unlock();
+			return true;
+		}
+
+	} else if (con->write && (con->flags & CON_BOOT) && !con->thread) {
+		if (console_trylock()) {
+			con->write(con, text, text_len);
+			console_unlock();
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool have_atomic_console(void)
+{
+	struct console *con;
+
+	for_each_console(con) {
+		if (!(con->flags & CON_ENABLED))
+			continue;
+		if (con->write_atomic)
+			return true;
+	}
+	return false;
+}
+
+static bool print_sync(struct console *con, u64 *seq)
+{
+	struct printk_info info;
+	struct printk_record r;
+	size_t text_len;
+
+	prb_rec_init_rd(&r, &info, &con->sync_buf[0], sizeof(con->sync_buf));
+
+	if (!prb_read_valid(prb, *seq, &r))
+		return false;
+
+	text_len = record_print_text(&r, console_msg_format & MSG_FORMAT_SYSLOG, printk_time);
+
+	if (!call_sync_console_driver(con, &con->sync_buf[0], text_len))
+		return false;
+
+	*seq = r.info->seq;
+
+	touch_softlockup_watchdog_sync();
+	clocksource_touch_watchdog();
+	rcu_cpu_stall_reset();
+	touch_nmi_watchdog();
+
+	if (text_len)
+		printk_delay(r.info->level);
+
+	return true;
+}
+
+static u64 read_console_seq(struct console *con)
+{
+	u64 seq2;
+	u64 seq;
+
+	seq = latched_seq_read_nolock(&con->printk_seq);
+	seq2 = latched_seq_read_nolock(&con->printk_sync_seq[0]);
+	if (seq2 > seq)
+		seq = seq2;
+#if PRINTK_CTX_NUM > 1
+	seq2 = latched_seq_read_nolock(&con->printk_sync_seq[1]);
+	if (seq2 > seq)
+		seq = seq2;
+#endif
+	return seq;
+}
+
+static void print_sync_until(struct console *con, u64 seq, bool is_locked)
+{
+	unsigned int flags;
+	u64 printk_seq;
+
+	console_atomic_lock(&flags);
+	for (;;) {
+		printk_seq = read_console_seq(con);
+		if (printk_seq >= seq)
+			break;
+		if (!print_sync(con, &printk_seq))
+			break;
+
+		if (is_locked) {
+			latched_seq_write(&con->printk_seq, printk_seq + 1);
+		} else {
+			int ctx = 0;
+
+#ifdef CONFIG_PRINTK_NMI
+			if (in_nmi())
+				ctx = 1;
+#endif
+			latched_seq_write(&con->printk_sync_seq[ctx], printk_seq + 1);
+		}
+	}
+	console_atomic_unlock(flags);
+}
+
+/*
+ * Recursion is tracked separately on each CPU. If NMIs are supported, an
+ * additional NMI context per CPU is also separately tracked. Until per-CPU
+ * is available, a separate "early tracking" is performed.
+ */
+static DEFINE_PER_CPU(char [PRINTK_CTX_NUM], printk_count);
+static char printk_count_early[PRINTK_CTX_NUM];
+
+/*
+ * Recursion is limited to keep the output sane. printk() should not require
+ * more than 1 level of recursion (allowing, for example, printk() to trigger
+ * a WARN), but a higher value is used in case some printk-internal errors
+ * exist, such as the ringbuffer validation checks failing.
+ */
+#define PRINTK_MAX_RECURSION 3
+
+/* Return a pointer to the dedicated counter for the CPU+context of the caller. */
+static char *printk_recursion_counter(void)
+{
+	int ctx = 0;
+
+#ifdef CONFIG_PRINTK_NMI
+	if (in_nmi())
+		ctx = 1;
+#endif
+	if (!printk_percpu_data_ready())
+		return &printk_count_early[ctx];
+	return &((*this_cpu_ptr(&printk_count))[ctx]);
+}
+
+/*
+ * Enter recursion tracking. Interrupts are disabled to simplify tracking.
+ * The caller must check the return value to see if the recursion is allowed.
+ * On failure, interrupts are not disabled.
+ */
+static bool printk_enter_irqsave(unsigned long *flags)
+{
+	char *count;
+
+	local_irq_save(*flags);
+	count = printk_recursion_counter();
+	if (*count > PRINTK_MAX_RECURSION) {
+		local_irq_restore(*flags);
+		return false;
+	}
+	(*count)++;
+
+	return true;
+}
+
+/* Exit recursion tracking, restoring interrupts. */
+static void printk_exit_irqrestore(unsigned long flags)
+{
+	char *count;
+
+	count = printk_recursion_counter();
+	(*count)--;
+	local_irq_restore(flags);
 }
 
 static inline u32 printk_caller_id(void)
@@ -2032,20 +1982,24 @@ static u16 printk_sprint(char *text, u16 size, int facility, enum log_flags *lfl
 }
 
 __printf(4, 0)
-int vprintk_store(int facility, int level,
-		  const struct dev_printk_info *dev_info,
-		  const char *fmt, va_list args)
+static int vprintk_store(int facility, int level,
+			 const struct dev_printk_info *dev_info,
+			 const char *fmt, va_list args)
 {
 	const u32 caller_id = printk_caller_id();
 	struct prb_reserved_entry e;
 	enum log_flags lflags = 0;
+	bool final_commit = false;
 	struct printk_record r;
+	unsigned long irqflags;
 	u16 trunc_msg_len = 0;
 	char prefix_buf[8];
 	u16 reserve_size;
 	va_list args2;
 	u16 text_len;
+	int ret = 0;
 	u64 ts_nsec;
+	u64 seq;
 
 	/*
 	 * Since the duration of printk() can vary depending on the message
@@ -2054,6 +2008,9 @@ int vprintk_store(int facility, int level,
 	 * timestamp with respect to the caller.
 	 */
 	ts_nsec = local_clock();
+
+	if (!printk_enter_irqsave(&irqflags))
+		return 0;
 
 	/*
 	 * The sprintf needs to come first since the syslog prefix might be
@@ -2081,6 +2038,7 @@ int vprintk_store(int facility, int level,
 	if (lflags & LOG_CONT) {
 		prb_rec_init_wr(&r, reserve_size);
 		if (prb_reserve_in_last(&e, prb, &r, caller_id, LOG_LINE_MAX)) {
+			seq = r.info->seq;
 			text_len = printk_sprint(&r.text_buf[r.info->text_len], reserve_size,
 						 facility, &lflags, fmt, args);
 			r.info->text_len += text_len;
@@ -2088,11 +2046,13 @@ int vprintk_store(int facility, int level,
 			if (lflags & LOG_NEWLINE) {
 				r.info->flags |= LOG_NEWLINE;
 				prb_final_commit(&e);
+				final_commit = true;
 			} else {
 				prb_commit(&e);
 			}
 
-			return text_len;
+			ret = text_len;
+			goto out;
 		}
 	}
 
@@ -2108,8 +2068,10 @@ int vprintk_store(int facility, int level,
 
 		prb_rec_init_wr(&r, reserve_size + trunc_msg_len);
 		if (!prb_reserve(&e, prb, &r))
-			return 0;
+			goto out;
 	}
+
+	seq = r.info->seq;
 
 	/* fill message */
 	text_len = printk_sprint(&r.text_buf[0], reserve_size, facility, &lflags, fmt, args);
@@ -2125,12 +2087,27 @@ int vprintk_store(int facility, int level,
 		memcpy(&r.info->dev_info, dev_info, sizeof(r.info->dev_info));
 
 	/* A message without a trailing newline can be continued. */
-	if (!(lflags & LOG_NEWLINE))
+	if (!(lflags & LOG_NEWLINE)) {
 		prb_commit(&e);
-	else
+	} else {
 		prb_final_commit(&e);
+		final_commit = true;
+	}
 
-	return (text_len + trunc_msg_len);
+	ret = text_len + trunc_msg_len;
+out:
+	/* only the kernel may perform synchronous printing */
+	if (facility == 0 && final_commit) {
+		struct console *con;
+
+		for_each_console(con) {
+			if (console_may_sync(con))
+				print_sync_until(con, seq + 1, false);
+		}
+	}
+
+	printk_exit_irqrestore(irqflags);
+	return ret;
 }
 
 asmlinkage int vprintk_emit(int facility, int level,
@@ -2138,53 +2115,43 @@ asmlinkage int vprintk_emit(int facility, int level,
 			    const char *fmt, va_list args)
 {
 	int printed_len;
-	bool in_sched = false;
-	unsigned long flags;
 
 	/* Suppress unimportant messages after panic happens */
 	if (unlikely(suppress_printk))
 		return 0;
 
-	if (level == LOGLEVEL_SCHED) {
+	if (level == LOGLEVEL_SCHED)
 		level = LOGLEVEL_DEFAULT;
-		in_sched = true;
-	}
 
-	boot_delay_msec(level);
-	printk_delay();
-
-	printk_safe_enter_irqsave(flags);
 	printed_len = vprintk_store(facility, level, dev_info, fmt, args);
-	printk_safe_exit_irqrestore(flags);
-
-	/* If called from the scheduler, we can not call up(). */
-	if (!in_sched) {
-		/*
-		 * Disable preemption to avoid being preempted while holding
-		 * console_sem which would prevent anyone from printing to
-		 * console
-		 */
-		preempt_disable();
-		/*
-		 * Try to acquire and then immediately release the console
-		 * semaphore.  The release will print out buffers and wake up
-		 * /dev/kmsg and syslog() users.
-		 */
-		if (console_trylock_spinning())
-			console_unlock();
-		preempt_enable();
-	}
 
 	wake_up_klogd();
 	return printed_len;
 }
 EXPORT_SYMBOL(vprintk_emit);
 
-int vprintk_default(const char *fmt, va_list args)
+__printf(1, 0)
+static int vprintk_default(const char *fmt, va_list args)
 {
 	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, fmt, args);
 }
-EXPORT_SYMBOL_GPL(vprintk_default);
+
+__printf(1, 0)
+static int vprintk_func(const char *fmt, va_list args)
+{
+#ifdef CONFIG_KGDB_KDB
+	/* Allow to pass printk() to kdb but avoid a recursion. */
+	if (unlikely(kdb_trap_printk && kdb_printf_cpu < 0))
+		return vkdb_printf(KDB_MSGSRC_PRINTK, fmt, args);
+#endif
+	return vprintk_default(fmt, args);
+}
+
+asmlinkage int vprintk(const char *fmt, va_list args)
+{
+	return vprintk_func(fmt, args);
+}
+EXPORT_SYMBOL(vprintk);
 
 /**
  * printk - print a kernel message
@@ -2220,37 +2187,164 @@ asmlinkage __visible int printk(const char *fmt, ...)
 }
 EXPORT_SYMBOL(printk);
 
+static int printk_kthread_func(void *data)
+{
+	struct console *con = data;
+	unsigned long dropped = 0;
+	char *dropped_text = NULL;
+	struct printk_info info;
+	struct printk_record r;
+	char *ext_text = NULL;
+	size_t dropped_len;
+	int ret = -ENOMEM;
+	char *text = NULL;
+	char *write_text;
+	size_t len;
+	int error;
+	u64 seq;
+
+	if (con->flags & CON_EXTENDED) {
+		ext_text = kmalloc(CONSOLE_EXT_LOG_MAX, GFP_KERNEL);
+		if (!ext_text)
+			goto out;
+	}
+	text = kmalloc(LOG_LINE_MAX + PREFIX_MAX, GFP_KERNEL);
+	dropped_text = kmalloc(64, GFP_KERNEL);
+	if (!text || !dropped_text)
+		goto out;
+
+	if (con->flags & CON_EXTENDED)
+		write_text = ext_text;
+	else
+		write_text = text;
+
+	seq = read_console_seq(con);
+
+	prb_rec_init_rd(&r, &info, text, LOG_LINE_MAX + PREFIX_MAX);
+
+	for (;;) {
+		error = wait_event_interruptible(log_wait,
+				prb_read_valid(prb, seq, &r) || kthread_should_stop());
+
+		if (kthread_should_stop())
+			break;
+
+		if (error)
+			continue;
+
+		if (seq != r.info->seq) {
+			dropped += r.info->seq - seq;
+			seq = r.info->seq;
+		}
+
+		seq++;
+
+		if (!(con->flags & CON_ENABLED))
+			continue;
+
+		if (suppress_message_printing(r.info->level))
+			continue;
+
+		if (con->flags & CON_EXTENDED) {
+			len = info_print_ext_header(ext_text,
+				CONSOLE_EXT_LOG_MAX,
+				r.info);
+			len += msg_print_ext_body(ext_text + len,
+				CONSOLE_EXT_LOG_MAX - len,
+				&r.text_buf[0], r.info->text_len,
+				&r.info->dev_info);
+		} else {
+			len = record_print_text(&r,
+				console_msg_format & MSG_FORMAT_SYSLOG,
+				printk_time);
+		}
+
+		console_lock();
+
+		/*
+		 * Even though the printk kthread is always preemptible, it is
+		 * still not allowed to call cond_resched() from within
+		 * console drivers. The task may become non-preemptible in the
+		 * console driver call chain. For example, vt_console_print()
+		 * takes a spinlock and then can call into fbcon_redraw(),
+		 * which can conditionally invoke cond_resched().
+		 */
+		console_may_schedule = 0;
+
+		if (kernel_sync_mode() && con->write_atomic) {
+			console_unlock();
+			break;
+		}
+
+		if (!(con->flags & CON_EXTENDED) && dropped) {
+			dropped_len = snprintf(dropped_text, 64,
+					       "** %lu printk messages dropped **\n",
+					       dropped);
+			dropped = 0;
+
+			con->write(con, dropped_text, dropped_len);
+			printk_delay(r.info->level);
+		}
+
+		con->write(con, write_text, len);
+		if (len)
+			printk_delay(r.info->level);
+
+		latched_seq_write(&con->printk_seq, seq);
+
+		console_unlock();
+	}
+out:
+	kfree(dropped_text);
+	kfree(text);
+	kfree(ext_text);
+	pr_info("%sconsole [%s%d]: printing thread stopped\n",
+		(con->flags & CON_BOOT) ? "boot" : "",
+		con->name, con->index);
+	return ret;
+}
+
+/* Must be called within console_lock(). */
+static void start_printk_kthread(struct console *con)
+{
+	con->thread = kthread_run(printk_kthread_func, con,
+				  "pr/%s%d", con->name, con->index);
+	if (IS_ERR(con->thread)) {
+		pr_err("%sconsole [%s%d]: unable to start printing thread\n",
+			(con->flags & CON_BOOT) ? "boot" : "",
+			con->name, con->index);
+		return;
+	}
+	pr_info("%sconsole [%s%d]: printing thread started\n",
+		(con->flags & CON_BOOT) ? "boot" : "",
+		con->name, con->index);
+}
+
+/* protected by console_lock */
+static bool kthreads_started;
+
+/* Must be called within console_lock(). */
+static void console_try_thread(struct console *con)
+{
+	if (kthreads_started) {
+		start_printk_kthread(con);
+		return;
+	}
+
+	/*
+	 * The printing threads have not been started yet. If this console
+	 * can print synchronously, print all unprinted messages.
+	 */
+	if (console_may_sync(con))
+		print_sync_until(con, prb_next_seq(prb), true);
+}
+
 #else /* CONFIG_PRINTK */
 
-#define CONSOLE_LOG_MAX		0
-#define printk_time		false
-
-#define prb_read_valid(rb, seq, r)	false
 #define prb_first_valid_seq(rb)		0
+#define prb_next_seq(rb)		0
 
-static u64 syslog_seq;
-static u64 console_seq;
-static u64 exclusive_console_stop_seq;
-static unsigned long console_dropped;
-
-static size_t record_print_text(const struct printk_record *r,
-				bool syslog, bool time)
-{
-	return 0;
-}
-static ssize_t info_print_ext_header(char *buf, size_t size,
-				     struct printk_info *info)
-{
-	return 0;
-}
-static ssize_t msg_print_ext_body(char *buf, size_t size,
-				  char *text, size_t text_len,
-				  struct dev_printk_info *dev_info) { return 0; }
-static void console_lock_spinning_enable(void) { }
-static int console_lock_spinning_disable_and_check(void) { return 0; }
-static void call_console_drivers(const char *ext_text, size_t ext_len,
-				 const char *text, size_t len) {}
-static bool suppress_message_printing(int level) { return false; }
+#define console_try_thread(con)
 
 #endif /* CONFIG_PRINTK */
 
@@ -2495,34 +2589,6 @@ int is_console_locked(void)
 }
 EXPORT_SYMBOL(is_console_locked);
 
-/*
- * Check if we have any console that is capable of printing while cpu is
- * booting or shutting down. Requires console_sem.
- */
-static int have_callable_console(void)
-{
-	struct console *con;
-
-	for_each_console(con)
-		if ((con->flags & CON_ENABLED) &&
-				(con->flags & CON_ANYTIME))
-			return 1;
-
-	return 0;
-}
-
-/*
- * Can we actually use the console at this time on this cpu?
- *
- * Console drivers may assume that per-cpu resources have been allocated. So
- * unless they're explicitly marked as being able to cope (CON_ANYTIME) don't
- * call them until this CPU is officially up.
- */
-static inline int can_use_console(void)
-{
-	return cpu_online(raw_smp_processor_id()) || have_callable_console();
-}
-
 /**
  * console_unlock - unlock the console system
  *
@@ -2539,136 +2605,14 @@ static inline int can_use_console(void)
  */
 void console_unlock(void)
 {
-	static char ext_text[CONSOLE_EXT_LOG_MAX];
-	static char text[CONSOLE_LOG_MAX];
-	unsigned long flags;
-	bool do_cond_resched, retry;
-	struct printk_info info;
-	struct printk_record r;
-
 	if (console_suspended) {
 		up_console_sem();
 		return;
 	}
 
-	prb_rec_init_rd(&r, &info, text, sizeof(text));
-
-	/*
-	 * Console drivers are called with interrupts disabled, so
-	 * @console_may_schedule should be cleared before; however, we may
-	 * end up dumping a lot of lines, for example, if called from
-	 * console registration path, and should invoke cond_resched()
-	 * between lines if allowable.  Not doing so can cause a very long
-	 * scheduling stall on a slow console leading to RCU stall and
-	 * softlockup warnings which exacerbate the issue with more
-	 * messages practically incapacitating the system.
-	 *
-	 * console_trylock() is not able to detect the preemptive
-	 * context reliably. Therefore the value must be stored before
-	 * and cleared after the "again" goto label.
-	 */
-	do_cond_resched = console_may_schedule;
-again:
-	console_may_schedule = 0;
-
-	/*
-	 * We released the console_sem lock, so we need to recheck if
-	 * cpu is online and (if not) is there at least one CON_ANYTIME
-	 * console.
-	 */
-	if (!can_use_console()) {
-		console_locked = 0;
-		up_console_sem();
-		return;
-	}
-
-	for (;;) {
-		size_t ext_len = 0;
-		size_t len;
-
-		printk_safe_enter_irqsave(flags);
-skip:
-		if (!prb_read_valid(prb, console_seq, &r))
-			break;
-
-		if (console_seq != r.info->seq) {
-			console_dropped += r.info->seq - console_seq;
-			console_seq = r.info->seq;
-		}
-
-		if (suppress_message_printing(r.info->level)) {
-			/*
-			 * Skip record we have buffered and already printed
-			 * directly to the console when we received it, and
-			 * record that has level above the console loglevel.
-			 */
-			console_seq++;
-			goto skip;
-		}
-
-		/* Output to all consoles once old messages replayed. */
-		if (unlikely(exclusive_console &&
-			     console_seq >= exclusive_console_stop_seq)) {
-			exclusive_console = NULL;
-		}
-
-		/*
-		 * Handle extended console text first because later
-		 * record_print_text() will modify the record buffer in-place.
-		 */
-		if (nr_ext_console_drivers) {
-			ext_len = info_print_ext_header(ext_text,
-						sizeof(ext_text),
-						r.info);
-			ext_len += msg_print_ext_body(ext_text + ext_len,
-						sizeof(ext_text) - ext_len,
-						&r.text_buf[0],
-						r.info->text_len,
-						&r.info->dev_info);
-		}
-		len = record_print_text(&r,
-				console_msg_format & MSG_FORMAT_SYSLOG,
-				printk_time);
-		console_seq++;
-
-		/*
-		 * While actively printing out messages, if another printk()
-		 * were to occur on another CPU, it may wait for this one to
-		 * finish. This task can not be preempted if there is a
-		 * waiter waiting to take over.
-		 */
-		console_lock_spinning_enable();
-
-		stop_critical_timings();	/* don't trace print latency */
-		call_console_drivers(ext_text, ext_len, text, len);
-		start_critical_timings();
-
-		if (console_lock_spinning_disable_and_check()) {
-			printk_safe_exit_irqrestore(flags);
-			return;
-		}
-
-		printk_safe_exit_irqrestore(flags);
-
-		if (do_cond_resched)
-			cond_resched();
-	}
-
 	console_locked = 0;
 
 	up_console_sem();
-
-	/*
-	 * Someone could have filled up the buffer again, so re-check if there's
-	 * something to flush. In case we cannot trylock the console_sem again,
-	 * there's a new owner and the console_unlock() from them will do the
-	 * flush, no worries.
-	 */
-	retry = prb_read_valid(prb, console_seq, NULL);
-	printk_safe_exit_irqrestore(flags);
-
-	if (retry && console_trylock())
-		goto again;
 }
 EXPORT_SYMBOL(console_unlock);
 
@@ -2718,23 +2662,18 @@ void console_unblank(void)
  */
 void console_flush_on_panic(enum con_flush_mode mode)
 {
-	/*
-	 * If someone else is holding the console lock, trylock will fail
-	 * and may_schedule may be set.  Ignore and proceed to unlock so
-	 * that messages are flushed out.  As this can be called from any
-	 * context and we don't want to get preempted while flushing,
-	 * ensure may_schedule is cleared.
-	 */
-	console_trylock();
-	console_may_schedule = 0;
+	struct console *c;
+	u64 seq;
+
+	if (!console_trylock())
+		return;
 
 	if (mode == CONSOLE_REPLAY_ALL) {
-		unsigned long flags;
-
-		printk_safe_enter_irqsave(flags);
-		console_seq = prb_first_valid_seq(prb);
-		printk_safe_exit_irqrestore(flags);
+		seq = prb_first_valid_seq(prb);
+		for_each_console(c)
+			latched_seq_write(&c->printk_seq, seq);
 	}
+
 	console_unlock();
 }
 
@@ -2869,8 +2808,8 @@ static int try_enable_new_console(struct console *newcon, bool user_specified)
  */
 void register_console(struct console *newcon)
 {
-	unsigned long flags;
 	struct console *bcon = NULL;
+	u64 seq = 0;
 	int err;
 
 	for_each_console(bcon) {
@@ -2892,6 +2831,8 @@ void register_console(struct console *newcon)
 			}
 		}
 	}
+
+	newcon->thread = NULL;
 
 	if (console_drivers && console_drivers->flags & CON_BOOT)
 		bcon = console_drivers;
@@ -2934,8 +2875,10 @@ void register_console(struct console *newcon)
 	 * the real console are the same physical device, it's annoying to
 	 * see the beginning boot messages twice
 	 */
-	if (bcon && ((newcon->flags & (CON_CONSDEV | CON_BOOT)) == CON_CONSDEV))
+	if (bcon && ((newcon->flags & (CON_CONSDEV | CON_BOOT)) == CON_CONSDEV)) {
 		newcon->flags &= ~CON_PRINTBUFFER;
+		newcon->flags |= CON_HANDOVER;
+	}
 
 	/*
 	 *	Put this console in the list - keep the
@@ -2957,27 +2900,19 @@ void register_console(struct console *newcon)
 	if (newcon->flags & CON_EXTENDED)
 		nr_ext_console_drivers++;
 
-	if (newcon->flags & CON_PRINTBUFFER) {
-		/*
-		 * console_unlock(); will print out the buffered messages
-		 * for us.
-		 *
-		 * We're about to replay the log buffer.  Only do this to the
-		 * just-registered console to avoid excessive message spam to
-		 * the already-registered consoles.
-		 *
-		 * Set exclusive_console with disabled interrupts to reduce
-		 * race window with eventual console_flush_on_panic() that
-		 * ignores console_lock.
-		 */
-		exclusive_console = newcon;
-		exclusive_console_stop_seq = console_seq;
+	if (!(newcon->flags & CON_PRINTBUFFER))
+		seq = prb_next_seq(prb);
 
-		/* Get a consistent copy of @syslog_seq. */
-		raw_spin_lock_irqsave(&syslog_lock, flags);
-		console_seq = syslog_seq;
-		raw_spin_unlock_irqrestore(&syslog_lock, flags);
-	}
+	seqcount_latch_init(&newcon->printk_seq.latch);
+	latched_seq_write(&newcon->printk_seq, seq);
+	seqcount_latch_init(&newcon->printk_sync_seq[0].latch);
+	latched_seq_write(&newcon->printk_sync_seq[0], seq);
+#if PRINTK_CTX_NUM > 1
+	seqcount_latch_init(&newcon->printk_sync_seq[1].latch);
+	latched_seq_write(&newcon->printk_sync_seq[1], seq);
+#endif
+
+	console_try_thread(newcon);
 	console_unlock();
 	console_sysfs_notify();
 
@@ -3050,6 +2985,9 @@ int unregister_console(struct console *console)
 	console->flags &= ~CON_ENABLED;
 	console_unlock();
 	console_sysfs_notify();
+
+	if (console->thread && !IS_ERR(console->thread))
+		kthread_stop(console->thread);
 
 	if (console->exit)
 		res = console->exit(console);
@@ -3133,6 +3071,15 @@ static int __init printk_late_init(void)
 			unregister_console(con);
 		}
 	}
+
+#ifdef CONFIG_PRINTK
+	console_lock();
+	for_each_console(con)
+		start_printk_kthread(con);
+	kthreads_started = true;
+	console_unlock();
+#endif
+
 	ret = cpuhp_setup_state_nocalls(CPUHP_PRINTK_DEAD, "printk:dead", NULL,
 					console_cpu_notify);
 	WARN_ON(ret < 0);
@@ -3148,7 +3095,6 @@ late_initcall(printk_late_init);
  * Delayed printk version, for scheduler-internal messages:
  */
 #define PRINTK_PENDING_WAKEUP	0x01
-#define PRINTK_PENDING_OUTPUT	0x02
 
 static DEFINE_PER_CPU(int, printk_pending);
 
@@ -3156,14 +3102,8 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 {
 	int pending = __this_cpu_xchg(printk_pending, 0);
 
-	if (pending & PRINTK_PENDING_OUTPUT) {
-		/* If trylock fails, someone else is doing the printing */
-		if (console_trylock())
-			console_unlock();
-	}
-
 	if (pending & PRINTK_PENDING_WAKEUP)
-		wake_up_interruptible(&log_wait);
+		wake_up_interruptible_all(&log_wait);
 }
 
 static DEFINE_PER_CPU(struct irq_work, wake_up_klogd_work) =
@@ -3182,25 +3122,10 @@ void wake_up_klogd(void)
 	preempt_enable();
 }
 
-void defer_console_output(void)
+__printf(1, 0)
+static int vprintk_deferred(const char *fmt, va_list args)
 {
-	if (!printk_percpu_data_ready())
-		return;
-
-	preempt_disable();
-	__this_cpu_or(printk_pending, PRINTK_PENDING_OUTPUT);
-	irq_work_queue(this_cpu_ptr(&wake_up_klogd_work));
-	preempt_enable();
-}
-
-int vprintk_deferred(const char *fmt, va_list args)
-{
-	int r;
-
-	r = vprintk_emit(0, LOGLEVEL_SCHED, NULL, fmt, args);
-	defer_console_output();
-
-	return r;
+	return vprintk_emit(0, LOGLEVEL_DEFAULT, NULL, fmt, args);
 }
 
 int printk_deferred(const char *fmt, ...)
@@ -3341,6 +3266,24 @@ void kmsg_dump(enum kmsg_dump_reason reason)
 {
 	struct kmsg_dumper *dumper;
 
+	if (!oops_in_progress) {
+		/*
+		 * If atomic consoles are available, activate kernel sync mode
+		 * to make sure any final messages are visible. The trailing
+		 * printk message is important to flush any pending messages.
+		 */
+		if (have_atomic_console()) {
+			sync_mode = true;
+			pr_info("enabled sync mode\n");
+		}
+
+		/*
+		 * Give the printing threads time to flush, allowing up to
+		 * 1s of no printing forward progress before giving up.
+		 */
+		pr_flush(1000, true);
+	}
+
 	rcu_read_lock();
 	list_for_each_entry_rcu(dumper, &dump_list, list) {
 		enum kmsg_dump_reason max_reason = dumper->max_reason;
@@ -3386,14 +3329,12 @@ bool kmsg_dump_get_line(struct kmsg_dump_iter *iter, bool syslog,
 	struct printk_info info;
 	unsigned int line_count;
 	struct printk_record r;
-	unsigned long flags;
 	size_t l = 0;
 	bool ret = false;
 
 	if (iter->cur_seq < min_seq)
 		iter->cur_seq = min_seq;
 
-	printk_safe_enter_irqsave(flags);
 	prb_rec_init_rd(&r, &info, line, size);
 
 	/* Read text or count text lines? */
@@ -3414,7 +3355,6 @@ bool kmsg_dump_get_line(struct kmsg_dump_iter *iter, bool syslog,
 	iter->cur_seq = r.info->seq + 1;
 	ret = true;
 out:
-	printk_safe_exit_irqrestore(flags);
 	if (len)
 		*len = l;
 	return ret;
@@ -3446,7 +3386,6 @@ bool kmsg_dump_get_buffer(struct kmsg_dump_iter *iter, bool syslog,
 	u64 min_seq = latched_seq_read_nolock(&clear_seq);
 	struct printk_info info;
 	struct printk_record r;
-	unsigned long flags;
 	u64 seq;
 	u64 next_seq;
 	size_t len = 0;
@@ -3459,7 +3398,6 @@ bool kmsg_dump_get_buffer(struct kmsg_dump_iter *iter, bool syslog,
 	if (iter->cur_seq < min_seq)
 		iter->cur_seq = min_seq;
 
-	printk_safe_enter_irqsave(flags);
 	if (prb_read_valid_info(prb, iter->cur_seq, &info, NULL)) {
 		if (info.seq != iter->cur_seq) {
 			/* messages are gone, move to first available one */
@@ -3468,10 +3406,8 @@ bool kmsg_dump_get_buffer(struct kmsg_dump_iter *iter, bool syslog,
 	}
 
 	/* last entry */
-	if (iter->cur_seq >= iter->next_seq) {
-		printk_safe_exit_irqrestore(flags);
+	if (iter->cur_seq >= iter->next_seq)
 		goto out;
-	}
 
 	/*
 	 * Find first record that fits, including all following records,
@@ -3503,7 +3439,6 @@ bool kmsg_dump_get_buffer(struct kmsg_dump_iter *iter, bool syslog,
 
 	iter->next_seq = next_seq;
 	ret = true;
-	printk_safe_exit_irqrestore(flags);
 out:
 	if (len_out)
 		*len_out = len;
@@ -3521,13 +3456,204 @@ EXPORT_SYMBOL_GPL(kmsg_dump_get_buffer);
  */
 void kmsg_dump_rewind(struct kmsg_dump_iter *iter)
 {
-	unsigned long flags;
-
-	printk_safe_enter_irqsave(flags);
 	iter->cur_seq = latched_seq_read_nolock(&clear_seq);
 	iter->next_seq = prb_next_seq(prb);
-	printk_safe_exit_irqrestore(flags);
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
 
 #endif
+
+struct prb_cpulock {
+	atomic_t owner;
+	unsigned long __percpu *irqflags;
+};
+
+#define DECLARE_STATIC_PRINTKRB_CPULOCK(name)				\
+static DEFINE_PER_CPU(unsigned long, _##name##_percpu_irqflags);	\
+static struct prb_cpulock name = {					\
+	.owner = ATOMIC_INIT(-1),					\
+	.irqflags = &_##name##_percpu_irqflags,				\
+}
+
+static unsigned int kgdb_cpu = -1;
+
+static bool __prb_trylock(struct prb_cpulock *cpu_lock,
+			  unsigned int *cpu_store)
+{
+	unsigned long *flags;
+	unsigned int cpu;
+
+	cpu = get_cpu();
+
+	*cpu_store = atomic_read(&cpu_lock->owner);
+	/* memory barrier to ensure the current lock owner is visible */
+	smp_rmb();
+	if (*cpu_store == -1) {
+		flags = per_cpu_ptr(cpu_lock->irqflags, cpu);
+		local_irq_save(*flags);
+		if (atomic_try_cmpxchg_acquire(&cpu_lock->owner,
+					       cpu_store, cpu)) {
+			return true;
+		}
+		local_irq_restore(*flags);
+	} else if (*cpu_store == cpu) {
+		return true;
+	}
+
+	put_cpu();
+	return false;
+}
+
+/*
+ * prb_lock: Perform a processor-reentrant spin lock.
+ * @cpu_lock: A pointer to the lock object.
+ * @cpu_store: A "flags" pointer to store lock status information.
+ *
+ * If no processor has the lock, the calling processor takes the lock and
+ * becomes the owner. If the calling processor is already the owner of the
+ * lock, this function succeeds immediately. If lock is locked by another
+ * processor, this function spins until the calling processor becomes the
+ * owner.
+ *
+ * It is safe to call this function from any context and state.
+ */
+static void prb_lock(struct prb_cpulock *cpu_lock, unsigned int *cpu_store)
+{
+	for (;;) {
+		if (__prb_trylock(cpu_lock, cpu_store))
+			break;
+		cpu_relax();
+	}
+}
+
+/*
+ * prb_unlock: Perform a processor-reentrant spin unlock.
+ * @cpu_lock: A pointer to the lock object.
+ * @cpu_store: A "flags" object storing lock status information.
+ *
+ * Release the lock. The calling processor must be the owner of the lock.
+ *
+ * It is safe to call this function from any context and state.
+ */
+static void prb_unlock(struct prb_cpulock *cpu_lock, unsigned int cpu_store)
+{
+	bool trigger_kgdb = false;
+	unsigned long *flags;
+	unsigned int cpu;
+
+	cpu = atomic_read(&cpu_lock->owner);
+	if (cpu == kgdb_cpu && cpu_store == -1) {
+		trigger_kgdb = true;
+		kgdb_cpu = -1;
+	}
+	atomic_set_release(&cpu_lock->owner, cpu_store);
+
+	if (cpu_store == -1) {
+		flags = per_cpu_ptr(cpu_lock->irqflags, cpu);
+		local_irq_restore(*flags);
+	}
+
+	put_cpu();
+
+	if (trigger_kgdb) {
+		pr_warn("re-triggering kgdb roundup for CPU#%d\n", cpu);
+		kgdb_roundup_cpu(cpu);
+	}
+}
+
+DECLARE_STATIC_PRINTKRB_CPULOCK(printk_cpulock);
+
+void console_atomic_lock(unsigned int *flags)
+{
+	prb_lock(&printk_cpulock, flags);
+}
+EXPORT_SYMBOL(console_atomic_lock);
+
+void console_atomic_unlock(unsigned int flags)
+{
+	prb_unlock(&printk_cpulock, flags);
+}
+EXPORT_SYMBOL(console_atomic_unlock);
+
+bool console_atomic_kgdb_cpu_delay(unsigned int cpu)
+{
+	if (cpu != atomic_read(&printk_cpulock.owner))
+		return false;
+
+	kgdb_cpu = cpu;
+	return true;
+}
+EXPORT_SYMBOL(console_atomic_kgdb_cpu_delay);
+
+static void pr_msleep(bool may_sleep, int ms)
+{
+	if (may_sleep) {
+		msleep(ms);
+	} else {
+		while (ms--)
+			udelay(1000);
+	}
+}
+
+/**
+ * pr_flush() - Wait for printing threads to catch up.
+ *
+ * @timeout_ms:        The maximum time (in ms) to wait.
+ * @reset_on_progress: Reset the timeout if forward progress is seen.
+ *
+ * A value of 0 for @timeout_ms means no waiting will occur. A value of -1
+ * represents infinite waiting.
+ *
+ * If @reset_on_progress is true, the timeout will be reset whenever any
+ * printer has been seen to make some forward progress.
+ *
+ * Context: Any context.
+ * Return: true if all enabled printers are caught up.
+ */
+bool pr_flush(int timeout_ms, bool reset_on_progress)
+{
+	int remaining = timeout_ms;
+	struct console *con;
+	u64 last_diff = 0;
+	bool may_sleep;
+	u64 printk_seq;
+	u64 diff;
+	u64 seq;
+
+	may_sleep = (preemptible() && !in_softirq());
+
+	seq = prb_next_seq(prb);
+
+	for (;;) {
+		diff = 0;
+
+		for_each_console(con) {
+			if (!(con->flags & CON_ENABLED))
+				continue;
+			printk_seq = read_console_seq(con);
+			if (printk_seq < seq)
+				diff += seq - printk_seq;
+		}
+
+		if (diff != last_diff && reset_on_progress)
+			remaining = timeout_ms;
+
+		if (diff == 0 || remaining == 0)
+			break;
+
+		if (remaining < 0) {
+			pr_msleep(may_sleep, 100);
+		} else if (remaining < 100) {
+			pr_msleep(may_sleep, remaining);
+			remaining = 0;
+		} else {
+			pr_msleep(may_sleep, 100);
+			remaining -= 100;
+		}
+
+		last_diff = diff;
+	}
+
+	return (diff == 0);
+}
+EXPORT_SYMBOL(pr_flush);

@@ -42,6 +42,7 @@ enum hrtimer_mode {
 	HRTIMER_MODE_PINNED	= 0x02,
 	HRTIMER_MODE_SOFT	= 0x04,
 	HRTIMER_MODE_HARD	= 0x08,
+	HRTIMER_MODE_CHILL	= 0x10,
 
 	HRTIMER_MODE_ABS_PINNED = HRTIMER_MODE_ABS | HRTIMER_MODE_PINNED,
 	HRTIMER_MODE_REL_PINNED = HRTIMER_MODE_REL | HRTIMER_MODE_PINNED,
@@ -124,6 +125,7 @@ struct hrtimer {
 	u8				is_rel;
 	u8				is_soft;
 	u8				is_hard;
+	u8				is_chill;
 };
 
 /**
@@ -538,6 +540,12 @@ int hrtimers_prepare_cpu(unsigned int cpu);
 int hrtimers_dead_cpu(unsigned int cpu);
 #else
 #define hrtimers_dead_cpu	NULL
+#endif
+
+#ifdef CONFIG_PREEMPT_RT
+extern void cpu_chill(void);
+#else
+# define cpu_chill()	cpu_relax()
 #endif
 
 #endif

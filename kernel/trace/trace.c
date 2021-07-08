@@ -2571,6 +2571,15 @@ enum print_line_t trace_handle_return(struct trace_seq *s)
 }
 EXPORT_SYMBOL_GPL(trace_handle_return);
 
+static unsigned short migration_disable_value(void)
+{
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPT_RT)
+	return current->migration_disabled;
+#else
+	return 0;
+#endif
+}
+
 unsigned int tracing_gen_ctx_irq_test(unsigned int irqs_status)
 {
 	unsigned int trace_flags = irqs_status;
@@ -2589,7 +2598,16 @@ unsigned int tracing_gen_ctx_irq_test(unsigned int irqs_status)
 		trace_flags |= TRACE_FLAG_NEED_RESCHED;
 	if (test_preempt_need_resched())
 		trace_flags |= TRACE_FLAG_PREEMPT_RESCHED;
-	return (trace_flags << 16) | (pc & 0xff);
+
+#ifdef CONFIG_PREEMPT_LAZY
+	if (need_resched_lazy())
+		trace_flags |= TRACE_FLAG_NEED_RESCHED_LAZY;
+#endif
+
+	return (pc & 0xff) |
+		(migration_disable_value() & 0xff) << 8 |
+		(preempt_lazy_count() & 0xff) << 16 |
+		(trace_flags << 24);
 }
 
 struct ring_buffer_event *
@@ -4104,14 +4122,17 @@ unsigned long trace_total_entries(struct trace_array *tr)
 
 static void print_lat_help_header(struct seq_file *m)
 {
-	seq_puts(m, "#                    _------=> CPU#            \n"
-		    "#                   / _-----=> irqs-off        \n"
-		    "#                  | / _----=> need-resched    \n"
-		    "#                  || / _---=> hardirq/softirq \n"
-		    "#                  ||| / _--=> preempt-depth   \n"
-		    "#                  |||| /     delay            \n"
-		    "#  cmd     pid     ||||| time  |   caller      \n"
-		    "#     \\   /        |||||  \\    |   /         \n");
+	seq_puts(m, "#                    _--------=> CPU#            \n"
+		    "#                   / _-------=> irqs-off        \n"
+		    "#                  | / _------=> need-resched    \n"
+		    "#                  || / _-----=> need-resched-lazy\n"
+		    "#                  ||| / _----=> hardirq/softirq \n"
+		    "#                  |||| / _---=> preempt-depth   \n"
+		    "#                  ||||| / _--=> preempt-lazy-depth\n"
+		    "#                  |||||| / _-=> migrate-disable \n"
+		    "#                  ||||||| /     delay           \n"
+		    "#  cmd     pid     |||||||| time  |   caller     \n"
+		    "#     \\   /        ||||||||  \\    |    /       \n");
 }
 
 static void print_event_info(struct array_buffer *buf, struct seq_file *m)
@@ -4145,13 +4166,16 @@ static void print_func_help_header_irq(struct array_buffer *buf, struct seq_file
 
 	print_event_info(buf, m);
 
-	seq_printf(m, "#                            %.*s  _-----=> irqs-off\n", prec, space);
-	seq_printf(m, "#                            %.*s / _----=> need-resched\n", prec, space);
-	seq_printf(m, "#                            %.*s| / _---=> hardirq/softirq\n", prec, space);
-	seq_printf(m, "#                            %.*s|| / _--=> preempt-depth\n", prec, space);
-	seq_printf(m, "#                            %.*s||| /     delay\n", prec, space);
-	seq_printf(m, "#           TASK-PID  %.*s CPU#  ||||   TIMESTAMP  FUNCTION\n", prec, "     TGID   ");
-	seq_printf(m, "#              | |    %.*s   |   ||||      |         |\n", prec, "       |    ");
+	seq_printf(m, "#                            %.*s  _-------=> irqs-off\n", prec, space);
+	seq_printf(m, "#                            %.*s / _------=> need-resched\n", prec, space);
+	seq_printf(m, "#                            %.*s| / _-----=> need-resched-lazy\n", prec, space);
+	seq_printf(m, "#                            %.*s|| / _----=> hardirq/softirq\n", prec, space);
+	seq_printf(m, "#                            %.*s||| / _---=> preempt-depth\n", prec, space);
+	seq_printf(m, "#                            %.*s|||| / _--=> preempt-lazy-depth\n", prec, space);
+	seq_printf(m, "#                            %.*s||||| / _-=> migrate-disable\n", prec, space);
+	seq_printf(m, "#                            %.*s|||||| /     delay\n", prec, space);
+	seq_printf(m, "#           TASK-PID  %.*s CPU#  |||||||  TIMESTAMP  FUNCTION\n", prec, "     TGID   ");
+	seq_printf(m, "#              | |    %.*s   |   |||||||      |         |\n", prec, "       |    ");
 }
 
 void
@@ -9647,7 +9671,6 @@ void ftrace_dump(enum ftrace_dump_mode oops_dump_mode)
 	tracing_off();
 
 	local_irq_save(flags);
-	printk_nmi_direct_enter();
 
 	/* Simulate the iterator */
 	trace_init_global_iter(&iter);
@@ -9729,7 +9752,6 @@ void ftrace_dump(enum ftrace_dump_mode oops_dump_mode)
 		atomic_dec(&per_cpu_ptr(iter.array_buffer->data, cpu)->disabled);
 	}
 	atomic_dec(&dump_running);
-	printk_nmi_direct_exit();
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL_GPL(ftrace_dump);

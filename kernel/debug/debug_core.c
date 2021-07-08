@@ -241,35 +241,42 @@ NOKPROBE_SYMBOL(kgdb_call_nmi_hook);
 static DEFINE_PER_CPU(call_single_data_t, kgdb_roundup_csd) =
 	CSD_INIT(kgdb_call_nmi_hook, NULL);
 
-void __weak kgdb_roundup_cpus(void)
+void __weak kgdb_roundup_cpu(unsigned int cpu)
 {
 	call_single_data_t *csd;
+	int ret;
+
+	csd = &per_cpu(kgdb_roundup_csd, cpu);
+
+	/*
+	 * If it didn't round up last time, don't try again
+	 * since smp_call_function_single_async() will block.
+	 *
+	 * If rounding_up is false then we know that the
+	 * previous call must have at least started and that
+	 * means smp_call_function_single_async() won't block.
+	 */
+	if (kgdb_info[cpu].rounding_up)
+		return;
+	kgdb_info[cpu].rounding_up = true;
+
+	ret = smp_call_function_single_async(cpu, csd);
+	if (ret)
+		kgdb_info[cpu].rounding_up = false;
+}
+NOKPROBE_SYMBOL(kgdb_roundup_cpu);
+
+void __weak kgdb_roundup_cpus(void)
+{
 	int this_cpu = raw_smp_processor_id();
 	int cpu;
-	int ret;
 
 	for_each_online_cpu(cpu) {
 		/* No need to roundup ourselves */
 		if (cpu == this_cpu)
 			continue;
 
-		csd = &per_cpu(kgdb_roundup_csd, cpu);
-
-		/*
-		 * If it didn't round up last time, don't try again
-		 * since smp_call_function_single_async() will block.
-		 *
-		 * If rounding_up is false then we know that the
-		 * previous call must have at least started and that
-		 * means smp_call_function_single_async() won't block.
-		 */
-		if (kgdb_info[cpu].rounding_up)
-			continue;
-		kgdb_info[cpu].rounding_up = true;
-
-		ret = smp_call_function_single_async(cpu, csd);
-		if (ret)
-			kgdb_info[cpu].rounding_up = false;
+		kgdb_roundup_cpu(cpu);
 	}
 }
 NOKPROBE_SYMBOL(kgdb_roundup_cpus);

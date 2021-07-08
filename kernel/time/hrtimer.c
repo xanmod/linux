@@ -1422,6 +1422,7 @@ static void __hrtimer_init(struct hrtimer *timer, clockid_t clock_id,
 	base += hrtimer_clockid_to_base(clock_id);
 	timer->is_soft = softtimer;
 	timer->is_hard = !!(mode & HRTIMER_MODE_HARD);
+	timer->is_chill = !!(mode & HRTIMER_MODE_CHILL);
 	timer->base = &cpu_base->clock_base[base];
 	timerqueue_init(&timer->node);
 }
@@ -1788,7 +1789,7 @@ static enum hrtimer_restart hrtimer_wakeup(struct hrtimer *timer)
 
 	t->task = NULL;
 	if (task)
-		wake_up_process(task);
+		wake_up_state(task, timer->is_chill ? TASK_RTLOCK_WAIT : TASK_NORMAL);
 
 	return HRTIMER_NORESTART;
 }
@@ -2004,6 +2005,34 @@ SYSCALL_DEFINE2(nanosleep_time32, struct old_timespec32 __user *, rqtp,
 	return hrtimer_nanosleep(timespec64_to_ktime(tu), HRTIMER_MODE_REL,
 				 CLOCK_MONOTONIC);
 }
+#endif
+
+#ifdef CONFIG_PREEMPT_RT
+/*
+ * Sleep for 1 ms in hope whoever holds what we want will let it go.
+ */
+void cpu_chill(void)
+{
+	unsigned int freeze_flag = current->flags & PF_NOFREEZE;
+	ktime_t chill_time;
+
+	local_irq_disable();
+	current_save_and_set_rtlock_wait_state();
+	local_irq_enable();
+
+	chill_time = ktime_set(0, NSEC_PER_MSEC);
+
+	current->flags |= PF_NOFREEZE;
+	schedule_hrtimeout(&chill_time,
+			   HRTIMER_MODE_REL_HARD| HRTIMER_MODE_CHILL);
+	if (!freeze_flag)
+		current->flags &= ~PF_NOFREEZE;
+
+	local_irq_disable();
+	current_restore_rtlock_saved_state();
+	local_irq_enable();
+}
+EXPORT_SYMBOL(cpu_chill);
 #endif
 
 /*

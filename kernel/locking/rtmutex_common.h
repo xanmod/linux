@@ -25,6 +25,7 @@
  * @pi_tree_entry:	pi node to enqueue into the mutex owner waiters tree
  * @task:		task reference to the blocked task
  * @lock:		Pointer to the rt_mutex on which the waiter blocks
+ * @wake_state:		Wakeup state to use (TASK_NORMAL or TASK_RTLOCK_WAIT)
  * @prio:		Priority of the waiter
  * @deadline:		Deadline of the waiter if applicable
  */
@@ -33,9 +34,60 @@ struct rt_mutex_waiter {
 	struct rb_node		pi_tree_entry;
 	struct task_struct	*task;
 	struct rt_mutex		*lock;
+	int			wake_state;
 	int			prio;
 	u64			deadline;
 };
+
+/**
+ * rt_mutex_wake_q_head - Wrapper around regular wake_q_head to support
+ *			  "sleeping" spinlocks on RT
+ * @head:		The regular wake_q_head for sleeping lock variants
+ * @rtlock_task:	Task pointer for RT lock (spin/rwlock) wakeups
+ */
+struct rt_mutex_wake_q_head {
+	struct wake_q_head	head;
+	struct task_struct	*rtlock_task;
+};
+
+#define DEFINE_RT_MUTEX_WAKE_Q_HEAD(name)				\
+	struct rt_mutex_wake_q_head name = {				\
+		.head		= WAKE_Q_HEAD_INITIALIZER(name.head),	\
+		.rtlock_task	= NULL,					\
+	}
+
+/*
+ * PI-futex support (proxy locking functions, etc.):
+ */
+extern void rt_mutex_init_proxy_locked(struct rt_mutex *lock,
+				       struct task_struct *proxy_owner);
+extern void rt_mutex_proxy_unlock(struct rt_mutex *lock);
+extern int __rt_mutex_start_proxy_lock(struct rt_mutex *lock,
+				     struct rt_mutex_waiter *waiter,
+				     struct task_struct *task);
+extern int rt_mutex_start_proxy_lock(struct rt_mutex *lock,
+				     struct rt_mutex_waiter *waiter,
+				     struct task_struct *task);
+extern int rt_mutex_wait_proxy_lock(struct rt_mutex *lock,
+			       struct hrtimer_sleeper *to,
+			       struct rt_mutex_waiter *waiter);
+extern bool rt_mutex_cleanup_proxy_lock(struct rt_mutex *lock,
+				 struct rt_mutex_waiter *waiter);
+
+extern int rt_mutex_futex_trylock(struct rt_mutex *l);
+extern int __rt_mutex_futex_trylock(struct rt_mutex *l);
+
+extern void rt_mutex_futex_unlock(struct rt_mutex *lock);
+extern bool __rt_mutex_futex_unlock(struct rt_mutex *lock,
+				struct rt_mutex_wake_q_head *wqh);
+
+extern void rt_mutex_postunlock(struct rt_mutex_wake_q_head *wqh);
+
+/* Special interfaces for RT lock substitutions */
+int rwsem_rt_mutex_slowlock_locked(struct rt_mutex *lock, unsigned int state);
+int rwsem_rt_mutex_lock_state(struct rt_mutex *lock, unsigned int state);
+int rwsem_rt_mutex_trylock(struct rt_mutex *lock);
+void rwsem_rt_mutex_unlock(struct rt_mutex *lock);
 
 /*
  * Must be guarded because this header is included from rcu/tree_plugin.h
@@ -78,13 +130,6 @@ static inline struct task_struct *rt_mutex_owner(struct rt_mutex *lock)
 
 	return (struct task_struct *) (owner & ~RT_MUTEX_HAS_WAITERS);
 }
-#else /* CONFIG_RT_MUTEXES */
-/* Used in rcu/tree_plugin.h */
-static inline struct task_struct *rt_mutex_owner(struct rt_mutex *lock)
-{
-	return NULL;
-}
-#endif  /* !CONFIG_RT_MUTEXES */
 
 /*
  * Constants for rt mutex functions which have a selectable deadlock
@@ -107,34 +152,6 @@ static inline void __rt_mutex_basic_init(struct rt_mutex *lock)
 	raw_spin_lock_init(&lock->wait_lock);
 	lock->waiters = RB_ROOT_CACHED;
 }
-
-/*
- * PI-futex support (proxy locking functions, etc.):
- */
-extern void rt_mutex_init_proxy_locked(struct rt_mutex *lock,
-				       struct task_struct *proxy_owner);
-extern void rt_mutex_proxy_unlock(struct rt_mutex *lock);
-extern void rt_mutex_init_waiter(struct rt_mutex_waiter *waiter);
-extern int __rt_mutex_start_proxy_lock(struct rt_mutex *lock,
-				     struct rt_mutex_waiter *waiter,
-				     struct task_struct *task);
-extern int rt_mutex_start_proxy_lock(struct rt_mutex *lock,
-				     struct rt_mutex_waiter *waiter,
-				     struct task_struct *task);
-extern int rt_mutex_wait_proxy_lock(struct rt_mutex *lock,
-			       struct hrtimer_sleeper *to,
-			       struct rt_mutex_waiter *waiter);
-extern bool rt_mutex_cleanup_proxy_lock(struct rt_mutex *lock,
-				 struct rt_mutex_waiter *waiter);
-
-extern int rt_mutex_futex_trylock(struct rt_mutex *l);
-extern int __rt_mutex_futex_trylock(struct rt_mutex *l);
-
-extern void rt_mutex_futex_unlock(struct rt_mutex *lock);
-extern bool __rt_mutex_futex_unlock(struct rt_mutex *lock,
-				 struct wake_q_head *wqh);
-
-extern void rt_mutex_postunlock(struct wake_q_head *wake_q);
 
 /* Debug functions */
 static inline void debug_rt_mutex_unlock(struct rt_mutex *lock)
@@ -160,5 +177,28 @@ static inline void debug_rt_mutex_free_waiter(struct rt_mutex_waiter *waiter)
 	if (IS_ENABLED(CONFIG_DEBUG_RT_MUTEXES))
 		memset(waiter, 0x22, sizeof(*waiter));
 }
+
+static inline void rt_mutex_init_waiter(struct rt_mutex_waiter *waiter)
+{
+	debug_rt_mutex_init_waiter(waiter);
+	RB_CLEAR_NODE(&waiter->pi_tree_entry);
+	RB_CLEAR_NODE(&waiter->tree_entry);
+	waiter->wake_state = TASK_NORMAL;
+	waiter->task = NULL;
+}
+
+static inline void rt_mutex_init_rtlock_waiter(struct rt_mutex_waiter *waiter)
+{
+	rt_mutex_init_waiter(waiter);
+	waiter->wake_state = TASK_RTLOCK_WAIT;
+}
+
+#else /* CONFIG_RT_MUTEXES */
+/* Used in rcu/tree_plugin.h */
+static inline struct task_struct *rt_mutex_owner(struct rt_mutex *lock)
+{
+	return NULL;
+}
+#endif  /* !CONFIG_RT_MUTEXES */
 
 #endif
