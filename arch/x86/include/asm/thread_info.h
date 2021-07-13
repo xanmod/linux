@@ -151,8 +151,6 @@ struct thread_info {
 
 #define _TIF_WORK_CTXSW_NEXT	(_TIF_WORK_CTXSW)
 
-#define _TIF_NEED_RESCHED_MASK	(_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY)
-
 #define STACK_WARN		(THREAD_SIZE/8)
 
 /*
