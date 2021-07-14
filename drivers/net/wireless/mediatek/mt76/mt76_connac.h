@@ -12,7 +12,7 @@
 #define MT76_CONNAC_MAX_SCAN_MATCH		16
 
 #define MT76_CONNAC_COREDUMP_TIMEOUT		(HZ / 20)
-#define MT76_CONNAC_COREDUMP_SZ			(128 * 1024)
+#define MT76_CONNAC_COREDUMP_SZ			(1300 * 1024)
 
 enum {
 	CMD_CBW_20MHZ = IEEE80211_STA_RX_BW_20,
@@ -45,6 +45,7 @@ enum {
 
 struct mt76_connac_pm {
 	bool enable;
+	bool suspended;
 
 	spinlock_t txq_lock;
 	struct {
@@ -127,7 +128,11 @@ mt76_connac_pm_unref(struct mt76_connac_pm *pm)
 static inline bool
 mt76_connac_skip_fw_pmctrl(struct mt76_phy *phy, struct mt76_connac_pm *pm)
 {
+	struct mt76_dev *dev = phy->dev;
 	bool ret;
+
+	if (dev->token_count)
+		return true;
 
 	spin_lock_bh(&pm->wake.lock);
 	ret = pm->wake.count || test_and_set_bit(MT76_STATE_PM, &phy->state);
