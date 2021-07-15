@@ -280,17 +280,22 @@ static inline void dump_stack(void)
 extern int __printk_cpu_trylock(void);
 extern void __printk_wait_on_cpu_lock(void);
 extern void __printk_cpu_unlock(void);
+#else
+#define __printk_cpu_trylock()		1
+#define __printk_wait_on_cpu_lock()
+#define __printk_cpu_unlock()
+#endif /* CONFIG_SMP */
 
 /**
- * printk_cpu_lock_irqsave() - Acquire the printk cpu-reentrant spinning
- *                             lock and disable interrupts.
+ * raw_printk_cpu_lock_irqsave() - Acquire the printk cpu-reentrant spinning
+ *                                 lock and disable interrupts.
  * @flags: Stack-allocated storage for saving local interrupt state,
- *         to be passed to printk_cpu_unlock_irqrestore().
+ *         to be passed to raw_printk_cpu_unlock_irqrestore().
  *
  * If the lock is owned by another CPU, spin until it becomes available.
  * Interrupts are restored while spinning.
  */
-#define printk_cpu_lock_irqsave(flags)		\
+#define raw_printk_cpu_lock_irqsave(flags)	\
 	for (;;) {				\
 		local_irq_save(flags);		\
 		if (__printk_cpu_trylock())	\
@@ -300,22 +305,15 @@ extern void __printk_cpu_unlock(void);
 	}
 
 /**
- * printk_cpu_unlock_irqrestore() - Release the printk cpu-reentrant spinning
- *                                  lock and restore interrupts.
- * @flags: Caller's saved interrupt state, from printk_cpu_lock_irqsave().
+ * raw_printk_cpu_unlock_irqrestore() - Release the printk cpu-reentrant
+ *                                      spinning lock and restore interrupts.
+ * @flags: Caller's saved interrupt state from raw_printk_cpu_lock_irqsave().
  */
-#define printk_cpu_unlock_irqrestore(flags)	\
+#define raw_printk_cpu_unlock_irqrestore(flags)	\
 	do {					\
 		__printk_cpu_unlock();		\
 		local_irq_restore(flags);	\
-	} while (0)				\
-
-#else
-
-#define printk_cpu_lock_irqsave(flags) ((void)flags)
-#define printk_cpu_unlock_irqrestore(flags) ((void)flags)
-
-#endif /* CONFIG_SMP */
+	} while (0)
 
 extern int kptr_restrict;
 
