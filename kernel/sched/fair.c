@@ -10983,7 +10983,6 @@ out:
 	WRITE_ONCE(nohz.has_blocked, 1);
 }
 
-#if !defined(CONFIG_CACULE_RDB)
 static bool update_nohz_stats(struct rq *rq)
 {
 	unsigned int cpu = rq->cpu;
@@ -10997,10 +10996,16 @@ static bool update_nohz_stats(struct rq *rq)
 	if (!time_after(jiffies, READ_ONCE(rq->last_blocked_load_update_tick)))
 		return true;
 
+#if !defined(CONFIG_CACULE_RDB)
 	update_blocked_averages(cpu);
+#endif
 
 	return rq->has_blocked_load;
 }
+
+#ifdef CONFIG_CACULE_RDB
+static int idle_try_pull_any(struct cfs_rq *cfs_rq);
+#endif
 
 /*
  * Internal function that runs load balance for all idle cpus. The load balance
@@ -11071,7 +11076,11 @@ static void _nohz_idle_balance(struct rq *this_rq, unsigned int flags,
 			rq_unlock_irqrestore(rq, &rf);
 
 			if (flags & NOHZ_BALANCE_KICK)
+#if !defined(CONFIG_CACULE_RDB)
 				rebalance_domains(rq, CPU_IDLE);
+#else
+				idle_try_pull_any(&rq->cfs);
+#endif
 		}
 
 		if (time_after(next_balance, rq->next_balance)) {
@@ -11164,7 +11173,6 @@ static void nohz_newidle_balance(struct rq *this_rq)
 	 */
 	atomic_or(NOHZ_NEWILB_KICK, nohz_flags(this_cpu));
 }
-#endif
 
 #else /* !CONFIG_NO_HZ_COMMON */
 #if !defined(CONFIG_CACULE_RDB)
@@ -11402,6 +11410,8 @@ out:
 
 	if (pulled_task)
 		this_rq->idle_stamp = 0;
+	else
+		nohz_newidle_balance(this_rq);
 
 	rq_repin_lock(this_rq, rf);
 
