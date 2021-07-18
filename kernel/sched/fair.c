@@ -4153,7 +4153,9 @@ static void detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 /* Update task and its cfs_rq load average */
 static inline void update_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#ifdef CONFIG_CACULE_RDB
+	cfs_rq_util_change(cfs_rq, 0);
+#else
 	u64 now = cfs_rq_clock_pelt(cfs_rq);
 	int decayed;
 
@@ -5954,9 +5956,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
-#if !defined(CONFIG_CACULE_RDB)
 	int idle_h_nr_running = task_has_idle_policy(p);
-#endif
 	int task_new = !(flags & ENQUEUE_WAKEUP);
 
 	/*
@@ -5980,6 +5980,8 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		cfs_rq = cfs_rq_of(se);
 		enqueue_entity(cfs_rq, se, flags);
 		cfs_rq->h_nr_running++;
+		cfs_rq->idle_h_nr_running += idle_h_nr_running;
+		update_load_avg(cfs_rq, se, UPDATE_TG);
 	}
 #else
 	for_each_sched_entity(se) {
@@ -11971,24 +11973,27 @@ static void propagate_entity_cfs_rq(struct sched_entity *se) { }
 #endif
 #endif
 
-#if !defined(CONFIG_CACULE_RDB)
 static void detach_entity_cfs_rq(struct sched_entity *se)
 {
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 
+#if !defined(CONFIG_CACULE_RDB)
 	/* Catch up with the cfs_rq and remove our load when we leave */
 	update_load_avg(cfs_rq, se, 0);
 	detach_entity_load_avg(cfs_rq, se);
 	update_tg_load_avg(cfs_rq);
 	propagate_entity_cfs_rq(se);
-}
+
+#else
+	cfs_rq_util_change(cfs_rq, 0);
 #endif
+}
 
 static void attach_entity_cfs_rq(struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 
+#if !defined(CONFIG_CACULE_RDB)
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/*
 	 * Since the real-depth could have been changed (only FAIR
@@ -12002,12 +12007,13 @@ static void attach_entity_cfs_rq(struct sched_entity *se)
 	attach_entity_load_avg(cfs_rq, se);
 	update_tg_load_avg(cfs_rq);
 	propagate_entity_cfs_rq(se);
+#else
+	cfs_rq_util_change(cfs_rq, 0);
 #endif
 }
 
 static void detach_task_cfs_rq(struct task_struct *p)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct sched_entity *se = &p->se;
 
 #if !defined(CONFIG_CACULE_SCHED)
@@ -12024,12 +12030,10 @@ static void detach_task_cfs_rq(struct task_struct *p)
 #endif
 
 	detach_entity_cfs_rq(se);
-#endif
 }
 
 static void attach_task_cfs_rq(struct task_struct *p)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct sched_entity *se = &p->se;
 
 #if !defined(CONFIG_CACULE_SCHED)
@@ -12041,7 +12045,6 @@ static void attach_task_cfs_rq(struct task_struct *p)
 #if !defined(CONFIG_CACULE_SCHED)
 	if (!vruntime_normalized(p))
 		se->vruntime += cfs_rq->min_vruntime;
-#endif
 #endif
 }
 
