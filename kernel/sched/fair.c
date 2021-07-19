@@ -11269,8 +11269,8 @@ find_max_IS_rq(struct cfs_rq *cfs_rq, int dst_cpu)
 {
 	struct rq *tmp_rq, *max_rq = NULL;
 	int cpu;
-	u32 max_IS = cfs_rq->IS_head;
-	u32 local_IS;
+	unsigned int max_IS = cfs_rq->IS_head;
+	unsigned int local_IS;
 
 	// find max hrrn
 	for_each_online_cpu(cpu) {
