@@ -651,9 +651,14 @@ static inline int is_interactive(struct cacule_node *cn)
 	return calc_interactivity(sched_clock(), cn) < interactivity_threshold;
 }
 
-static inline int cn_has_idle_policy(struct cacule_node *se)
+static inline int cn_has_idle_policy(struct cacule_node *cn)
 {
-	return task_has_idle_policy(task_of(se_of(se)));
+	struct sched_entity *se = se_of(cn);
+
+	if (!entity_is_task(se))
+		return false;
+
+	return task_has_idle_policy(task_of(se));
 }
 
 static inline int
