@@ -1167,7 +1167,7 @@ static void update_curr_fair(struct rq *rq)
 static inline void
 update_stats_wait_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	u64 wait_start, prev_wait_start;
 
 	if (!schedstat_enabled())
@@ -1187,7 +1187,7 @@ update_stats_wait_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static inline void
 update_stats_wait_end(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	struct task_struct *p;
 	u64 delta;
 
@@ -1230,7 +1230,7 @@ update_stats_wait_end(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static inline void
 update_stats_enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	struct task_struct *tsk = NULL;
 	u64 sleep_start, block_start;
 
@@ -1303,7 +1303,7 @@ update_stats_enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static inline void
 update_stats_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	if (!schedstat_enabled())
 		return;
 
@@ -1322,7 +1322,7 @@ update_stats_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 static inline void
 update_stats_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	if (!schedstat_enabled())
 		return;
 
@@ -3374,7 +3374,7 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static inline void
 enqueue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	cfs_rq->avg.load_avg += se->avg.load_avg;
 	cfs_rq->avg.load_sum += se_weight(se) * se->avg.load_sum;
 #endif
@@ -3383,7 +3383,7 @@ enqueue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static inline void
 dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	sub_positive(&cfs_rq->avg.load_avg, se->avg.load_avg);
 	sub_positive(&cfs_rq->avg.load_sum, se_weight(se) * se->avg.load_sum);
 #endif
@@ -3687,7 +3687,7 @@ static inline void update_tg_load_avg(struct cfs_rq *cfs_rq)
 void set_task_rq_fair(struct sched_entity *se,
 		      struct cfs_rq *prev, struct cfs_rq *next)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	u64 p_last_update_time;
 	u64 n_last_update_time;
 
@@ -4006,9 +4006,7 @@ static inline void add_tg_cfs_propagate(struct cfs_rq *cfs_rq, long runnable_sum
 static inline int
 update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq)
 {
-#ifdef CONFIG_CACULE_RDB
-	return 0;
-#else
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	unsigned long removed_load = 0, removed_util = 0, removed_runnable = 0;
 	struct sched_avg *sa = &cfs_rq->avg;
 	int decayed = 0;
@@ -4057,7 +4055,7 @@ update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq)
 #endif
 }
 
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 /**
  * attach_entity_load_avg - attach this entity to its cfs_rq load avg
  * @cfs_rq: cfs_rq to attach to
@@ -4153,9 +4151,7 @@ static void detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 /* Update task and its cfs_rq load average */
 static inline void update_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-#ifdef CONFIG_CACULE_RDB
-	cfs_rq_util_change(cfs_rq, 0);
-#else
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	u64 now = cfs_rq_clock_pelt(cfs_rq);
 	int decayed;
 
@@ -4190,7 +4186,7 @@ static inline void update_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 #endif
 }
 
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 #ifndef CONFIG_64BIT
 static inline u64 cfs_rq_last_update_time(struct cfs_rq *cfs_rq)
 {
@@ -4219,7 +4215,7 @@ static inline u64 cfs_rq_last_update_time(struct cfs_rq *cfs_rq)
  */
 static void sync_entity_load_avg(struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	u64 last_update_time;
 
@@ -4234,7 +4230,7 @@ static void sync_entity_load_avg(struct sched_entity *se)
  */
 static void remove_entity_load_avg(struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	unsigned long flags;
 
@@ -4552,7 +4548,7 @@ static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
 
 static inline void check_schedstat_required(void)
 {
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 #ifdef CONFIG_SCHEDSTATS
 	if (schedstat_enabled())
 		return;
@@ -5975,15 +5971,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	if (p->in_iowait)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
-#ifdef CONFIG_CACULE_RDB
-	if (!se->on_rq) {
-		cfs_rq = cfs_rq_of(se);
-		enqueue_entity(cfs_rq, se, flags);
-		cfs_rq->h_nr_running++;
-		cfs_rq->idle_h_nr_running += idle_h_nr_running;
-		update_load_avg(cfs_rq, se, UPDATE_TG);
-	}
-#else
 	for_each_sched_entity(se) {
 		if (se->on_rq)
 			break;
@@ -6021,7 +6008,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
                if (throttled_hierarchy(cfs_rq))
                        list_add_leaf_cfs_rq(cfs_rq);
 	}
-#endif
 
 	/* At this point se is NULL and we are at root level*/
 	add_nr_running(rq, 1);
@@ -6043,7 +6029,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	if (!task_new)
 		update_overutilized_status(rq);
 
-#if !defined(CONFIG_CACULE_RDB)
 enqueue_throttle:
 	if (cfs_bandwidth_used()) {
 		/*
@@ -6059,7 +6044,6 @@ enqueue_throttle:
 				break;
 		}
 	}
-#endif
 
 	assert_list_leaf_cfs_rq(rq);
 
@@ -6080,14 +6064,10 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
 	int task_sleep = flags & DEQUEUE_SLEEP;
-
-#ifdef CONFIG_CACULE_RDB
-	cfs_rq = cfs_rq_of(se);
-	dequeue_entity(cfs_rq, se, flags);
-	cfs_rq->h_nr_running--;
-#else
 	int idle_h_nr_running = task_has_idle_policy(p);
+#if !defined(CONFIG_CACULE_RDB)
 	bool was_sched_idle = sched_idle_rq(rq);
+#endif
 
 	util_est_dequeue(&rq->cfs, p);
 
@@ -6134,7 +6114,6 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 			goto dequeue_throttle;
 
 	}
-#endif
 
 	/* At this point se is NULL and we are at root level*/
 	sub_nr_running(rq, 1);
@@ -6143,9 +6122,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	/* balance early to pull high priority tasks */
 	if (unlikely(!was_sched_idle && sched_idle_rq(rq)))
 		rq->next_balance = jiffies;
+#endif
 
 dequeue_throttle:
-#endif
 	util_est_update(&rq->cfs, p, task_sleep);
 	hrtick_update(rq);
 }
@@ -7385,7 +7364,7 @@ cfs_way:
 #endif /* CONFIG_CACULE_RDB */
 }
 
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 static void detach_entity_cfs_rq(struct sched_entity *se);
 #endif
 
@@ -7424,7 +7403,7 @@ static void migrate_task_rq_fair(struct task_struct *p, int new_cpu)
 	}
 #endif /* CONFIG_CACULE_SCHED */
 
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	if (p->on_rq == TASK_ON_RQ_MIGRATING) {
 		/*
 		 * In case of TASK_ON_RQ_MIGRATING we in fact hold the 'old'
@@ -11965,7 +11944,7 @@ static void propagate_entity_cfs_rq(struct sched_entity *se)
 	}
 }
 #else
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 static void propagate_entity_cfs_rq(struct sched_entity *se) { }
 #endif
 #endif
@@ -11974,15 +11953,12 @@ static void detach_entity_cfs_rq(struct sched_entity *se)
 {
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 	/* Catch up with the cfs_rq and remove our load when we leave */
 	update_load_avg(cfs_rq, se, 0);
 	detach_entity_load_avg(cfs_rq, se);
 	update_tg_load_avg(cfs_rq);
 	propagate_entity_cfs_rq(se);
-
-#else
-	cfs_rq_util_change(cfs_rq, 0);
 #endif
 }
 
@@ -11990,7 +11966,7 @@ static void attach_entity_cfs_rq(struct sched_entity *se)
 {
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 
-#if !defined(CONFIG_CACULE_RDB)
+#if !defined(CONFIG_CACULE_RDB) || defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/*
 	 * Since the real-depth could have been changed (only FAIR
@@ -12004,8 +11980,6 @@ static void attach_entity_cfs_rq(struct sched_entity *se)
 	attach_entity_load_avg(cfs_rq, se);
 	update_tg_load_avg(cfs_rq);
 	propagate_entity_cfs_rq(se);
-#else
-	cfs_rq_util_change(cfs_rq, 0);
 #endif
 }
 
