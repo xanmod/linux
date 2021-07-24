@@ -116,7 +116,7 @@ information on block I/O debugging is in Documentation/admin-guide/laptops/lapto
 
 
 clean_low_kbytes
-=====================
+================
 
 This knob provides *best-effort* protection of clean file pages. The clean file
 pages on the current node won't be reclaimed under memory pressure when their
@@ -134,7 +134,7 @@ The default value is defined by CONFIG_CLEAN_LOW_KBYTES.
 
 
 clean_min_kbytes
-=====================
+================
 
 This knob provides *hard* protection of clean file pages. The clean file pages
 on the current node won't be reclaimed under memory pressure when their amount

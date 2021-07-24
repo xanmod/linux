@@ -313,9 +313,9 @@ static int mt7921_dma_reset(struct mt7921_dev *dev, bool force)
 
 int mt7921_wfsys_reset(struct mt7921_dev *dev)
 {
-	mt76_set(dev, 0x70002600, BIT(0));
-	msleep(200);
-	mt76_clear(dev, 0x70002600, BIT(0));
+	mt76_clear(dev, MT_WFSYS_SW_RST_B, WFSYS_SW_RST_B);
+	msleep(50);
+	mt76_set(dev, MT_WFSYS_SW_RST_B, WFSYS_SW_RST_B);
 
 	if (!__mt76_poll_msec(&dev->mt76, MT_WFSYS_SW_RST_B,
 			      WFSYS_SW_INIT_DONE, WFSYS_SW_INIT_DONE, 500))
@@ -399,6 +399,10 @@ int mt7921_dma_init(struct mt7921_dev *dev)
 	mt76_dma_attach(&dev->mt76);
 
 	ret = mt7921_dma_disable(dev, true);
+	if (ret)
+		return ret;
+
+	ret = mt7921_wfsys_reset(dev);
 	if (ret)
 		return ret;
 

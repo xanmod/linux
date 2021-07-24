@@ -2554,34 +2554,34 @@ static void prepare_scan_count(pg_data_t *pgdat, struct scan_control *sc)
 			file + free <= total_high_wmark &&
 			!(sc->may_deactivate & DEACTIVATE_ANON) &&
 			anon >> sc->priority;
+	}
 
+	/*
+	 * Check the number of clean file pages to protect them from
+	 * reclaiming if their amount is below the specified.
+	 */
+	if (sysctl_clean_low_kbytes || sysctl_clean_min_kbytes) {
+		unsigned long reclaimable_file, dirty, clean;
+
+		reclaimable_file =
+			node_page_state(pgdat, NR_ACTIVE_FILE) +
+			node_page_state(pgdat, NR_INACTIVE_FILE) +
+			node_page_state(pgdat, NR_ISOLATED_FILE);
+		dirty = node_page_state(pgdat, NR_FILE_DIRTY);
 		/*
-		* Check the number of clean file pages to protect them from
-		* reclaiming if their amount is below the specified.
-		*/
-		if (sysctl_clean_low_kbytes || sysctl_clean_min_kbytes) {
-			unsigned long reclaimable_file, dirty, clean;
+		 * node_page_state() sum can go out of sync since
+		 * all the values are not read at once.
+		 */
+		if (likely(reclaimable_file > dirty))
+			clean = (reclaimable_file - dirty) << (PAGE_SHIFT - 10);
+		else
+			clean = 0;
 
-			reclaimable_file =
-				node_page_state(pgdat, NR_ACTIVE_FILE) +
-				node_page_state(pgdat, NR_INACTIVE_FILE) +
-				node_page_state(pgdat, NR_ISOLATED_FILE);
-			dirty = node_page_state(pgdat, NR_FILE_DIRTY);
-			/*
-			* node_page_state() sum can go out of sync since
-			* all the values are not read at once.
-			*/
-			if (likely(reclaimable_file > dirty))
-				clean = (reclaimable_file - dirty) << (PAGE_SHIFT - 10);
-			else
-				clean = 0;
-
-			sc->clean_below_low = clean < sysctl_clean_low_kbytes;
-			sc->clean_below_min = clean < sysctl_clean_min_kbytes;
-		} else {
-			sc->clean_below_low = false;
-			sc->clean_below_min = false;
-		}
+		sc->clean_below_low = clean < sysctl_clean_low_kbytes;
+		sc->clean_below_min = clean < sysctl_clean_min_kbytes;
+	} else {
+		sc->clean_below_low = false;
+		sc->clean_below_min = false;
 	}
 }
 

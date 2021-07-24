@@ -309,7 +309,7 @@ int create_hdev(struct hl_device **dev, struct pci_dev *pdev,
 
 	if (pdev)
 		hdev->asic_prop.fw_security_disabled =
-				!is_asic_secured(pdev->device);
+				!is_asic_secured(hdev->asic_type);
 	else
 		hdev->asic_prop.fw_security_disabled = true;
 
@@ -464,6 +464,7 @@ static int hl_pci_probe(struct pci_dev *pdev,
 	return 0;
 
 disable_device:
+	pci_disable_pcie_error_reporting(pdev);
 	pci_set_drvdata(pdev, NULL);
 	destroy_hdev(hdev);
 

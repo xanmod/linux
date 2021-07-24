@@ -590,6 +590,14 @@ enum {
 	UNI_OFFLOAD_OFFLOAD_BMC_RPY_DETECT,
 };
 
+#define UNI_WOW_DETECT_TYPE_MAGIC		BIT(0)
+#define UNI_WOW_DETECT_TYPE_ANY			BIT(1)
+#define UNI_WOW_DETECT_TYPE_DISCONNECT		BIT(2)
+#define UNI_WOW_DETECT_TYPE_GTK_REKEY_FAIL	BIT(3)
+#define UNI_WOW_DETECT_TYPE_BCN_LOST		BIT(4)
+#define UNI_WOW_DETECT_TYPE_SCH_SCAN_HIT	BIT(5)
+#define UNI_WOW_DETECT_TYPE_BITMAP		BIT(6)
+
 enum {
 	UNI_SUSPEND_MODE_SETTING,
 	UNI_SUSPEND_WOW_CTRL,
@@ -762,7 +770,7 @@ struct mt76_connac_sched_scan_req {
 	u8 intervals_num;
 	u8 scan_func; /* MT7663: BIT(0) eable random mac address */
 	struct mt76_connac_mcu_scan_channel channels[64];
-	__le16 intervals[MT76_CONNAC_MAX_SCHED_SCAN_INTERVAL];
+	__le16 intervals[MT76_CONNAC_MAX_NUM_SCHED_SCAN_INTERVAL];
 	union {
 		struct {
 			u8 random_mac[ETH_ALEN];
@@ -891,6 +899,7 @@ struct mt76_sta_cmd_info {
 
 	struct ieee80211_vif *vif;
 
+	bool offload_fw;
 	bool enable;
 	int cmd;
 	u8 rcpi;

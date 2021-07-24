@@ -223,54 +223,6 @@ static void mt7921_stop(struct ieee80211_hw *hw)
 	mt7921_mutex_release(dev);
 }
 
-static inline int get_free_idx(u32 mask, u8 start, u8 end)
-{
-	return ffs(~mask & GENMASK(end, start));
-}
-
-static int get_omac_idx(enum nl80211_iftype type, u64 mask)
-{
-	int i;
-
-	switch (type) {
-	case NL80211_IFTYPE_STATION:
-		/* prefer hw bssid slot 1-3 */
-		i = get_free_idx(mask, HW_BSSID_1, HW_BSSID_3);
-		if (i)
-			return i - 1;
-
-		/* next, try to find a free repeater entry for the sta */
-		i = get_free_idx(mask >> REPEATER_BSSID_START, 0,
-				 REPEATER_BSSID_MAX - REPEATER_BSSID_START);
-		if (i)
-			return i + 32 - 1;
-
-		i = get_free_idx(mask, EXT_BSSID_1, EXT_BSSID_MAX);
-		if (i)
-			return i - 1;
-
-		if (~mask & BIT(HW_BSSID_0))
-			return HW_BSSID_0;
-
-		break;
-	case NL80211_IFTYPE_MONITOR:
-		/* ap uses hw bssid 0 and ext bssid */
-		if (~mask & BIT(HW_BSSID_0))
-			return HW_BSSID_0;
-
-		i = get_free_idx(mask, EXT_BSSID_1, EXT_BSSID_MAX);
-		if (i)
-			return i - 1;
-
-		break;
-	default:
-		WARN_ON(1);
-		break;
-	}
-
-	return -1;
-}
-
 static int mt7921_add_interface(struct ieee80211_hw *hw,
 				struct ieee80211_vif *vif)
 {
@@ -292,12 +244,7 @@ static int mt7921_add_interface(struct ieee80211_hw *hw,
 		goto out;
 	}
 
-	idx = get_omac_idx(vif->type, phy->omac_mask);
-	if (idx < 0) {
-		ret = -ENOSPC;
-		goto out;
-	}
-	mvif->mt76.omac_idx = idx;
+	mvif->mt76.omac_idx = mvif->mt76.idx;
 	mvif->phy = phy;
 	mvif->mt76.band_idx = 0;
 	mvif->mt76.wmm_idx = mvif->mt76.idx % MT7921_MAX_WMM_SETS;
@@ -429,6 +376,10 @@ static int mt7921_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		key->flags |= IEEE80211_KEY_FLAG_GENERATE_MMIE;
 		wcid_keyidx = &wcid->hw_key_idx2;
 		break;
+	case WLAN_CIPHER_SUITE_WEP40:
+	case WLAN_CIPHER_SUITE_WEP104:
+		if (!mvif->wep_sta)
+			return -EOPNOTSUPP;
 	case WLAN_CIPHER_SUITE_TKIP:
 	case WLAN_CIPHER_SUITE_CCMP:
 	case WLAN_CIPHER_SUITE_CCMP_256:
@@ -436,8 +387,6 @@ static int mt7921_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	case WLAN_CIPHER_SUITE_GCMP_256:
 	case WLAN_CIPHER_SUITE_SMS4:
 		break;
-	case WLAN_CIPHER_SUITE_WEP40:
-	case WLAN_CIPHER_SUITE_WEP104:
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -455,6 +404,12 @@ static int mt7921_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 			    cmd == SET_KEY ? key : NULL);
 
 	err = mt7921_mcu_add_key(dev, vif, msta, key, cmd);
+	if (err)
+		goto out;
+
+	if (key->cipher == WLAN_CIPHER_SUITE_WEP104 ||
+	    key->cipher == WLAN_CIPHER_SUITE_WEP40)
+		err = mt7921_mcu_add_key(dev, vif, mvif->wep_sta, key, cmd);
 out:
 	mt7921_mutex_release(dev);
 
@@ -661,9 +616,12 @@ int mt7921_mac_sta_add(struct mt76_dev *mdev, struct ieee80211_vif *vif,
 	if (ret)
 		return ret;
 
-	if (vif->type == NL80211_IFTYPE_STATION && !sta->tdls)
-		mt76_connac_mcu_uni_add_bss(&dev->mphy, vif, &mvif->sta.wcid,
-					    true);
+	if (vif->type == NL80211_IFTYPE_STATION) {
+		mvif->wep_sta = msta;
+		if (!sta->tdls)
+			mt76_connac_mcu_uni_add_bss(&dev->mphy, vif,
+						    &mvif->sta.wcid, true);
+	}
 
 	mt7921_mac_wtbl_update(dev, idx,
 			       MT_WTBL_UPDATE_ADM_COUNT_CLEAR);
@@ -693,6 +651,7 @@ void mt7921_mac_sta_remove(struct mt76_dev *mdev, struct ieee80211_vif *vif,
 	if (vif->type == NL80211_IFTYPE_STATION) {
 		struct mt7921_vif *mvif = (struct mt7921_vif *)vif->drv_priv;
 
+		mvif->wep_sta = NULL;
 		ewma_rssi_init(&mvif->rssi);
 		if (!sta->tdls)
 			mt76_connac_mcu_uni_add_bss(&dev->mphy, vif,

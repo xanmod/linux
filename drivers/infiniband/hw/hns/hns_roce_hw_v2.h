@@ -248,6 +248,7 @@ enum hns_roce_opcode_type {
 	HNS_ROCE_OPC_CLR_SCCC				= 0x8509,
 	HNS_ROCE_OPC_QUERY_SCCC				= 0x850a,
 	HNS_ROCE_OPC_RESET_SCCC				= 0x850b,
+	HNS_ROCE_OPC_CLEAR_EXTDB_LIST_INFO		= 0x850d,
 	HNS_ROCE_OPC_QUERY_VF_RES			= 0x850e,
 	HNS_ROCE_OPC_CFG_GMV_TBL			= 0x850f,
 	HNS_ROCE_OPC_CFG_GMV_BT				= 0x8510,
@@ -963,6 +964,7 @@ struct hns_roce_v2_qp_context {
 #define QPCEX_CONG_ALG_SUB_SEL QPCEX_FIELD_LOC(1, 1)
 #define QPCEX_DIP_CTX_IDX_VLD QPCEX_FIELD_LOC(2, 2)
 #define QPCEX_DIP_CTX_IDX QPCEX_FIELD_LOC(22, 3)
+#define QPCEX_SQ_RQ_NOT_FORBID_EN QPCEX_FIELD_LOC(23, 23)
 #define QPCEX_STASH QPCEX_FIELD_LOC(82, 82)
 
 #define	V2_QP_RWE_S 1 /* rdma write enable */
@@ -1642,6 +1644,7 @@ struct hns_roce_congestion_algorithm {
 	u8 alg_sel;
 	u8 alg_sub_sel;
 	u8 dip_vld;
+	u8 wnd_mode_sel;
 };
 
 #define V2_QUERY_PF_CAPS_D_CEQ_DEPTH_S 0

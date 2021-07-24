@@ -3173,7 +3173,7 @@ int btrfs_sync_log(struct btrfs_trans_handle *trans,
 		if (!log_root_tree->node) {
 			ret = btrfs_alloc_log_tree_node(trans, log_root_tree);
 			if (ret) {
-				mutex_unlock(&fs_info->tree_log_mutex);
+				mutex_unlock(&fs_info->tree_root->log_mutex);
 				goto out;
 			}
 		}
@@ -6371,6 +6371,7 @@ next:
 error:
 	if (wc.trans)
 		btrfs_end_transaction(wc.trans);
+	clear_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags);
 	btrfs_free_path(path);
 	return ret;
 }
