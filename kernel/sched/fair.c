@@ -6215,7 +6215,6 @@ static int wake_wide(struct task_struct *p)
 }
 #endif /* CONFIG_CACULE_SCHED */
 
-#if !defined(CONFIG_CACULE_RDB)
 /*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
  * soonest. For the purpose of speed we only consider the waking and previous
@@ -6317,7 +6316,6 @@ static int wake_affine(struct sched_domain *sd, struct task_struct *p,
 	schedstat_inc(p->se.statistics.nr_wakeups_affine);
 	return target;
 }
-#endif
 
 static struct sched_group *
 find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu);
