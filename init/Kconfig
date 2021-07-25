@@ -938,6 +938,7 @@ config PAGE_COUNTER
 
 config MEMCG
 	bool "Memory controller"
+	depends on !PREEMPT_RT
 	select PAGE_COUNTER
 	select EVENTFD
 	help
