@@ -29,13 +29,6 @@
 #ifdef CONFIG_CACULE_SCHED
 unsigned int __read_mostly cacule_max_lifetime		= 22000; // in ms
 unsigned int __read_mostly interactivity_factor		= 32768;
-
-#ifdef CONFIG_FAIR_GROUP_SCHED
-unsigned int __read_mostly interactivity_threshold	= 0;
-#else
-unsigned int __read_mostly interactivity_threshold	= 1000;
-#endif
-
 #endif
 
 /*
@@ -643,14 +636,6 @@ calc_interactivity(u64 now, struct cacule_node *se)
 	return score_se;
 }
 
-static inline int is_interactive(struct cacule_node *cn)
-{
-	if (!interactivity_threshold || se_of(cn)->vruntime == 0)
-		return 0;
-
-	return calc_interactivity(sched_clock(), cn) < interactivity_threshold;
-}
-
 static inline int cn_has_idle_policy(struct cacule_node *cn)
 {
 	struct sched_entity *se = se_of(cn);
@@ -1167,7 +1152,6 @@ static void update_curr_fair(struct rq *rq)
 static inline void
 update_stats_wait_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	u64 wait_start, prev_wait_start;
 
 	if (!schedstat_enabled())
@@ -1181,13 +1165,11 @@ update_stats_wait_start(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		wait_start -= prev_wait_start;
 
 	__schedstat_set(se->statistics.wait_start, wait_start);
-#endif
 }
 
 static inline void
 update_stats_wait_end(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct task_struct *p;
 	u64 delta;
 
@@ -1224,13 +1206,11 @@ update_stats_wait_end(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	__schedstat_inc(se->statistics.wait_count);
 	__schedstat_add(se->statistics.wait_sum, delta);
 	__schedstat_set(se->statistics.wait_start, 0);
-#endif
 }
 
 static inline void
 update_stats_enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct task_struct *tsk = NULL;
 	u64 sleep_start, block_start;
 
@@ -1294,7 +1274,6 @@ update_stats_enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 			account_scheduler_latency(tsk, delta >> 10, 0);
 		}
 	}
-#endif
 }
 
 /*
@@ -1303,7 +1282,6 @@ update_stats_enqueue_sleeper(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static inline void
 update_stats_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	if (!schedstat_enabled())
 		return;
 
@@ -1316,13 +1294,11 @@ update_stats_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	if (flags & ENQUEUE_WAKEUP)
 		update_stats_enqueue_sleeper(cfs_rq, se);
-#endif
 }
 
 static inline void
 update_stats_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	if (!schedstat_enabled())
 		return;
 
@@ -1343,7 +1319,6 @@ update_stats_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 			__schedstat_set(se->statistics.block_start,
 				      rq_clock(rq_of(cfs_rq)));
 	}
-#endif
 }
 
 /*
@@ -3374,19 +3349,15 @@ account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static inline void
 enqueue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	cfs_rq->avg.load_avg += se->avg.load_avg;
 	cfs_rq->avg.load_sum += se_weight(se) * se->avg.load_sum;
-#endif
 }
 
 static inline void
 dequeue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	sub_positive(&cfs_rq->avg.load_avg, se->avg.load_avg);
 	sub_positive(&cfs_rq->avg.load_sum, se_weight(se) * se->avg.load_sum);
-#endif
 }
 #else
 static inline void
@@ -3687,7 +3658,6 @@ static inline void update_tg_load_avg(struct cfs_rq *cfs_rq)
 void set_task_rq_fair(struct sched_entity *se,
 		      struct cfs_rq *prev, struct cfs_rq *next)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	u64 p_last_update_time;
 	u64 n_last_update_time;
 
@@ -3727,7 +3697,6 @@ void set_task_rq_fair(struct sched_entity *se,
 #endif
 	__update_load_avg_blocked_se(p_last_update_time, se);
 	se->avg.last_update_time = n_last_update_time;
-#endif
 }
 
 
@@ -4006,9 +3975,6 @@ static inline void add_tg_cfs_propagate(struct cfs_rq *cfs_rq, long runnable_sum
 static inline int
 update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq)
 {
-#ifdef CONFIG_CACULE_RDB
-	return 0;
-#else
 	unsigned long removed_load = 0, removed_util = 0, removed_runnable = 0;
 	struct sched_avg *sa = &cfs_rq->avg;
 	int decayed = 0;
@@ -4054,10 +4020,8 @@ update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq)
 #endif
 
 	return decayed;
-#endif
 }
 
-#if !defined(CONFIG_CACULE_RDB)
 /**
  * attach_entity_load_avg - attach this entity to its cfs_rq load avg
  * @cfs_rq: cfs_rq to attach to
@@ -4141,7 +4105,6 @@ static void detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 
 	trace_pelt_cfs_tp(cfs_rq);
 }
-#endif
 
 /*
  * Optional action to be done while updating the load average
@@ -4153,7 +4116,6 @@ static void detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 /* Update task and its cfs_rq load average */
 static inline void update_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	u64 now = cfs_rq_clock_pelt(cfs_rq);
 	int decayed;
 
@@ -4185,10 +4147,8 @@ static inline void update_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 		if (flags & UPDATE_TG)
 			update_tg_load_avg(cfs_rq);
 	}
-#endif
 }
 
-#if !defined(CONFIG_CACULE_RDB)
 #ifndef CONFIG_64BIT
 static inline u64 cfs_rq_last_update_time(struct cfs_rq *cfs_rq)
 {
@@ -4209,7 +4169,6 @@ static inline u64 cfs_rq_last_update_time(struct cfs_rq *cfs_rq)
 	return cfs_rq->avg.last_update_time;
 }
 #endif
-#endif
 
 /*
  * Synchronize entity load avg of dequeued entity without locking
@@ -4217,13 +4176,11 @@ static inline u64 cfs_rq_last_update_time(struct cfs_rq *cfs_rq)
  */
 static void sync_entity_load_avg(struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	u64 last_update_time;
 
 	last_update_time = cfs_rq_last_update_time(cfs_rq);
 	__update_load_avg_blocked_se(last_update_time, se);
-#endif
 }
 
 /*
@@ -4232,7 +4189,6 @@ static void sync_entity_load_avg(struct sched_entity *se)
  */
 static void remove_entity_load_avg(struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	unsigned long flags;
 
@@ -4250,7 +4206,6 @@ static void remove_entity_load_avg(struct sched_entity *se)
 	cfs_rq->removed.load_avg	+= se->avg.load_avg;
 	cfs_rq->removed.runnable_avg	+= se->avg.runnable_avg;
 	raw_spin_unlock_irqrestore(&cfs_rq->removed.lock, flags);
-#endif
 }
 
 static inline unsigned long cfs_rq_runnable_avg(struct cfs_rq *cfs_rq)
@@ -4550,7 +4505,6 @@ static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
 
 static inline void check_schedstat_required(void)
 {
-#if !defined(CONFIG_CACULE_RDB)
 #ifdef CONFIG_SCHEDSTATS
 	if (schedstat_enabled())
 		return;
@@ -4566,7 +4520,6 @@ static inline void check_schedstat_required(void)
 			     "kernel parameter schedstats=enable or "
 			     "kernel.sched_schedstats=1\n");
 	}
-#endif
 #endif
 }
 
@@ -5954,9 +5907,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
-#if !defined(CONFIG_CACULE_RDB)
 	int idle_h_nr_running = task_has_idle_policy(p);
-#endif
 	int task_new = !(flags & ENQUEUE_WAKEUP);
 
 	/*
@@ -5975,13 +5926,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	if (p->in_iowait)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
-#ifdef CONFIG_CACULE_RDB
-	if (!se->on_rq) {
-		cfs_rq = cfs_rq_of(se);
-		enqueue_entity(cfs_rq, se, flags);
-		cfs_rq->h_nr_running++;
-	}
-#else
 	for_each_sched_entity(se) {
 		if (se->on_rq)
 			break;
@@ -6019,7 +5963,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
                if (throttled_hierarchy(cfs_rq))
                        list_add_leaf_cfs_rq(cfs_rq);
 	}
-#endif
 
 	/* At this point se is NULL and we are at root level*/
 	add_nr_running(rq, 1);
@@ -6041,7 +5984,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	if (!task_new)
 		update_overutilized_status(rq);
 
-#if !defined(CONFIG_CACULE_RDB)
 enqueue_throttle:
 	if (cfs_bandwidth_used()) {
 		/*
@@ -6057,7 +5999,6 @@ enqueue_throttle:
 				break;
 		}
 	}
-#endif
 
 	assert_list_leaf_cfs_rq(rq);
 
@@ -6078,14 +6019,10 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
 	int task_sleep = flags & DEQUEUE_SLEEP;
-
-#ifdef CONFIG_CACULE_RDB
-	cfs_rq = cfs_rq_of(se);
-	dequeue_entity(cfs_rq, se, flags);
-	cfs_rq->h_nr_running--;
-#else
 	int idle_h_nr_running = task_has_idle_policy(p);
+#if !defined(CONFIG_CACULE_RDB)
 	bool was_sched_idle = sched_idle_rq(rq);
+#endif
 
 	util_est_dequeue(&rq->cfs, p);
 
@@ -6132,7 +6069,6 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 			goto dequeue_throttle;
 
 	}
-#endif
 
 	/* At this point se is NULL and we are at root level*/
 	sub_nr_running(rq, 1);
@@ -6141,9 +6077,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	/* balance early to pull high priority tasks */
 	if (unlikely(!was_sched_idle && sched_idle_rq(rq)))
 		rq->next_balance = jiffies;
+#endif
 
 dequeue_throttle:
-#endif
 	util_est_update(&rq->cfs, p, task_sleep);
 	hrtick_update(rq);
 }
@@ -6279,7 +6215,6 @@ static int wake_wide(struct task_struct *p)
 }
 #endif /* CONFIG_CACULE_SCHED */
 
-#if !defined(CONFIG_CACULE_RDB)
 /*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
  * soonest. For the purpose of speed we only consider the waking and previous
@@ -6381,7 +6316,6 @@ static int wake_affine(struct sched_domain *sd, struct task_struct *p,
 	schedstat_inc(p->se.statistics.nr_wakeups_affine);
 	return target;
 }
-#endif
 
 static struct sched_group *
 find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu);
@@ -7239,56 +7173,6 @@ fail:
 }
 #endif /* CONFIG_CACULE_SCHED */
 
-#ifdef CONFIG_CACULE_SCHED
-static int
-find_least_IS_cpu(struct task_struct *p)
-{
-	struct cfs_rq *cfs_rq;
-	unsigned int max_IS = 0;
-	unsigned int IS, IS_c, IS_h;
-	struct sched_entity *curr_se;
-	struct cacule_node *cn, *head;
-	int cpu_i;
-	int new_cpu = -1;
-
-	for_each_online_cpu(cpu_i) {
-		if (!cpumask_test_cpu(cpu_i, p->cpus_ptr))
-			continue;
-
-		cn = NULL;
-		cfs_rq = &cpu_rq(cpu_i)->cfs;
-
-		curr_se = cfs_rq->curr;
-		head = cfs_rq->head;
-
-		if (!curr_se && head)
-			cn = head;
-		else if (curr_se && !head)
-			cn = &curr_se->cacule_node;
-		else if (curr_se && head) {
-			IS_c = calc_interactivity(sched_clock(), &curr_se->cacule_node);
-			IS_h = calc_interactivity(sched_clock(), head);
-
-			IS = IS_c > IS_h? IS_c : IS_h;
-			goto compare;
-		}
-
-		if (!cn)
-			return cpu_i;
-
-		IS = calc_interactivity(sched_clock(), cn);
-
-compare:
-		if (IS > max_IS) {
-			max_IS = IS;
-			new_cpu = cpu_i;
-		}
-	}
-
-	return new_cpu;
-}
-#endif
-
 /*
  * select_task_rq_fair: Select target runqueue for the waking task in domains
  * that have the relevant SD flag set. In practice, this is SD_BALANCE_WAKE,
@@ -7304,36 +7188,15 @@ compare:
 static int
 select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	int sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 	struct sched_domain *tmp, *sd = NULL;
 	int cpu = smp_processor_id();
+	int new_cpu = prev_cpu;
 	int want_affine = 0;
 	/* SD_flags and WF_flags share the first nibble */
 	int sd_flag = wake_flags & 0xF;
-#endif
-	int new_cpu = prev_cpu;
 
-#ifdef CONFIG_CACULE_SCHED
-	struct sched_entity *se = &p->se;
-
-	if (!is_interactive(&se->cacule_node))
-		goto cfs_way;
-
-	// check first if the prev cpu
-	// has 0 tasks
-	if (cpumask_test_cpu(prev_cpu, p->cpus_ptr) &&
-	    cpu_rq(prev_cpu)->cfs.nr_running == 0)
-		return prev_cpu;
-
-	new_cpu = find_least_IS_cpu(p);
-
-	if (new_cpu != -1)
-		return new_cpu;
-
-	new_cpu = prev_cpu;
-cfs_way:
-#else /* CONFIG_CACULE_SCHED */
+#if !defined(CONFIG_CACULE_SCHED)
 	if (wake_flags & WF_TTWU) {
 		record_wakee(p);
 
@@ -7348,9 +7211,6 @@ cfs_way:
 	}
 #endif /* CONFIG_CACULE_SCHED */
 
-#ifdef CONFIG_CACULE_RDB
-	return select_idle_sibling(p, prev_cpu, prev_cpu);
-#else
 	rcu_read_lock();
 	for_each_domain(cpu, tmp) {
 		/*
@@ -7385,12 +7245,9 @@ cfs_way:
 	rcu_read_unlock();
 
 	return new_cpu;
-#endif /* CONFIG_CACULE_RDB */
 }
 
-#if !defined(CONFIG_CACULE_RDB)
 static void detach_entity_cfs_rq(struct sched_entity *se);
-#endif
 
 /*
  * Called immediately before a task is migrated to a new CPU; task_cpu(p) and
@@ -7427,7 +7284,6 @@ static void migrate_task_rq_fair(struct task_struct *p, int new_cpu)
 	}
 #endif /* CONFIG_CACULE_SCHED */
 
-#if !defined(CONFIG_CACULE_RDB)
 	if (p->on_rq == TASK_ON_RQ_MIGRATING) {
 		/*
 		 * In case of TASK_ON_RQ_MIGRATING we in fact hold the 'old'
@@ -7447,7 +7303,6 @@ static void migrate_task_rq_fair(struct task_struct *p, int new_cpu)
 		 */
 		remove_entity_load_avg(&p->se);
 	}
-#endif
 
 	/* Tell new CPU we are migrated */
 	p->se.avg.last_update_time = 0;
@@ -10988,7 +10843,6 @@ out:
 	WRITE_ONCE(nohz.has_blocked, 1);
 }
 
-#if !defined(CONFIG_CACULE_RDB)
 static bool update_nohz_stats(struct rq *rq)
 {
 	unsigned int cpu = rq->cpu;
@@ -11002,10 +10856,16 @@ static bool update_nohz_stats(struct rq *rq)
 	if (!time_after(jiffies, READ_ONCE(rq->last_blocked_load_update_tick)))
 		return true;
 
+#if !defined(CONFIG_CACULE_RDB)
 	update_blocked_averages(cpu);
+#endif
 
 	return rq->has_blocked_load;
 }
+
+#ifdef CONFIG_CACULE_RDB
+static int idle_try_pull_any(struct cfs_rq *cfs_rq);
+#endif
 
 /*
  * Internal function that runs load balance for all idle cpus. The load balance
@@ -11076,7 +10936,11 @@ static void _nohz_idle_balance(struct rq *this_rq, unsigned int flags,
 			rq_unlock_irqrestore(rq, &rf);
 
 			if (flags & NOHZ_BALANCE_KICK)
+#if !defined(CONFIG_CACULE_RDB)
 				rebalance_domains(rq, CPU_IDLE);
+#else
+				idle_try_pull_any(&rq->cfs);
+#endif
 		}
 
 		if (time_after(next_balance, rq->next_balance)) {
@@ -11102,6 +10966,7 @@ abort:
 		WRITE_ONCE(nohz.has_blocked, 1);
 }
 
+#if !defined(CONFIG_CACULE_RDB)
 /*
  * In CONFIG_NO_HZ_COMMON case, the idle balance kickee will do the
  * rebalancing for all the cpus for whom scheduler ticks are stopped.
@@ -11122,6 +10987,7 @@ static bool nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle)
 
 	return true;
 }
+#endif
 
 /*
  * Check if we need to run the ILB for updating blocked load before entering
@@ -11169,7 +11035,6 @@ static void nohz_newidle_balance(struct rq *this_rq)
 	 */
 	atomic_or(NOHZ_NEWILB_KICK, nohz_flags(this_cpu));
 }
-#endif
 
 #else /* !CONFIG_NO_HZ_COMMON */
 #if !defined(CONFIG_CACULE_RDB)
@@ -11257,8 +11122,8 @@ find_max_IS_rq(struct cfs_rq *cfs_rq, int dst_cpu)
 {
 	struct rq *tmp_rq, *max_rq = NULL;
 	int cpu;
-	u32 max_IS = cfs_rq->IS_head;
-	u32 local_IS;
+	unsigned int max_IS = cfs_rq->IS_head;
+	unsigned int local_IS;
 
 	// find max hrrn
 	for_each_online_cpu(cpu) {
@@ -11407,6 +11272,8 @@ out:
 
 	if (pulled_task)
 		this_rq->idle_stamp = 0;
+	else
+		nohz_newidle_balance(this_rq);
 
 	rq_repin_lock(this_rq, rf);
 
@@ -11956,12 +11823,9 @@ static void propagate_entity_cfs_rq(struct sched_entity *se)
 	}
 }
 #else
-#if !defined(CONFIG_CACULE_RDB)
 static void propagate_entity_cfs_rq(struct sched_entity *se) { }
 #endif
-#endif
 
-#if !defined(CONFIG_CACULE_RDB)
 static void detach_entity_cfs_rq(struct sched_entity *se)
 {
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
@@ -11972,11 +11836,9 @@ static void detach_entity_cfs_rq(struct sched_entity *se)
 	update_tg_load_avg(cfs_rq);
 	propagate_entity_cfs_rq(se);
 }
-#endif
 
 static void attach_entity_cfs_rq(struct sched_entity *se)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -11992,12 +11854,10 @@ static void attach_entity_cfs_rq(struct sched_entity *se)
 	attach_entity_load_avg(cfs_rq, se);
 	update_tg_load_avg(cfs_rq);
 	propagate_entity_cfs_rq(se);
-#endif
 }
 
 static void detach_task_cfs_rq(struct task_struct *p)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct sched_entity *se = &p->se;
 
 #if !defined(CONFIG_CACULE_SCHED)
@@ -12014,12 +11874,10 @@ static void detach_task_cfs_rq(struct task_struct *p)
 #endif
 
 	detach_entity_cfs_rq(se);
-#endif
 }
 
 static void attach_task_cfs_rq(struct task_struct *p)
 {
-#if !defined(CONFIG_CACULE_RDB)
 	struct sched_entity *se = &p->se;
 
 #if !defined(CONFIG_CACULE_SCHED)
@@ -12031,7 +11889,6 @@ static void attach_task_cfs_rq(struct task_struct *p)
 #if !defined(CONFIG_CACULE_SCHED)
 	if (!vruntime_normalized(p))
 		se->vruntime += cfs_rq->min_vruntime;
-#endif
 #endif
 }
 
