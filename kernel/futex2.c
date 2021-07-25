@@ -14,7 +14,7 @@
  */
 
 #include <linux/freezer.h>
-#include <linux/pagemap.h>
+#include <linux/hugetlb.h>
 #include <linux/jhash.h>
 #include <linux/memblock.h>
 #include <linux/pagemap.h>
