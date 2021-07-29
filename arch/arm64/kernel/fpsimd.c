@@ -1033,6 +1033,7 @@ void fpsimd_thread_switch(struct task_struct *next)
 void fpsimd_flush_thread(void)
 {
 	int vl, supported_vl;
+	void *sve_state = NULL;
 
 	if (!system_supports_fpsimd())
 		return;
@@ -1045,7 +1046,10 @@ void fpsimd_flush_thread(void)
 
 	if (system_supports_sve()) {
 		clear_thread_flag(TIF_SVE);
-		sve_free(current);
+
+		/* Defer kfree() while in atomic context */
+		sve_state = current->thread.sve_state;
+		current->thread.sve_state = NULL;
 
 		/*
 		 * Reset the task vector length as required.
@@ -1079,6 +1083,7 @@ void fpsimd_flush_thread(void)
 	}
 
 	put_cpu_fpsimd_context();
+	kfree(sve_state);
 }
 
 /*
