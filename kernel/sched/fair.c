@@ -1066,7 +1066,7 @@ static void update_tg_load_avg(struct cfs_rq *cfs_rq)
 static void normalize_lifetime(u64 now, struct sched_entity *se)
 {
 	struct cacule_node *cn = &se->cacule_node;
-	u64 max_life_ns, life_time;
+	u64 max_life_ns, life_time, old_hrrn_x;
 	s64 diff;
 
 	/*
@@ -1079,8 +1079,12 @@ static void normalize_lifetime(u64 now, struct sched_entity *se)
 	diff		= life_time - max_life_ns;
 
 	if (diff > 0) {
+		// unmark YIELD. No need to check or remark since
+		// this normalize action doesn't happen very often
+		cn->vruntime &= YIELD_UNMARK;
+
 		// multiply life_time by 1024 for more precision
-		u64 old_hrrn_x	= (life_time << 7) / ((cn->vruntime >> 3) | 1);
+		old_hrrn_x = (life_time << 7) / ((cn->vruntime >> 3) | 1);
 
 		// reset life to half max_life (i.e ~15s)
 		cn->cacule_start_time = now - (max_life_ns >> 1);
@@ -4917,6 +4921,11 @@ static void put_prev_entity(struct cfs_rq *cfs_rq, struct sched_entity *prev)
 		/* in !on_rq case, update occurred at dequeue */
 		update_load_avg(cfs_rq, prev, 0);
 	}
+
+#ifdef CONFIG_CACULE_SCHED
+	prev->cacule_node.vruntime &= YIELD_UNMARK;
+#endif
+
 	cfs_rq->curr = NULL;
 }
 

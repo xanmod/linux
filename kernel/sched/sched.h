@@ -159,6 +159,11 @@ extern void call_trace_sched_update_nr_running(struct rq *rq, int count);
  */
 #define RUNTIME_INF		((u64)~0ULL)
 
+#ifdef CONFIG_CACULE_SCHED
+#define YIELD_MARK	0x8000000000000000ULL
+#define YIELD_UNMARK	0x7FFFFFFFFFFFFFFFULL
+#endif
+
 static inline int idle_policy(int policy)
 {
 	return policy == SCHED_IDLE;
