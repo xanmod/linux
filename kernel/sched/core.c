@@ -82,6 +82,10 @@ const_debug unsigned int sysctl_sched_nr_migrate = 32;
  */
 unsigned int sysctl_sched_rt_period = 1000000;
 
+#ifdef CONFIG_CACULE_SCHED
+int __read_mostly cacule_yield = 1;
+#endif
+
 __read_mostly int scheduler_running;
 
 /*
@@ -6974,6 +6978,13 @@ static void do_sched_yield(void)
 	struct rq_flags rf;
 	struct rq *rq;
 
+#ifdef CONFIG_CACULE_SCHED
+	struct task_struct *curr = current;
+	struct cacule_node *cn = &curr->se.cacule_node;
+
+	if (cacule_yield)
+		cn->vruntime |= YIELD_MARK;
+#endif
 	rq = this_rq_lock_irq(&rf);
 
 	schedstat_inc(rq->yld_count);
