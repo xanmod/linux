@@ -1,10 +1,10 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.13.6 Kernel Configuration
+# Linux/x86 5.13.7 Kernel Configuration
 #
-CONFIG_CC_VERSION_TEXT="gcc-11 (Debian 11.1.0-4) 11.1.0"
+CONFIG_CC_VERSION_TEXT="gcc-11 (Debian 11.2.0-1) 11.2.0"
 CONFIG_CC_IS_GCC=y
-CONFIG_GCC_VERSION=110100
+CONFIG_GCC_VERSION=110200
 CONFIG_CLANG_VERSION=0
 CONFIG_AS_IS_GNU=y
 CONFIG_AS_VERSION=23502
