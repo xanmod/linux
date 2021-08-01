@@ -245,6 +245,15 @@ config IP_NF_TARGET_NETMAP
 	(e.g. when running oldconfig). It selects
 	CONFIG_NETFILTER_XT_TARGET_NETMAP.
 
+config IP_NF_TARGET_FULLCONENAT
+        tristate "FULLCONENAT target support"
+        depends on NETFILTER_ADVANCED
+        select NETFILTER_XT_TARGET_FULLCONENAT
+        help
+        This is a backwards-compat option for the user's convenience
+        (e.g. when running oldconfig). It selects
+        CONFIG_NETFILTER_XT_TARGET_FULLCONENAT.
+
 config IP_NF_TARGET_REDIRECT
 	tristate "REDIRECT target support"
 	depends on NETFILTER_ADVANCED
