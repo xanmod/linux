@@ -323,4 +323,174 @@ config LRNG_KCAPI
 	  provided by the selected kernel crypto API RNG.
 endif # LRNG_DRNG_SWITCH
 
+menuconfig LRNG_TESTING_MENU
+	bool "LRNG testing interfaces"
+	depends on DEBUG_FS
+	help
+	  Enable one or more of the following test interfaces.
+
+	  If unsure, say N.
+
+if LRNG_TESTING_MENU
+
+config LRNG_RAW_HIRES_ENTROPY
+	bool "Enable entropy test interface to hires timer noise source"
+	default y
+	help
+	  The test interface allows a privileged process to capture
+	  the raw unconditioned high resolution time stamp noise that
+	  is collected by the LRNG for statistical analysis. Extracted
+	  noise data is not used to seed the LRNG.
+
+	  The raw noise data can be obtained using the lrng_raw_hires
+	  debugfs file. Using the option lrng_testing.boot_raw_hires_test=1
+	  the raw noise of the first 1000 entropy events since boot
+	  can be sampled.
+
+config LRNG_RAW_JIFFIES_ENTROPY
+	bool "Enable entropy test interface to Jiffies noise source"
+	help
+	  The test interface allows a privileged process to capture
+	  the raw unconditioned Jiffies that is collected by
+	  the LRNG for statistical analysis. This data is used for
+	  seeding the LRNG if a high-resolution time stamp is not
+	  available. If a high-resolution time stamp is detected,
+	  the Jiffies value is not collected by the LRNG and no
+	  data is provided via the test interface. Extracted noise
+	  data is not used to seed the random number generator.
+
+	  The raw noise data can be obtained using the lrng_raw_jiffies
+	  debugfs file. Using the option lrng_testing.boot_raw_jiffies_test=1
+	  the raw noise of the first 1000 entropy events since boot
+	  can be sampled.
+
+config LRNG_RAW_IRQ_ENTROPY
+	bool "Enable entropy test interface to IRQ number noise source"
+	help
+	  The test interface allows a privileged process to capture
+	  the raw unconditioned interrupt number that is collected by
+	  the LRNG for statistical analysis. This data is used for
+	  seeding the random32 PRNG external to the LRNG if a
+	  high-resolution time stamp is available or it will be used to
+	  seed the LRNG otherwise. Extracted noise data is not used to
+	  seed the random number generator.
+
+	  The raw noise data can be obtained using the lrng_raw_irq
+	  debugfs file. Using the option lrng_testing.boot_raw_irq_test=1
+	  the raw noise of the first 1000 entropy events since boot
+	  can be sampled.
+
+config LRNG_RAW_IRQFLAGS_ENTROPY
+	bool "Enable entropy test interface to IRQ flags noise source"
+	help
+	  The test interface allows a privileged process to capture
+	  the raw unconditioned interrupt flags that is collected by
+	  the LRNG for statistical analysis. This data is used for
+	  seeding the random32 PRNG external to the LRNG if a
+	  high-resolution time stamp is available or it will be used to
+	  seed the LRNG otherwise. Extracted noise data is not used to
+	  seed the random number generator.
+
+	  The raw noise data can be obtained using the lrng_raw_irqflags
+	  debugfs file. Using the option lrng_testing.boot_raw_irqflags_test=1
+	  the raw noise of the first 1000 entropy events since boot
+	  can be sampled.
+
+config LRNG_RAW_RETIP_ENTROPY
+	bool "Enable entropy test interface to RETIP value noise source"
+	help
+	  The test interface allows a privileged process to capture
+	  the raw unconditioned return instruction pointer value
+	  that is collected by the LRNG for statistical analysis.
+	  This data is used for seeding the random32 PRNG external
+	  to the LRNG if a high-resolution time stamp is available or
+	  it will be used to seed the LRNG otherwise. Extracted noise
+	  data is not used to seed the random number generator.
+
+	  The raw noise data can be obtained using the lrng_raw_retip
+	  debugfs file. Using the option lrng_testing.boot_raw_retip_test=1
+	  the raw noise of the first 1000 entropy events since boot
+	  can be sampled.
+
+config LRNG_RAW_REGS_ENTROPY
+	bool "Enable entropy test interface to IRQ register value noise source"
+	help
+	  The test interface allows a privileged process to capture
+	  the raw unconditioned interrupt register value that is
+	  collected by the LRNG for statistical analysis. Extracted noise
+	  data is not used to seed the random number generator.
+
+	  The raw noise data can be obtained using the lrng_raw_regs
+	  debugfs file. Using the option lrng_testing.boot_raw_regs_test=1
+	  the raw noise of the first 1000 entropy events since boot
+	  can be sampled.
+
+config LRNG_RAW_ARRAY
+	bool "Enable test interface to LRNG raw entropy storage array"
+	help
+	  The test interface allows a privileged process to capture
+	  the raw noise data that is collected by the LRNG
+	  in the per-CPU array for statistical analysis. The purpose
+	  of this interface is to verify that the array handling code
+	  truly only concatenates data and provides the same entropy
+	  rate as the raw unconditioned noise source when assessing
+	  the collected data byte-wise.
+
+	  The data can be obtained using the lrng_raw_array debugfs
+	  file. Using the option lrng_testing.boot_raw_array=1
+	  the raw noise of the first 1000 entropy events since boot
+	  can be sampled.
+
+config LRNG_IRQ_PERF
+	bool "Enable LRNG interrupt performance monitor"
+	help
+	  With this option, the performance monitor of the LRNG
+	  interrupt handling code is enabled. The file provides
+	  the execution time of the interrupt handler in
+	  cycles.
+
+	  The interrupt performance data can be obtained using
+	  the lrng_irq_perf debugfs file. Using the option
+	  lrng_testing.boot_irq_perf=1 the performance data of
+	  the first 1000 entropy events since boot can be sampled.
+
+config LRNG_ACVT_HASH
+	bool "Enable LRNG ACVT Hash interface"
+	help
+	  With this option, the LRNG built-in hash function used for
+	  auxiliary pool management and prior to switching the
+	  cryptographic backends is made available for ACVT. The
+	  interface allows writing of the data to be hashed
+	  into the interface. The read operation triggers the hash
+	  operation to generate message digest.
+
+	  The ACVT interface is available with the lrng_acvt_hash
+	  debugfs file.
+
+config LRNG_RUNTIME_ES_CONFIG
+	bool "Enable runtime configuration of entropy sources"
+	help
+	  When enabling this option, the LRNG provides the mechanism
+	  allowing to alter the entropy rate of each entropy source
+	  during boot time and runtime.
+
+	  The following interfaces are available:
+	  lrng_archrandom.archrandom for the CPU entropy source,
+	  lrng_jent.jitterrng for the Jitter RNG entropy source, and
+	  lrng_sw_noise.irq_entropy for the interrupt entropy source.
+
+config LRNG_RUNTIME_MAX_WO_RESEED_CONFIG
+	bool "Enable runtime configuration of max reseed threshold"
+	help
+	  When enabling this option, the LRNG provides an interface
+	  allowing the setting of the maximum number of DRNG generate
+	  operations without a reseed that has full entropy. The
+	  interface is lrng_drng.max_wo_reseed.
+
+config LRNG_TESTING
+	bool
+	default y if (LRNG_RAW_HIRES_ENTROPY || LRNG_RAW_JIFFIES_ENTROPY ||LRNG_RAW_IRQ_ENTROPY || LRNG_RAW_IRQFLAGS_ENTROPY || LRNG_RAW_RETIP_ENTROPY || LRNG_RAW_REGS_ENTROPY || LRNG_RAW_ARRAY || LRNG_IRQ_PERF || LRNG_ACVT_HASH)
+
+endif #LRNG_TESTING_MENU
+
 endif # LRNG
