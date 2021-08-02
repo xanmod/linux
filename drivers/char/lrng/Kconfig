@@ -165,15 +165,16 @@ config LRNG_COLLECTION_SIZE
 	default 8192 if LRNG_COLLECTION_SIZE_8192
 
 config LRNG_HEALTH_TESTS
-	bool "Enable noise source online health tests"
+	bool "Enable interrupt entropy source online health tests"
 	help
-	  The online health tests validate the noise source at
-	  runtime for fatal errors. These tests include SP800-90B
-	  compliant tests which are invoked if the system is booted
-	  with fips=1. In case of fatal errors during active
-	  SP800-90B tests, the issue is logged and the noise
-	  data is discarded. These tests are required for full
-	  compliance with SP800-90B.
+	  The online health tests applied to the interrupt entropy
+	  source validate the noise source at runtime for fatal
+	  errors. These tests include SP800-90B compliant tests
+	  which are invoked if the system is booted with fips=1.
+	  In case of fatal errors during active SP800-90B tests,
+	  the issue is logged and the noise data is discarded.
+	  These tests are required for full compliance of the
+	  interrupt entropy source with SP800-90B.
 
 	  If unsure, say Y.
 
@@ -492,5 +493,31 @@ config LRNG_TESTING
 	default y if (LRNG_RAW_HIRES_ENTROPY || LRNG_RAW_JIFFIES_ENTROPY ||LRNG_RAW_IRQ_ENTROPY || LRNG_RAW_IRQFLAGS_ENTROPY || LRNG_RAW_RETIP_ENTROPY || LRNG_RAW_REGS_ENTROPY || LRNG_RAW_ARRAY || LRNG_IRQ_PERF || LRNG_ACVT_HASH)
 
 endif #LRNG_TESTING_MENU
+
+config LRNG_SELFTEST
+	bool "Enable power-on and on-demand self-tests"
+	help
+	  The power-on self-tests are executed during boot time
+	  covering the ChaCha20 DRNG, the hash operation used for
+	  processing the entropy pools and the auxiliary pool, and
+	  the time stamp management of the LRNG.
+
+	  The on-demand self-tests are triggered by writing any
+	  value into the SysFS file selftest_status. At the same
+	  time, when reading this file, the test status is
+	  returned. A zero indicates that all tests were executed
+	  successfully.
+
+	  If unsure, say Y.
+
+if LRNG_SELFTEST
+
+config LRNG_SELFTEST_PANIC
+	bool "Panic the kernel upon self-test failure"
+	help
+	  If the option is enabled, the kernel is terminated if an
+	  LRNG power-on self-test failure is detected.
+
+endif # LRNG_SELFTEST
 
 endif # LRNG
