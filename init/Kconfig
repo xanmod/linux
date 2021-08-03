@@ -846,14 +846,14 @@ config CACULE_SCHED
 
 config CACULE_RDB
 	bool "RDB (Response Driven Balancer)"
-	default n
+	default y
 	depends on CACULE_SCHED
 	help
 	  This is an experimental load balancer for CacULE. It is a lightweight
 	  load balancer which is a replacement of CFS load balancer. It migrates
 	  tasks based on their interactivity scores.
 
-	  If unsure, say N.
+	  If unsure, say Y here.
 
 config RDB_INTERVAL
 	int "RDB load balancer interval"
@@ -996,7 +996,6 @@ config CGROUP_WRITEBACK
 
 menuconfig CGROUP_SCHED
 	bool "CPU controller"
-	depends on !CACULE_RDB
 	default n
 	help
 	  This feature lets CPU scheduler recognize task groups and control CPU
@@ -1274,10 +1273,10 @@ config CHECKPOINT_RESTORE
 
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
-	depends on !CACULE_RDB
 	select CGROUPS
 	select CGROUP_SCHED
 	select FAIR_GROUP_SCHED
+	default y
 	help
 	  This option optimizes the scheduler for common desktop workloads by
 	  automatically creating and populating task groups.  This separation
