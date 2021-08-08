@@ -5946,10 +5946,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	 */
 	util_est_enqueue(&rq->cfs, p);
 
-#ifdef CONFIG_CACULE_RDB
-	update_IS(rq);
-#endif
-
 	/*
 	 * If in_iowait is set, the code below may not trigger any cpufreq
 	 * utilization updates, so do it here explicitly with the IOWAIT flag
@@ -6035,6 +6031,10 @@ enqueue_throttle:
 	assert_list_leaf_cfs_rq(rq);
 
 	hrtick_update(rq);
+
+#ifdef CONFIG_CACULE_RDB
+	update_IS(rq);
+#endif
 }
 
 #if !defined(CONFIG_CACULE_SCHED)
@@ -7657,7 +7657,10 @@ done: __maybe_unused;
 	if (prev)
 		prev->se.cacule_node.vruntime &= YIELD_UNMARK;
 
+#ifdef CONFIG_CACULE_RDB
 	update_IS(rq);
+#endif
+
 #endif
 #ifdef CONFIG_SMP
 	/*
