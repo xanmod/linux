@@ -1282,6 +1282,17 @@ static void io_queue_async_work(struct io_kiocb *req)
 
 	/* init ->work of the whole link before punting */
 	io_prep_async_link(req);
+
+	/*
+	 * Not expected to happen, but if we do have a bug where this _can_
+	 * happen, catch it here and ensure the request is marked as
+	 * canceled. That will make io-wq go through the usual work cancel
+	 * procedure rather than attempt to run this request (or create a new
+	 * worker for it).
+	 */
+	if (WARN_ON_ONCE(!same_thread_group(req->task, current)))
+		req->work.flags |= IO_WQ_WORK_CANCEL;
+
 	trace_io_uring_queue_async_work(ctx, io_wq_is_hashed(&req->work), req,
 					&req->work, req->flags);
 	io_wq_enqueue(tctx->io_wq, &req->work);
@@ -2252,7 +2263,7 @@ static inline bool io_run_task_work(void)
  * Find and free completed poll iocbs
  */
 static void io_iopoll_complete(struct io_ring_ctx *ctx, unsigned int *nr_events,
-			       struct list_head *done)
+			       struct list_head *done, bool resubmit)
 {
 	struct req_batch rb;
 	struct io_kiocb *req;
@@ -2267,7 +2278,7 @@ static void io_iopoll_complete(struct io_ring_ctx *ctx, unsigned int *nr_events,
 		req = list_first_entry(done, struct io_kiocb, inflight_entry);
 		list_del(&req->inflight_entry);
 
-		if (READ_ONCE(req->result) == -EAGAIN &&
+		if (READ_ONCE(req->result) == -EAGAIN && resubmit &&
 		    !(req->flags & REQ_F_DONT_REISSUE)) {
 			req->iopoll_completed = 0;
 			req_ref_get(req);
@@ -2291,7 +2302,7 @@ static void io_iopoll_complete(struct io_ring_ctx *ctx, unsigned int *nr_events,
 }
 
 static int io_do_iopoll(struct io_ring_ctx *ctx, unsigned int *nr_events,
-			long min)
+			long min, bool resubmit)
 {
 	struct io_kiocb *req, *tmp;
 	LIST_HEAD(done);
@@ -2334,7 +2345,7 @@ static int io_do_iopoll(struct io_ring_ctx *ctx, unsigned int *nr_events,
 	}
 
 	if (!list_empty(&done))
-		io_iopoll_complete(ctx, nr_events, &done);
+		io_iopoll_complete(ctx, nr_events, &done, resubmit);
 
 	return ret;
 }
@@ -2352,7 +2363,7 @@ static void io_iopoll_try_reap_events(struct io_ring_ctx *ctx)
 	while (!list_empty(&ctx->iopoll_list)) {
 		unsigned int nr_events = 0;
 
-		io_do_iopoll(ctx, &nr_events, 0);
+		io_do_iopoll(ctx, &nr_events, 0, false);
 
 		/* let it sleep and repeat later if can't complete a request */
 		if (nr_events == 0)
@@ -2410,7 +2421,7 @@ static int io_iopoll_check(struct io_ring_ctx *ctx, long min)
 			if (list_empty(&ctx->iopoll_list))
 				break;
 		}
-		ret = io_do_iopoll(ctx, &nr_events, min);
+		ret = io_do_iopoll(ctx, &nr_events, min, true);
 	} while (!ret && nr_events < min && !need_resched());
 out:
 	mutex_unlock(&ctx->uring_lock);
@@ -6804,7 +6815,7 @@ static int __io_sq_thread(struct io_ring_ctx *ctx, bool cap_entries)
 
 		mutex_lock(&ctx->uring_lock);
 		if (!list_empty(&ctx->iopoll_list))
-			io_do_iopoll(ctx, &nr_events, 0);
+			io_do_iopoll(ctx, &nr_events, 0, true);
 
 		/*
 		 * Don't submit if refs are dying, good for io_uring_register(),
