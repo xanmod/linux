@@ -1729,6 +1729,16 @@ static inline bool is_percpu_thread(void)
 #endif
 }
 
+/* Is the current task guaranteed to stay on its current CPU? */
+static inline bool is_migratable(void)
+{
+#ifdef CONFIG_SMP
+	return preemptible() && !current->migration_disabled;
+#else
+	return false;
+#endif
+}
+
 /* Per-process atomic flags. */
 #define PFA_NO_NEW_PRIVS		0	/* May not gain new privileges. */
 #define PFA_SPREAD_PAGE			1	/* Spread page cache over cpuset */
