@@ -80,6 +80,7 @@ static DEFINE_PER_CPU_SHARED_ALIGNED(struct rcu_data, rcu_data) = {
 	.dynticks = ATOMIC_INIT(1),
 #ifdef CONFIG_RCU_NOCB_CPU
 	.cblist.flags = SEGCBLIST_SOFTIRQ_ONLY,
+	.nocb_local_lock =  INIT_LOCAL_LOCK(nocb_local_lock),
 #endif
 };
 static struct rcu_state rcu_state = {
@@ -2811,10 +2812,12 @@ static void rcu_cpu_kthread(unsigned int cpu)
 {
 	unsigned int *statusp = this_cpu_ptr(&rcu_data.rcu_cpu_kthread_status);
 	char work, *workp = this_cpu_ptr(&rcu_data.rcu_cpu_has_work);
+	struct rcu_data *rdp = this_cpu_ptr(&rcu_data);
 	int spincnt;
 
 	trace_rcu_utilization(TPS("Start CPU kthread@rcu_run"));
 	for (spincnt = 0; spincnt < 10; spincnt++) {
+		rcu_nocb_local_lock(rdp);
 		local_bh_disable();
 		*statusp = RCU_KTHREAD_RUNNING;
 		local_irq_disable();
@@ -2824,6 +2827,7 @@ static void rcu_cpu_kthread(unsigned int cpu)
 		if (work)
 			rcu_core();
 		local_bh_enable();
+		rcu_nocb_local_unlock(rdp);
 		if (*workp == 0) {
 			trace_rcu_utilization(TPS("End CPU kthread@rcu_wait"));
 			*statusp = RCU_KTHREAD_WAITING;

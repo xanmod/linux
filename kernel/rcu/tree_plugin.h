@@ -13,23 +13,45 @@
 
 #include "../locking/rtmutex_common.h"
 
+/*
+ * Is a local read of the rdp's offloaded state safe and stable?
+ * See rcu_nocb_local_lock() & family.
+ */
+static inline bool rcu_local_offload_access_safe(struct rcu_data *rdp)
+{
+	if (!preemptible())
+		return true;
+
+	if (!is_migratable()) {
+		if (!IS_ENABLED(CONFIG_RCU_NOCB))
+			return true;
+
+		return rcu_lockdep_is_held_nocb_local(rdp);
+	}
+
+	return false;
+}
+
 static bool rcu_rdp_is_offloaded(struct rcu_data *rdp)
 {
 	/*
-	 * In order to read the offloaded state of an rdp is a safe
-	 * and stable way and prevent from its value to be changed
-	 * under us, we must either hold the barrier mutex, the cpu
-	 * hotplug lock (read or write) or the nocb lock. Local
-	 * non-preemptible reads are also safe. NOCB kthreads and
-	 * timers have their own means of synchronization against the
-	 * offloaded state updaters.
+	 * In order to read the offloaded state of an rdp is a safe and stable
+	 * way and prevent from its value to be changed under us, we must
+         * either...
 	 */
 	RCU_LOCKDEP_WARN(
+		// ...hold the barrier mutex...
 		!(lockdep_is_held(&rcu_state.barrier_mutex) ||
+		// ... the cpu hotplug lock (read or write)...
 		  (IS_ENABLED(CONFIG_HOTPLUG_CPU) && lockdep_is_cpus_held()) ||
+		  // ... or the NOCB lock.
 		  rcu_lockdep_is_held_nocb(rdp) ||
+		  // Local reads still require the local state to remain stable
+		  // (preemption disabled / local lock held)
 		  (rdp == this_cpu_ptr(&rcu_data) &&
-		   !(IS_ENABLED(CONFIG_PREEMPT_COUNT) && preemptible())) ||
+		   rcu_local_offload_access_safe(rdp)) ||
+		  // NOCB kthreads and timers have their own means of
+		  // synchronization against the offloaded state updaters.
 		  rcu_current_is_nocb_kthread(rdp)),
 		"Unsafe read of RCU_NOCB offloaded state"
 	);
