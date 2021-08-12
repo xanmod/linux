@@ -2812,7 +2812,7 @@ void locking_selftest(void)
 	printk("------------------------\n");
 	printk("| Locking API testsuite:\n");
 	printk("----------------------------------------------------------------------------\n");
-	printk("                                 | spin |wlock |rlock |mutex | wsem | rsem |\n");
+	printk("                                 | spin |wlock |rlock |mutex | wsem | rsem |rtmutex\n");
 	printk("  --------------------------------------------------------------------------\n");
 
 	init_shared_classes();
