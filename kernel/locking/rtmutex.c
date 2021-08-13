@@ -1097,8 +1097,26 @@ static int __sched task_blocks_on_rt_mutex(struct rt_mutex_base *lock,
 	 * which is wrong, as the other waiter is not in a deadlock
 	 * situation.
 	 */
-	if (owner == task)
+	if (owner == task) {
+#if defined(DEBUG_WW_MUTEXES) && defined(CONFIG_DEBUG_LOCKING_API_SELFTESTS)
+		/*
+		 * The lockdep selftest for ww-mutex assumes in a few cases
+		 * the ww_ctx->contending_lock assignment via
+		 * __ww_mutex_check_kill() which does not happen if the rtmutex
+		 * detects the deadlock early.
+		 */
+		if (build_ww_mutex() && ww_ctx) {
+			struct rt_mutex *rtm;
+
+			/* Check whether the waiter should backout immediately */
+			rtm = container_of(lock, struct rt_mutex, rtmutex);
+
+			__ww_mutex_add_waiter(waiter, rtm, ww_ctx);
+			__ww_mutex_check_kill(rtm, waiter, ww_ctx);
+		}
+#endif
 		return -EDEADLK;
+	}
 
 	raw_spin_lock(&task->pi_lock);
 	waiter->task = task;
