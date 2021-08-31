@@ -60,6 +60,8 @@ union futex_key {
  * @rt_waiter:		rt_waiter storage for use with requeue_pi
  * @requeue_pi_key:	the requeue_pi target futex key
  * @bitset:		bitset for the optional bitmasked wakeup
+ * @uaddr:		userspace address of futex
+ * @uval:		expected futex's value
  *
  * We use this hashed waitqueue, instead of a normal wait_queue_entry_t, so
  * we can wake only the relevant ones (hashed queues may be shared).
@@ -82,6 +84,8 @@ struct futex_q {
 	struct rt_mutex_waiter *rt_waiter;
 	union futex_key *requeue_pi_key;
 	u32 bitset;
+	u32 __user *uaddr;
+	u32 uval;
 } __randomize_layout;
 
 struct futex_vector {
