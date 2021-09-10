@@ -1835,7 +1835,7 @@ size_t ZSTD_decompressStream(ZSTD_DStream* zds, ZSTD_outBuffer* output, ZSTD_inB
             zds->legacyVersion = 0;
             zds->hostageByte = 0;
             zds->expectedOutBuffer = *output;
-            /* fall-through */
+            fallthrough;
 
         case zdss_loadHeader :
             DEBUGLOG(5, "stage zdss_loadHeader (srcSize : %u)", (U32)(iend - ip));
@@ -1946,7 +1946,7 @@ size_t ZSTD_decompressStream(ZSTD_DStream* zds, ZSTD_outBuffer* output, ZSTD_inB
                         zds->outBuffSize = neededOutBuffSize;
             }   }   }
             zds->streamStage = zdss_read;
-            /* fall-through */
+            fallthrough;
 
         case zdss_read:
             DEBUGLOG(5, "stage zdss_read");
@@ -1965,7 +1965,7 @@ size_t ZSTD_decompressStream(ZSTD_DStream* zds, ZSTD_outBuffer* output, ZSTD_inB
             }   }
             if (ip==iend) { someMoreWork = 0; break; }   /* no more input */
             zds->streamStage = zdss_load;
-            /* fall-through */
+            fallthrough;
 
         case zdss_load:
             {   size_t const neededInSize = ZSTD_nextSrcSizeToDecompress(zds);
