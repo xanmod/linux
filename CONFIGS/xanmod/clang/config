@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.13.15 Kernel Configuration
+# Linux/x86 5.13.16 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="Debian clang version 12.0.1-8"
 CONFIG_GCC_VERSION=0
