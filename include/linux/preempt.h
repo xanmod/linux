@@ -122,9 +122,17 @@
  * The preempt_count offset after spin_lock()
  */
 #if !defined(CONFIG_PREEMPT_RT)
-#define PREEMPT_LOCK_OFFSET	PREEMPT_DISABLE_OFFSET
+#define PREEMPT_LOCK_OFFSET		PREEMPT_DISABLE_OFFSET
+#define PREEMPT_LOCK_RESCHED_OFFSET	PREEMPT_LOCK_OFFSET
 #else
-#define PREEMPT_LOCK_OFFSET	0
+/* Locks on RT do not disable preemption */
+#define PREEMPT_LOCK_OFFSET		0
+/*
+ * spin/rw_lock() on RT implies rcu_read_lock(). The might_sleep() check in
+ * cond_resched*lock() has to take that into account because it checks for
+ * preempt_count() + rcu_preempt_depth().
+ */
+#define PREEMPT_LOCK_RESCHED_OFFSET	1
 #endif
 
 /*
