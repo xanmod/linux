@@ -701,7 +701,7 @@ void flush_smp_call_function_from_idle(void)
 		} else {
 			struct task_struct *ksoftirqd = this_cpu_ksoftirqd();
 
-			if (ksoftirqd && task_is_running(ksoftirqd))
+			if (ksoftirqd && !task_is_running(ksoftirqd))
 				wake_up_process(ksoftirqd);
 		}
 	}
