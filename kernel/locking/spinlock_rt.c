@@ -25,12 +25,15 @@
 #include "rtmutex.c"
 
 /*
- * Use ___might_sleep() which skips the state check and take RCU nesting
- * into account as spin/read/write_lock() can legitimately nest into an RCU
- * read side critical section:
+ * __might_resched() skips the state check as rtlocks are state
+ * preserving. Take RCU nesting into account as spin/read/write_lock() can
+ * legitimately nest into an RCU read side critical section.
  */
-#define rtlock_might_sleep()					\
-	___might_sleep(__FILE__, __LINE__, rcu_preempt_depth())
+#define RTLOCK_RESCHED_OFFSETS						\
+	(rcu_preempt_depth() << MIGHT_RESCHED_RCU_SHIFT)
+
+#define rtlock_might_resched()						\
+	__might_resched(__FILE__, __LINE__, RTLOCK_RESCHED_OFFSETS)
 
 static __always_inline void rtlock_lock(struct rt_mutex_base *rtm)
 {
@@ -40,7 +43,7 @@ static __always_inline void rtlock_lock(struct rt_mutex_base *rtm)
 
 static __always_inline void __rt_spin_lock(spinlock_t *lock)
 {
-	rtlock_might_sleep();
+	rtlock_might_resched();
 	rtlock_lock(&lock->lock);
 	rcu_read_lock();
 	migrate_disable();
@@ -218,7 +221,7 @@ EXPORT_SYMBOL(rt_write_trylock);
 
 void __sched rt_read_lock(rwlock_t *rwlock)
 {
-	rtlock_might_sleep();
+	rtlock_might_resched();
 	rwlock_acquire_read(&rwlock->dep_map, 0, 0, _RET_IP_);
 	rwbase_read_lock(&rwlock->rwbase, TASK_RTLOCK_WAIT);
 	rcu_read_lock();
@@ -228,7 +231,7 @@ EXPORT_SYMBOL(rt_read_lock);
 
 void __sched rt_write_lock(rwlock_t *rwlock)
 {
-	rtlock_might_sleep();
+	rtlock_might_resched();
 	rwlock_acquire(&rwlock->dep_map, 0, 0, _RET_IP_);
 	rwbase_write_lock(&rwlock->rwbase, TASK_RTLOCK_WAIT);
 	rcu_read_lock();
