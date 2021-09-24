@@ -42,7 +42,6 @@
 #include <linux/mmu_notifier.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
-#include <linux/kprobes.h>
 #include <linux/vmacache.h>
 #include <linux/nsproxy.h>
 #include <linux/capability.h>
@@ -290,7 +289,10 @@ static inline void free_thread_stack(struct task_struct *tsk)
 			return;
 		}
 
-		vfree(tsk->stack);
+		if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+			vfree_atomic(tsk->stack);
+		else
+			vfree(tsk->stack);
 		return;
 	}
 #endif
@@ -708,8 +710,8 @@ EXPORT_SYMBOL_GPL(__mmdrop);
 
 #ifdef CONFIG_PREEMPT_RT
 /*
- * RCU callback for delayed mm drop. Not strictly rcu, but we don't
- * want another facility to make this work.
+ * RCU callback for delayed mm drop. Not strictly RCU, but call_rcu() is
+ * by far the least expensive way to do that.
  */
 void __mmdrop_delayed(struct rcu_head *rhp)
 {
@@ -759,15 +761,6 @@ void __put_task_struct(struct task_struct *tsk)
 	WARN_ON(!tsk->exit_state);
 	WARN_ON(refcount_read(&tsk->usage));
 	WARN_ON(tsk == current);
-
-	/*
-	 * Remove function-return probe instances associated with this
-	 * task and put them back on the free list.
-	 */
-	kprobe_flush_task(tsk);
-
-	/* Task is done with its stack. */
-	put_task_stack(tsk);
 
 	io_uring_free(tsk);
 	cgroup_free(tsk);

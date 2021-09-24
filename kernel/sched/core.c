@@ -4884,17 +4884,21 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	 *   provided by mmdrop(),
 	 * - a sync_core for SYNC_CORE.
 	 */
-	/*
-	 * We use mmdrop_delayed() here so we don't have to do the
-	 * full __mmdrop() when we are the last user.
-	 */
+
 	if (mm) {
 		membarrier_mm_sync_core_before_usermode(mm);
-		mmdrop_delayed(mm);
+		mmdrop_sched(mm);
 	}
 	if (unlikely(prev_state == TASK_DEAD)) {
 		if (prev->sched_class->task_dead)
 			prev->sched_class->task_dead(prev);
+
+		/*
+		 * Release VMAP'ed task stack immediate for reuse. On RT
+		 * enabled kernels this is delayed for latency reasons.
+		 */
+		if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+			put_task_stack(prev);
 
 		put_task_struct_rcu_user(prev);
 	}
@@ -8855,7 +8859,6 @@ void sched_setnuma(struct task_struct *p, int nid)
 #endif /* CONFIG_NUMA_BALANCING */
 
 #ifdef CONFIG_HOTPLUG_CPU
-
 /*
  * Ensure that the idle task is using init_mm right before its CPU goes
  * offline.
