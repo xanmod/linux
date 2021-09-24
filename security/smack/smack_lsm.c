@@ -2855,7 +2855,7 @@ static int smack_socket_connect(struct socket *sock, struct sockaddr *sap,
 					    SMK_CONNECTING);
 		}
 #ifdef SMACK_IPV6_PORT_LABELING
-			rc = smk_ipv6_port_check(sock->sk, sip, SMK_CONNECTING);
+		rc = smk_ipv6_port_check(sock->sk, sip, SMK_CONNECTING);
 #endif
 
 		return rc;
