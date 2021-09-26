@@ -136,6 +136,12 @@ extern int decode_pstates(unsigned int cpu, int boost_states,
 
 extern int cpufreq_has_boost_support(unsigned int cpu, int *support,
 				     int *active, int * states);
+
+/* AMD P-States stuff **************************/
+extern unsigned long cpupower_amd_pstate_enabled(void);
+
+/* AMD P-States stuff **************************/
+
 /*
  * CPUID functions returning a single datum
  */
@@ -167,6 +173,9 @@ static inline unsigned long long msr_intel_get_turbo_ratio(unsigned int cpu)
 static inline int cpufreq_has_boost_support(unsigned int cpu, int *support,
 					    int *active, int * states)
 { return -1; }
+
+static inline unsigned long cpupower_amd_pstate_enabled(void)
+{ return 0; }
 
 /* cpuid and cpuinfo helpers  **************************/
 
