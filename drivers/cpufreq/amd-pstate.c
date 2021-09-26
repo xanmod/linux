@@ -45,9 +45,16 @@
 #include <asm/processor.h>
 #include <asm/cpufeature.h>
 #include <asm/cpu_device_id.h>
+#include "amd-pstate-trace.h"
 
 #define AMD_PSTATE_TRANSITION_LATENCY	0x20000
 #define AMD_PSTATE_TRANSITION_DELAY	500
+
+enum switch_type
+{
+	AMD_TARGET = 0,
+	AMD_ADJUST_PERF
+};
 
 static struct cpufreq_driver amd_pstate_driver;
 
@@ -183,6 +190,7 @@ amd_pstate_update(struct amd_cpudata *cpudata, u32 min_perf,
 {
 	u64 prev = READ_ONCE(cpudata->cppc_req_cached);
 	u64 value = prev;
+	enum switch_type type = fast_switch ? AMD_ADJUST_PERF : AMD_TARGET;
 
 	value &= ~REQ_MIN_PERF(~0L);
 	value |= REQ_MIN_PERF(min_perf);
@@ -192,6 +200,9 @@ amd_pstate_update(struct amd_cpudata *cpudata, u32 min_perf,
 
 	value &= ~REQ_MAX_PERF(~0L);
 	value |= REQ_MAX_PERF(max_perf);
+
+	trace_amd_pstate_perf(min_perf, des_perf, max_perf,
+			      cpudata->cpu, prev, value, type);
 
 	if (value == prev)
 		return;
