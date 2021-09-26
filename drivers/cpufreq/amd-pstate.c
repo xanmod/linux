@@ -517,16 +517,85 @@ static int amd_pstate_cpu_exit(struct cpufreq_policy *policy)
 	return 0;
 }
 
-static ssize_t show_is_amd_pstate_enabled(struct cpufreq_policy *policy,
+/* Sysfs attributes */
+
+static ssize_t show_amd_pstate_max_freq(struct cpufreq_policy *policy,
 					char *buf)
+{
+	int max_freq;
+	struct amd_cpudata *cpudata;
+
+	cpudata = policy->driver_data;
+
+	max_freq = amd_get_max_freq(cpudata);
+	if (max_freq < 0)
+		return max_freq;
+
+	return sprintf(&buf[0], "%u\n", max_freq);
+}
+
+static ssize_t show_amd_pstate_nominal_freq(struct cpufreq_policy *policy,
+					    char *buf)
+{
+	int nominal_freq;
+	struct amd_cpudata *cpudata;
+
+	cpudata = policy->driver_data;
+
+	nominal_freq = amd_get_nominal_freq(cpudata);
+	if (nominal_freq < 0)
+		return nominal_freq;
+
+	return sprintf(&buf[0], "%u\n", nominal_freq);
+}
+
+static ssize_t
+show_amd_pstate_lowest_nonlinear_freq(struct cpufreq_policy *policy, char *buf)
+{
+	int freq;
+	struct amd_cpudata *cpudata;
+
+	cpudata = policy->driver_data;
+
+	freq = amd_get_lowest_nonlinear_freq(cpudata);
+	if (freq < 0)
+		return freq;
+
+	return sprintf(&buf[0], "%u\n", freq);
+}
+
+static ssize_t show_amd_pstate_min_freq(struct cpufreq_policy *policy, char *buf)
+{
+	int min_freq;
+	struct amd_cpudata *cpudata;
+
+	cpudata = policy->driver_data;
+
+	min_freq = amd_get_min_freq(cpudata);
+	if (min_freq < 0)
+		return min_freq;
+
+	return sprintf(&buf[0], "%u\n", min_freq);
+}
+
+static ssize_t show_is_amd_pstate_enabled(struct cpufreq_policy *policy,
+					  char *buf)
 {
 	return sprintf(&buf[0], "%d\n", acpi_cpc_valid() ?  1 : 0);
 }
 
 cpufreq_freq_attr_ro(is_amd_pstate_enabled);
+cpufreq_freq_attr_ro(amd_pstate_max_freq);
+cpufreq_freq_attr_ro(amd_pstate_nominal_freq);
+cpufreq_freq_attr_ro(amd_pstate_lowest_nonlinear_freq);
+cpufreq_freq_attr_ro(amd_pstate_min_freq);
 
 static struct freq_attr *amd_pstate_attr[] = {
 	&is_amd_pstate_enabled,
+	&amd_pstate_max_freq,
+	&amd_pstate_nominal_freq,
+	&amd_pstate_lowest_nonlinear_freq,
+	&amd_pstate_min_freq,
 	NULL,
 };
 
