@@ -517,6 +517,19 @@ static int amd_pstate_cpu_exit(struct cpufreq_policy *policy)
 	return 0;
 }
 
+static ssize_t show_is_amd_pstate_enabled(struct cpufreq_policy *policy,
+					char *buf)
+{
+	return sprintf(&buf[0], "%d\n", acpi_cpc_valid() ?  1 : 0);
+}
+
+cpufreq_freq_attr_ro(is_amd_pstate_enabled);
+
+static struct freq_attr *amd_pstate_attr[] = {
+	&is_amd_pstate_enabled,
+	NULL,
+};
+
 static struct cpufreq_driver amd_pstate_driver = {
 	.flags		= CPUFREQ_CONST_LOOPS | CPUFREQ_NEED_UPDATE_LIMITS,
 	.verify		= amd_pstate_verify,
@@ -525,6 +538,7 @@ static struct cpufreq_driver amd_pstate_driver = {
 	.exit		= amd_pstate_cpu_exit,
 	.set_boost	= amd_pstate_set_boost,
 	.name		= "amd-pstate",
+	.attr		= amd_pstate_attr,
 };
 
 static int __init amd_pstate_init(void)
