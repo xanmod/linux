@@ -26,6 +26,7 @@
 
 #if defined(CONFIG_IRQ_FORCED_THREADING) && !defined(CONFIG_PREEMPT_RT)
 DEFINE_STATIC_KEY_FALSE(force_irqthreads_key);
+EXPORT_SYMBOL_GPL(force_irqthreads_key);
 
 static int __init setup_forced_irqthreads(char *arg)
 {
