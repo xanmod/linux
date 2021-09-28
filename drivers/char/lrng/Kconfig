@@ -196,6 +196,64 @@ config LRNG_COLLECTION_SIZE
 	default 4096 if LRNG_COLLECTION_SIZE_4096
 	default 8192 if LRNG_COLLECTION_SIZE_8192
 
+config LRNG_HEALTH_TESTS
+	bool "Enable interrupt entropy source online health tests"
+	depends on LRNG_IRQ
+	help
+	  The online health tests applied to the interrupt entropy
+	  source validate the noise source at runtime for fatal
+	  errors. These tests include SP800-90B compliant tests
+	  which are invoked if the system is booted with fips=1.
+	  In case of fatal errors during active SP800-90B tests,
+	  the issue is logged and the noise data is discarded.
+	  These tests are required for full compliance of the
+	  interrupt entropy source with SP800-90B.
+
+	  If unsure, say Y.
+
+config LRNG_RCT_BROKEN
+	bool "SP800-90B RCT with dangerous low cutoff value"
+	depends on LRNG_HEALTH_TESTS
+	depends on BROKEN
+	default n
+	help
+	  This option enables a dangerously low SP800-90B repetitive
+	  count test (RCT) cutoff value which makes it very likely
+	  that the RCT is triggered to raise a self test failure.
+
+	  This option is ONLY intended for developers wanting to
+	  test the effectiveness of the SP800-90B RCT health test.
+
+	  If unsure, say N.
+
+config LRNG_APT_BROKEN
+	bool "SP800-90B APT with dangerous low cutoff value"
+	depends on LRNG_HEALTH_TESTS
+	depends on BROKEN
+	default n
+	help
+	  This option enables a dangerously low SP800-90B adaptive
+	  proportion test (APT) cutoff value which makes it very
+	  likely that the APT is triggered to raise a self test
+	  failure.
+
+	  This option is ONLY intended for developers wanting to
+	  test the effectiveness of the SP800-90B APT health test.
+
+	  If unsure, say N.
+
+# Default taken from SP800-90B sec 4.4.1 - significance level 2^-30
+config LRNG_RCT_CUTOFF
+	int
+	default 31 if !LRNG_RCT_BROKEN
+	default 1 if LRNG_RCT_BROKEN
+
+# Default taken from SP800-90B sec 4.4.2 - significance level 2^-30
+config LRNG_APT_CUTOFF
+	int
+	default 325 if !LRNG_APT_BROKEN
+	default 32 if LRNG_APT_BROKEN
+
 config LRNG_IRQ_ENTROPY_RATE
 	int "Interrupt Entropy Source Entropy Rate"
 	depends on LRNG_IRQ
