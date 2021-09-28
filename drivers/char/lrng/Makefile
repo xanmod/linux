@@ -9,3 +9,4 @@ obj-y				+= lrng_es_mgr.o lrng_aux.o \
 
 obj-$(CONFIG_LRNG_IRQ)		+= lrng_es_irq.o
 obj-$(CONFIG_SYSCTL)		+= lrng_proc.o
+obj-$(CONFIG_NUMA)		+= lrng_numa.o
