@@ -695,7 +695,6 @@ void flush_smp_call_function_from_idle(void)
 	flush_smp_call_function_queue(true);
 
 	if (local_softirq_pending()) {
-
 		if (!IS_ENABLED(CONFIG_PREEMPT_RT)) {
 			do_softirq();
 		} else {
