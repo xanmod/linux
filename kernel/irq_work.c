@@ -61,8 +61,8 @@ static void __irq_work_queue_local(struct irq_work *work)
 	if (work_flags & IRQ_WORK_LAZY)
 		lazy_work = true;
 	else if (IS_ENABLED(CONFIG_PREEMPT_RT) &&
-		!(work_flags & IRQ_WORK_HARD_IRQ))
-			lazy_work = true;
+		 !(work_flags & IRQ_WORK_HARD_IRQ))
+		lazy_work = true;
 	else
 		lazy_work = false;
 
@@ -122,7 +122,6 @@ bool irq_work_queue_on(struct irq_work *work, int cpu)
 
 		if (IS_ENABLED(CONFIG_PREEMPT_RT) && !(atomic_read(&work->node.a_flags) & IRQ_WORK_HARD_IRQ)) {
 			if (llist_add(&work->node.llist, &per_cpu(lazy_list, cpu)))
-				/* && tick_nohz_tick_stopped_cpu(cpu) */
 				arch_send_call_function_single_ipi(cpu);
 		} else {
 			__smp_call_single_queue(cpu, &work->node.llist);
@@ -143,9 +142,9 @@ bool irq_work_needs_cpu(void)
 
 	raised = this_cpu_ptr(&raised_list);
 	lazy = this_cpu_ptr(&lazy_list);
-
-	if (llist_empty(raised) && llist_empty(lazy))
-		return false;
+	if (llist_empty(raised) || arch_irq_work_has_interrupt())
+		if (llist_empty(lazy))
+			return false;
 
 	/* All work should have been flushed before going offline */
 	WARN_ON_ONCE(cpu_is_offline(smp_processor_id()));
@@ -192,12 +191,12 @@ static void irq_work_run_list(struct llist_head *list)
 	struct irq_work *work, *tmp;
 	struct llist_node *llnode;
 
-#ifndef CONFIG_PREEMPT_RT
 	/*
-	 * nort: On RT IRQ-work may run in SOFTIRQ context.
+	 * On PREEMPT_RT IRQ-work may run in SOFTIRQ context if it is not marked
+	 * explicitly that it needs to run in hardirq context.
 	 */
-	BUG_ON(!irqs_disabled());
-#endif
+	BUG_ON(!in_hardirq() && !IS_ENABLED(CONFIG_PREEMPT_RT));
+
 	if (llist_empty(list))
 		return;
 
@@ -213,16 +212,10 @@ static void irq_work_run_list(struct llist_head *list)
 void irq_work_run(void)
 {
 	irq_work_run_list(this_cpu_ptr(&raised_list));
-	if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
-		/*
-		 * NOTE: we raise softirq via IPI for safety,
-		 * and execute in irq_work_tick() to move the
-		 * overhead from hard to soft irq context.
-		 */
-		if (!llist_empty(this_cpu_ptr(&lazy_list)))
-			raise_softirq(TIMER_SOFTIRQ);
-	} else
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
 		irq_work_run_list(this_cpu_ptr(&lazy_list));
+	else if (!llist_empty(this_cpu_ptr(&lazy_list)))
+		raise_softirq(TIMER_SOFTIRQ);
 }
 EXPORT_SYMBOL_GPL(irq_work_run);
 

@@ -51,7 +51,7 @@ static inline bool irq_work_is_busy(struct irq_work *work)
 
 static inline bool irq_work_is_hard(struct irq_work *work)
 {
-       return atomic_read(&work->node.a_flags) & IRQ_WORK_HARD_IRQ;
+	return atomic_read(&work->node.a_flags) & IRQ_WORK_HARD_IRQ;
 }
 
 bool irq_work_queue(struct irq_work *work);
