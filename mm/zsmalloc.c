@@ -379,7 +379,7 @@ static unsigned long cache_alloc_handle(struct zs_pool *pool, gfp_t gfp)
 #ifdef CONFIG_PREEMPT_RT
 static struct zsmalloc_handle *zs_get_pure_handle(unsigned long handle)
 {
-	return (void *)(handle &~((1 << OBJ_TAG_BITS) - 1));
+	return (void *)(handle & ~((1 << OBJ_TAG_BITS) - 1));
 }
 #endif
 
@@ -495,7 +495,6 @@ MODULE_ALIAS("zpool-zsmalloc");
 
 /* per-cpu VM mapping areas for zspage accesses that cross page boundaries */
 static DEFINE_PER_CPU(struct mapping_area, zs_map_area) = {
-	/* XXX remove this and use a spin_lock_t in pin_tag() */
 	.lock	= INIT_LOCAL_LOCK(lock),
 };
 
