@@ -255,4 +255,11 @@ config LRNG_CPU_ENTROPY_RATE
 
 endmenu # "Entropy Source Configuration"
 
+menuconfig LRNG_DRNG_SWITCH
+	bool "Support DRNG runtime switching"
+	help
+	  The Linux RNG per default uses a ChaCha20 DRNG that is
+	  accessible via the external interfaces. With this configuration
+	  option other DRNGs can be selected and loaded at runtime.
+
 endif # LRNG
