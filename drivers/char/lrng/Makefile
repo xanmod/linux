@@ -11,3 +11,4 @@ obj-$(CONFIG_LRNG_IRQ)		+= lrng_es_irq.o
 obj-$(CONFIG_SYSCTL)		+= lrng_proc.o
 obj-$(CONFIG_NUMA)		+= lrng_numa.o
 obj-$(CONFIG_LRNG_CPU)		+= lrng_es_archrandom.o
+obj-$(CONFIG_LRNG_DRNG_SWITCH)	+= lrng_switch.o
