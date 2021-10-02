@@ -86,32 +86,4 @@ futex_cmp_requeue(u_int32_t *uaddr, u_int32_t val, u_int32_t *uaddr2, int nr_wak
 	return futex(uaddr, FUTEX_CMP_REQUEUE, nr_wake, nr_requeue, uaddr2,
 		 val, opflags);
 }
-
-/**
- * futex2_wait - Wait at uaddr if *uaddr == val, until timo.
- * @uaddr: User address to wait for
- * @val:   Expected value at uaddr
- * @flags: Operation options
- * @timo:  Optional timeout
- *
- * Return: 0 on success, error code otherwise
- */
-static inline int futex2_wait(volatile void *uaddr, unsigned long val,
-			      unsigned long flags, struct timespec *timo)
-{
-	return syscall(__NR_futex_wait, uaddr, val, flags, timo);
-}
-
-/**
- * futex2_wake - Wake a number of waiters waiting at uaddr
- * @uaddr: Address to wake
- * @nr:    Number of waiters to wake
- * @flags: Operation options
- *
- * Return: number of waked futexes
- */
-static inline int futex2_wake(volatile void *uaddr, unsigned int nr, unsigned long flags)
-{
-	return syscall(__NR_futex_wake, uaddr, nr, flags);
-}
 #endif /* _FUTEX_H */
