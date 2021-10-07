@@ -218,7 +218,7 @@ static int zbufsize_842(size_t size)
 #if IS_ENABLED(CONFIG_PSTORE_ZSTD_COMPRESS)
 static int zbufsize_zstd(size_t size)
 {
-	return zstd_compress_bound(size);
+	return ZSTD_compressBound(size);
 }
 #endif
 
