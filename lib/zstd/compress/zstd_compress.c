@@ -4213,7 +4213,7 @@ static size_t ZSTD_compressStream_generic(ZSTD_CStream* zcs,
                 zcs->outBuffFlushedSize = 0;
                 zcs->streamStage = zcss_flush; /* pass-through to flush stage */
             }
-	    fallthrough;
+	    /* fall-through */
         case zcss_flush:
             DEBUGLOG(5, "flush stage");
             assert(zcs->appliedParams.outBufferMode == ZSTD_bm_buffered);
