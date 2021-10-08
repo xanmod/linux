@@ -41,7 +41,7 @@ struct ets_class {
 	struct Qdisc *qdisc;
 	u32 quantum;
 	u32 deficit;
-	struct gnet_stats_basic_packed bstats;
+	struct gnet_stats_basic_sync bstats;
 	struct gnet_stats_queue qstats;
 };
 
@@ -325,8 +325,7 @@ static int ets_class_dump_stats(struct Qdisc *sch, unsigned long arg,
 	struct ets_class *cl = ets_class_from_arg(sch, arg);
 	struct Qdisc *cl_q = cl->qdisc;
 
-	if (gnet_stats_copy_basic(qdisc_root_sleeping_running(sch),
-				  d, NULL, &cl_q->bstats) < 0 ||
+	if (gnet_stats_copy_basic(d, NULL, &cl_q->bstats, true) < 0 ||
 	    qdisc_qstats_copy(d, cl_q) < 0)
 		return -1;
 
@@ -662,6 +661,7 @@ static int ets_qdisc_change(struct Qdisc *sch, struct nlattr *opt,
 	q->nbands = nbands;
 	for (i = nstrict; i < q->nstrict; i++) {
 		INIT_LIST_HEAD(&q->classes[i].alist);
+		gnet_stats_basic_sync_init(&q->classes[i].bstats);
 		if (q->classes[i].qdisc->q.qlen) {
 			list_add_tail(&q->classes[i].alist, &q->active);
 			q->classes[i].deficit = quanta[i];
