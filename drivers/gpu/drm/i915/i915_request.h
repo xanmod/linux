@@ -320,7 +320,8 @@ static inline bool dma_fence_is_i915(const struct dma_fence *fence)
 struct kmem_cache *i915_request_slab_cache(void);
 
 struct i915_request * __must_check
-__i915_request_create(struct intel_context *ce, gfp_t gfp);
+__i915_request_create(struct intel_context *ce, gfp_t gfp,
+		      bool timeline_mutex_needed);
 struct i915_request * __must_check
 i915_request_create(struct intel_context *ce);
 

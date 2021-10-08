@@ -42,7 +42,7 @@ heartbeat_create(struct intel_context *ce, gfp_t gfp)
 	struct i915_request *rq;
 
 	intel_context_enter(ce);
-	rq = __i915_request_create(ce, gfp);
+	rq = __i915_request_create(ce, gfp, true);
 	intel_context_exit(ce);
 
 	return rq;
