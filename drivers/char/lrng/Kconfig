@@ -55,4 +55,166 @@ config LRNG_SEED_BUFFER_INIT_ADD_BITS
 
 endmenu # "Specific DRNG seeding strategies"
 
+menu "Entropy Source Configuration"
+
+comment "Interrupt Entropy Source"
+
+config LRNG_IRQ
+	bool "Enable Interrupt Entropy Source as LRNG Seed Source"
+	default y
+	help
+	  The LRNG models an entropy source based on the timing of the
+	  occurrence of interrupts. Enable this option to enable this
+	  IRQ entropy source.
+
+	  The IRQ entropy source is triggered every time an interrupt
+	  arrives and thus causes the interrupt handler to execute
+	  slightly longer. Disabling the IRQ entropy source implies
+	  that the performance penalty on the interrupt handler added
+	  by the LRNG is eliminated. Yet, this entropy source is
+	  considered to be the internal entropy source of the LRNG.
+	  Thus, only disable it if you ensured that other entropy
+	  sources are available that supply the LRNG with entropy.
+
+	  If you disable the IRQ entropy source, you MUST ensure
+	  one or more entropy sources collectively have the
+	  capability to deliver sufficient entropy with one invocation
+	  at a rate compliant to the security strength of the DRNG
+	  (usually 256 bits of entropy). In addition, if those
+	  entropy sources do not deliver sufficient entropy during
+	  first request, the reseed must be triggered from user
+	  space or kernel space when sufficient entropy is considered
+	  to be present.
+
+	  If unsure, say Y.
+
+choice
+	prompt "Continuous entropy compression boot time setting"
+	default LRNG_CONTINUOUS_COMPRESSION_ENABLED
+	depends on LRNG_IRQ
+	help
+	  Select the default behavior of the interrupt entropy source
+	  continuous compression operation.
+
+	  The Linux RNG collects entropy data during each interrupt.
+	  For performance reasons, a amount of entropy data defined by
+	  the LRNG entropy collection pool size is concatenated into
+	  an array. When that array is filled up, a hash is calculated
+	  to compress the entropy. That hash is calculated in
+	  interrupt context.
+
+	  In case such hash calculation in interrupt context is deemed
+	  too time-consuming, the continuous compression operation
+	  can be disabled. If disabled, the collection of entropy will
+	  not trigger a hash compression operation in interrupt context.
+	  The compression happens only when the DRNG is reseeded which is
+	  in process context. This implies that old entropy data
+	  collected after the last DRNG-reseed is overwritten with newer
+	  entropy data once the collection pool is full instead of
+	  retaining its entropy with the compression operation.
+
+	config LRNG_CONTINUOUS_COMPRESSION_ENABLED
+		bool "Enable continuous compression (default)"
+
+	config LRNG_CONTINUOUS_COMPRESSION_DISABLED
+		bool "Disable continuous compression"
+endchoice
+
+config LRNG_ENABLE_CONTINUOUS_COMPRESSION
+	bool
+	default y if LRNG_CONTINUOUS_COMPRESSION_ENABLED
+	default n if LRNG_CONTINUOUS_COMPRESSION_DISABLED
+
+config LRNG_SWITCHABLE_CONTINUOUS_COMPRESSION
+	bool "Runtime-switchable continuous entropy compression"
+	depends on LRNG_IRQ
+	help
+	  Per default, the interrupt entropy source continuous
+	  compression operation behavior is hard-wired into the kernel.
+	  Enable this option to allow it to be configurable at boot time.
+
+	  To modify the default behavior of the continuous
+	  compression operation, use the kernel command line option
+	  of lrng_sw_noise.lrng_pcpu_continuous_compression.
+
+	  If unsure, say N.
+
+choice
+	prompt "LRNG Entropy Collection Pool Size"
+	default LRNG_COLLECTION_SIZE_1024
+	depends on LRNG_IRQ
+	help
+	  Select the size of the LRNG entropy collection pool
+	  storing data for the interrupt entropy source without
+	  performing a compression operation. The larger the
+	  collection size is, the faster the average interrupt
+	  handling will be. The collection size represents the
+	  number of bytes of the per-CPU memory used to batch
+	  up entropy event data.
+
+	  The default value is good for regular operations. Choose
+	  larger sizes for servers that have no memory limitations.
+	  If runtime memory is precious, choose a smaller size.
+
+	  The collection size is unrelated to the entropy rate
+	  or the amount of entropy the LRNG can process.
+
+	config LRNG_COLLECTION_SIZE_32
+	depends on LRNG_CONTINUOUS_COMPRESSION_ENABLED
+	depends on !LRNG_SWITCHABLE_CONTINUOUS_COMPRESSION
+	depends on !LRNG_OVERSAMPLE_ENTROPY_SOURCES
+		bool "32 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_256
+	depends on !LRNG_OVERSAMPLE_ENTROPY_SOURCES
+		bool "256 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_512
+		bool "512 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_1024
+		bool "1024 interrupt events (default)"
+
+	config LRNG_COLLECTION_SIZE_2048
+		bool "2048 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_4096
+		bool "4096 interrupt events"
+
+	config LRNG_COLLECTION_SIZE_8192
+		bool "8192 interrupt events"
+
+endchoice
+
+config LRNG_COLLECTION_SIZE
+	int
+	default 32 if LRNG_COLLECTION_SIZE_32
+	default 256 if LRNG_COLLECTION_SIZE_256
+	default 512 if LRNG_COLLECTION_SIZE_512
+	default 1024 if LRNG_COLLECTION_SIZE_1024
+	default 2048 if LRNG_COLLECTION_SIZE_2048
+	default 4096 if LRNG_COLLECTION_SIZE_4096
+	default 8192 if LRNG_COLLECTION_SIZE_8192
+
+config LRNG_IRQ_ENTROPY_RATE
+	int "Interrupt Entropy Source Entropy Rate"
+	depends on LRNG_IRQ
+	range 256 4294967295
+	default 256
+	help
+	  The LRNG will collect the configured number of interrupts to
+	  obtain 256 bits of entropy. This value can be set to any between
+	  256 and 4294967295. The LRNG guarantees that this value is not
+	  lower than 256. This lower limit implies that one interrupt event
+	  is credited with one bit of entropy. This value is subject to the
+	  increase by the oversampling factor, if no high-resolution timer
+	  is found.
+
+	  In order to effectively disable the interrupt entropy source,
+	  the option has to be set to 4294967295. In this case, the
+	  interrupt entropy source will still deliver data but without
+	  being credited with entropy.
+
+endmenu # "Entropy Source Configuration"
+
 endif # LRNG
