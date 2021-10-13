@@ -215,6 +215,35 @@ config LRNG_IRQ_ENTROPY_RATE
 	  interrupt entropy source will still deliver data but without
 	  being credited with entropy.
 
+comment "Jitter RNG Entropy Source"
+
+config LRNG_JENT
+	bool "Enable Jitter RNG as LRNG Seed Source"
+	depends on CRYPTO
+	select CRYPTO_JITTERENTROPY
+	help
+	  The Linux RNG may use the Jitter RNG as noise source. Enabling
+	  this option enables the use of the Jitter RNG. Its default
+	  entropy level is 16 bits of entropy per 256 data bits delivered
+	  by the Jitter RNG. This entropy level can be changed at boot
+	  time or at runtime with the lrng_base.jitterrng configuration
+	  variable.
+
+config LRNG_JENT_ENTROPY_RATE
+	int "Jitter RNG Entropy Source Entropy Rate"
+	depends on LRNG_JENT
+	range 0 256
+	default 16
+	help
+	  The option defines the amount of entropy the LRNG applies to 256
+	  bits of data obtained from the Jitter RNG entropy source. The
+	  LRNG enforces the limit that this value must be in the range
+	  between 0 and 256.
+
+	  When configuring this value to 0, the Jitter RNG entropy source
+	  will provide 256 bits of data without being credited to contain
+	  entropy.
+
 comment "CPU Entropy Source"
 
 config LRNG_CPU
