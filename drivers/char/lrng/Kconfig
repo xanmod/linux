@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Linux Random Number Generator configuration
+#
+
+menuconfig LRNG
+	bool "Linux Random Number Generator"
+	select CRYPTO_LIB_SHA256 if CRYPTO
+	help
+	  The Linux Random Number Generator (LRNG) is the replacement
+	  of the existing /dev/random provided with drivers/char/random.c.
+	  It generates entropy from different noise sources and
+	  delivers significant entropy during boot.
+
+if LRNG
+
+menu "Specific DRNG seeding strategies"
+
+config LRNG_OVERSAMPLE_ENTROPY_SOURCES
+	bool "Oversample entropy sources"
+	default n
+	help
+	  When enabling this option, the entropy sources are
+	  over-sampled with the following approach: First, the
+	  the entropy sources are requested to provide 64 bits more
+	  entropy than the size of the entropy buffer. For example,
+	  if the entropy buffer is 256 bits, 320 bits of entropy
+	  is requested to fill that buffer.
+
+	  Second, the seed operation of the deterministic RNG
+	  requests 128 bits more data from each entropy source than
+	  the security strength of the DRNG during initialization.
+	  A prerequisite for this operation is that the digest size
+	  of the used hash must be at least equally large to generate
+	  that buffer. If the prerequisite is not met, this
+	  oversampling is not applied.
+
+	  This strategy is intended to offset the asymptotic entropy
+	  increase to reach full entropy in a buffer.
+
+	  The strategy is consistent with the requirements in
+	  NIST SP800-90C and is only enforced with fips=1.
+
+	  If unsure, say N.
+
+config LRNG_OVERSAMPLE_ES_BITS
+	int
+	default 0 if !LRNG_OVERSAMPLE_ENTROPY_SOURCES
+	default 64 if LRNG_OVERSAMPLE_ENTROPY_SOURCES
+
+config LRNG_SEED_BUFFER_INIT_ADD_BITS
+	int
+	default 0 if !LRNG_OVERSAMPLE_ENTROPY_SOURCES
+	default 128 if LRNG_OVERSAMPLE_ENTROPY_SOURCES
+
+endmenu # "Specific DRNG seeding strategies"
+
+endif # LRNG
