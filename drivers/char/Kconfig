@@ -451,4 +451,6 @@ config RANDOM_TRUST_BOOTLOADER
 	pool. Otherwise, say N here so it will be regarded as device input that
 	only mixes the entropy pool.
 
+source "drivers/char/lrng/Kconfig"
+
 endmenu

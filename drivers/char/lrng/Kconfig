@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Linux Random Number Generator configuration
+#
+
+choice
+	prompt "Random Number Generator Implementation"
+	default RANDOM_DEFAULT_IMPL
+	help
+	  Select the random number generator implementation that is
+	  accessible via /dev/random, /dev/urandom, getrandom(2), and
+	  the in-kernel function get_random_bytes.
+
+config RANDOM_DEFAULT_IMPL
+	bool "Default Implementation"
+	help
+	  The default random number generator as provided with
+	  drivers/char/random.c is selected with this option.
+
+config LRNG
+	bool "LRNG Implementation with SP800-90A/B/C compliance"
+	select CRYPTO_LIB_SHA256 if CRYPTO
+	help
+	  The Linux Random Number Generator (LRNG) generates entropy
+	  from different entropy sources. Each entropy source can
+	  be enabled and configured independently. The interrupt
+	  entropy source can be configured to be SP800-90B compliant.
+	  The entire LRNG can be configured to be SP800-90C compliant.
+	  Runtime-switchable cryptographic support is available.
+	  The LRNG delivers significant entropy during boot.
+
+endchoice
+
+menu "Linux Random Number Generator Configuration"
+	depends on LRNG
+
+if LRNG
+
+menu "Specific DRNG seeding strategies"
+
+config LRNG_OVERSAMPLE_ENTROPY_SOURCES
+	bool "Oversample entropy sources"
+	default n
+	help
+	  When enabling this option, the entropy sources are
+	  over-sampled with the following approach: First, the
+	  the entropy sources are requested to provide 64 bits more
+	  entropy than the size of the entropy buffer. For example,
+	  if the entropy buffer is 256 bits, 320 bits of entropy
+	  is requested to fill that buffer.
+
+	  Second, the seed operation of the deterministic RNG
+	  requests 128 bits more data from each entropy source than
+	  the security strength of the DRNG during initialization.
+	  A prerequisite for this operation is that the digest size
+	  of the used hash must be at least equally large to generate
+	  that buffer. If the prerequisite is not met, this
+	  oversampling is not applied.
+
+	  This strategy is intended to offset the asymptotic entropy
+	  increase to reach full entropy in a buffer.
+
+	  The strategy is consistent with the requirements in
+	  NIST SP800-90C and is only enforced with fips=1.
+
+	  If unsure, say N.
+
+config LRNG_OVERSAMPLE_ES_BITS
+	int
+	default 0 if !LRNG_OVERSAMPLE_ENTROPY_SOURCES
+	default 64 if LRNG_OVERSAMPLE_ENTROPY_SOURCES
+
+config LRNG_SEED_BUFFER_INIT_ADD_BITS
+	int
+	default 0 if !LRNG_OVERSAMPLE_ENTROPY_SOURCES
+	default 128 if LRNG_OVERSAMPLE_ENTROPY_SOURCES
+
+endmenu # "Specific DRNG seeding strategies"
+
+endif # LRNG
+
+endmenu # LRNG
