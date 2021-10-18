@@ -215,6 +215,44 @@ config LRNG_IRQ_ENTROPY_RATE
 	  interrupt entropy source will still deliver data but without
 	  being credited with entropy.
 
+comment "CPU Entropy Source"
+
+config LRNG_CPU
+	bool "Enable CPU Entropy Source as LRNG Seed Source"
+	default y
+	help
+	  Current CPUs commonly contain entropy sources which can be
+	  used to seed the LRNG. For example, the Intel RDSEED
+	  instruction, or the POWER DARN instruction will be sourced
+	  to seed the LRNG if this option is enabled.
+
+	  Note, if this option is enabled and the underlying CPU
+	  does not offer such entropy source, the LRNG will automatically
+	  detect this and ignore the hardware.
+
+config LRNG_CPU_FULL_ENT_MULTIPLIER
+	int
+	default 1 if !LRNG_TEST_CPU_ES_COMPRESSION
+	default 123 if LRNG_TEST_CPU_ES_COMPRESSION
+
+config LRNG_CPU_ENTROPY_RATE
+	int "CPU Entropy Source Entropy Rate"
+	depends on LRNG_CPU
+	range 0 256
+	default 8
+	help
+	  The option defines the amount of entropy the LRNG applies to 256
+	  bits of data obtained from the CPU entropy source. The LRNG
+	  enforces the limit that this value must be in the range between
+	  0 and 256.
+
+	  When configuring this value to 0, the CPU entropy source will
+	  provide 256 bits of data without being credited to contain
+	  entropy.
+
+	  Note, this option is overwritten when the option
+	  CONFIG_RANDOM_TRUST_CPU is set.
+
 endmenu # "Entropy Source Configuration"
 
 endif # LRNG
