@@ -849,22 +849,6 @@ static inline void _bstats_update(struct gnet_stats_basic_sync *bstats,
 	u64_stats_update_end(&bstats->syncp);
 }
 
-static inline void bstats_read_add(struct gnet_stats_basic_sync *bstats,
-				   __u64 *bytes, __u64 *packets)
-{
-	u64 t_bytes, t_packets;
-	unsigned int start;
-
-	do {
-		start = u64_stats_fetch_begin_irq(&bstats->syncp);
-		t_bytes = u64_stats_read(&bstats->bytes);
-		t_packets = u64_stats_read(&bstats->packets);
-	} while (u64_stats_fetch_retry_irq(&bstats->syncp, start));
-
-	*bytes = t_bytes;
-	*packets = t_packets;
-}
-
 static inline void bstats_update(struct gnet_stats_basic_sync *bstats,
 				 const struct sk_buff *skb)
 {
@@ -965,10 +949,9 @@ static inline void qdisc_qstats_qlen_backlog(struct Qdisc *sch,  __u32 *qlen,
 					     __u32 *backlog)
 {
 	struct gnet_stats_queue qstats = { 0 };
-	__u32 len = qdisc_qlen_sum(sch);
 
-	__gnet_stats_copy_queue(&qstats, sch->cpu_qstats, &sch->qstats, len);
-	*qlen = qstats.qlen;
+	gnet_stats_add_queue(&qstats, sch->cpu_qstats, &sch->qstats);
+	*qlen = qstats.qlen + qdisc_qlen(sch);
 	*backlog = qstats.backlog;
 }
 

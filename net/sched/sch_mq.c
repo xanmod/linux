@@ -130,7 +130,6 @@ static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 	struct net_device *dev = qdisc_dev(sch);
 	struct Qdisc *qdisc;
 	unsigned int ntx;
-	__u32 qlen = 0;
 
 	sch->q.qlen = 0;
 	gnet_stats_basic_sync_init(&sch->bstats);
@@ -145,14 +144,12 @@ static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 		qdisc = netdev_get_tx_queue(dev, ntx)->qdisc_sleeping;
 		spin_lock_bh(qdisc_lock(qdisc));
 
-		qlen = qdisc_qlen_sum(qdisc);
+		gnet_stats_add_basic(&sch->bstats, qdisc->cpu_bstats,
+				     &qdisc->bstats, false);
+		gnet_stats_add_queue(&sch->qstats, qdisc->cpu_qstats,
+				     &qdisc->qstats);
+		sch->q.qlen += qdisc_qlen(qdisc);
 
-		__gnet_stats_copy_basic(&sch->bstats, qdisc->cpu_bstats,
-					&qdisc->bstats, false);
-		__gnet_stats_copy_queue(&sch->qstats,
-					qdisc->cpu_qstats,
-					&qdisc->qstats, qlen);
-		sch->q.qlen		+= qlen;
 		spin_unlock_bh(qdisc_lock(qdisc));
 	}
 

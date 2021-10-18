@@ -1174,7 +1174,7 @@ int tcf_action_copy_stats(struct sk_buff *skb, struct tc_action *p,
 		goto errout;
 
 	if (gnet_stats_copy_basic(&d, p->cpu_bstats,
-				  &p->tcfa_bstats, false ) < 0 ||
+				  &p->tcfa_bstats, false) < 0 ||
 	    gnet_stats_copy_basic_hw(&d, p->cpu_bstats_hw,
 				     &p->tcfa_bstats_hw, false) < 0 ||
 	    gnet_stats_copy_rate_est(&d, &p->tcfa_rate_est) < 0 ||

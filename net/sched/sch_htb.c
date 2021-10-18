@@ -1324,10 +1324,12 @@ static void htb_offload_aggregate_stats(struct htb_sched *q,
 			if (p != cl)
 				continue;
 
-			bstats_read_add(&c->bstats_bias, &bytes, &packets);
-			if (c->level == 0)
-				bstats_read_add(&c->leaf.q->bstats,
-						&bytes, &packets);
+			bytes += u64_stats_read(&c->bstats_bias.bytes);
+			packets += u64_stats_read(&c->bstats_bias.packets);
+			if (c->level == 0) {
+				bytes += u64_stats_read(&c->leaf.q->bstats.bytes);
+				packets += u64_stats_read(&c->leaf.q->bstats.packets);
+			}
 		}
 	}
 	_bstats_update(&cl->bstats, bytes, packets);
@@ -1354,15 +1356,13 @@ htb_dump_class_stats(struct Qdisc *sch, unsigned long arg, struct gnet_dump *d)
 
 	if (q->offload) {
 		if (!cl->level) {
-			u64 bytes = 0, packets = 0;
-
 			if (cl->leaf.q)
 				cl->bstats = cl->leaf.q->bstats;
 			else
 				gnet_stats_basic_sync_init(&cl->bstats);
-
-			bstats_read_add(&cl->bstats_bias, &bytes, &packets);
-			_bstats_update(&cl->bstats, bytes, packets);
+			_bstats_update(&cl->bstats,
+				       u64_stats_read(&cl->bstats_bias.bytes),
+				       u64_stats_read(&cl->bstats_bias.packets));
 		} else {
 			htb_offload_aggregate_stats(q, cl);
 		}

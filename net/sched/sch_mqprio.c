@@ -399,17 +399,14 @@ static int mqprio_dump(struct Qdisc *sch, struct sk_buff *skb)
 	 * qdisc totals are added at end.
 	 */
 	for (ntx = 0; ntx < dev->num_tx_queues; ntx++) {
-		u32 qlen = qdisc_qlen_sum(qdisc);
-
 		qdisc = netdev_get_tx_queue(dev, ntx)->qdisc_sleeping;
 		spin_lock_bh(qdisc_lock(qdisc));
 
-		__gnet_stats_copy_basic(&sch->bstats, qdisc->cpu_bstats,
-					&qdisc->bstats, false);
-		__gnet_stats_copy_queue(&sch->qstats,
-					qdisc->cpu_qstats,
-					&qdisc->qstats, qlen);
-		sch->q.qlen		+= qlen;
+		gnet_stats_add_basic(&sch->bstats, qdisc->cpu_bstats,
+				     &qdisc->bstats, false);
+		gnet_stats_add_queue(&sch->qstats, qdisc->cpu_qstats,
+				     &qdisc->qstats);
+		sch->q.qlen += qdisc_qlen(qdisc);
 
 		spin_unlock_bh(qdisc_lock(qdisc));
 	}
@@ -501,7 +498,7 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 {
 	if (cl >= TC_H_MIN_PRIORITY) {
 		int i;
-		__u32 qlen = 0;
+		__u32 qlen;
 		struct gnet_stats_queue qstats = {0};
 		struct gnet_stats_basic_sync bstats;
 		struct net_device *dev = qdisc_dev(sch);
@@ -522,15 +519,15 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 
 			spin_lock_bh(qdisc_lock(qdisc));
 
-			qlen = qdisc_qlen_sum(qdisc);
-			__gnet_stats_copy_basic(&bstats, qdisc->cpu_bstats,
-						&qdisc->bstats, false);
-			__gnet_stats_copy_queue(&qstats,
-						qdisc->cpu_qstats,
-						&qdisc->qstats,
-						qlen);
+			gnet_stats_add_basic(&bstats, qdisc->cpu_bstats,
+					     &qdisc->bstats, false);
+			gnet_stats_add_queue(&qstats, qdisc->cpu_qstats,
+					     &qdisc->qstats);
+			sch->q.qlen += qdisc_qlen(qdisc);
+
 			spin_unlock_bh(qdisc_lock(qdisc));
 		}
+		qlen = qdisc_qlen(sch) + qstats.qlen;
 
 		/* Reclaim root sleeping lock before completing stats */
 		if (d->lock)

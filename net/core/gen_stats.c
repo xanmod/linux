@@ -114,7 +114,6 @@ gnet_stats_start_copy(struct sk_buff *skb, int type, spinlock_t *lock,
 }
 EXPORT_SYMBOL(gnet_stats_start_copy);
 
-#ifdef CONFIG_LOCKDEP
 /* Must not be inlined, due to u64_stats seqcount_t lockdep key */
 void gnet_stats_basic_sync_init(struct gnet_stats_basic_sync *b)
 {
@@ -123,11 +122,9 @@ void gnet_stats_basic_sync_init(struct gnet_stats_basic_sync *b)
 	u64_stats_init(&b->syncp);
 }
 EXPORT_SYMBOL(gnet_stats_basic_sync_init);
-#endif
 
-static void
-__gnet_stats_copy_basic_cpu(struct gnet_stats_basic_sync *bstats,
-			    struct gnet_stats_basic_sync __percpu *cpu)
+static void gnet_stats_add_basic_cpu(struct gnet_stats_basic_sync *bstats,
+				     struct gnet_stats_basic_sync __percpu *cpu)
 {
 	u64 t_bytes = 0, t_packets = 0;
 	int i;
@@ -149,20 +146,18 @@ __gnet_stats_copy_basic_cpu(struct gnet_stats_basic_sync *bstats,
 	_bstats_update(bstats, t_bytes, t_packets);
 }
 
-void
-__gnet_stats_copy_basic(struct gnet_stats_basic_sync *bstats,
-			struct gnet_stats_basic_sync __percpu *cpu,
-			struct gnet_stats_basic_sync *b,
-			bool running)
+void gnet_stats_add_basic(struct gnet_stats_basic_sync *bstats,
+			  struct gnet_stats_basic_sync __percpu *cpu,
+			  struct gnet_stats_basic_sync *b, bool running)
 {
 	unsigned int start;
-	__u64 bytes = 0;
-	__u64 packets = 0;
+	u64 bytes = 0;
+	u64 packets = 0;
 
 	WARN_ON_ONCE((cpu || running) && !in_task());
 
 	if (cpu) {
-		__gnet_stats_copy_basic_cpu(bstats, cpu);
+		gnet_stats_add_basic_cpu(bstats, cpu);
 		return;
 	}
 	do {
@@ -174,7 +169,7 @@ __gnet_stats_copy_basic(struct gnet_stats_basic_sync *bstats,
 
 	_bstats_update(bstats, bytes, packets);
 }
-EXPORT_SYMBOL(__gnet_stats_copy_basic);
+EXPORT_SYMBOL(gnet_stats_add_basic);
 
 static int
 ___gnet_stats_copy_basic(struct gnet_dump *d,
@@ -186,7 +181,7 @@ ___gnet_stats_copy_basic(struct gnet_dump *d,
 	u64 bstats_bytes, bstats_packets;
 
 	gnet_stats_basic_sync_init(&bstats);
-	__gnet_stats_copy_basic(&bstats, cpu, b, running);
+	gnet_stats_add_basic(&bstats, cpu, b, running);
 
 	bstats_bytes = u64_stats_read(&bstats.bytes);
 	bstats_packets = u64_stats_read(&bstats.packets);
@@ -311,16 +306,15 @@ gnet_stats_copy_rate_est(struct gnet_dump *d,
 }
 EXPORT_SYMBOL(gnet_stats_copy_rate_est);
 
-static void
-__gnet_stats_copy_queue_cpu(struct gnet_stats_queue *qstats,
-			    const struct gnet_stats_queue __percpu *q)
+static void gnet_stats_add_queue_cpu(struct gnet_stats_queue *qstats,
+				     const struct gnet_stats_queue __percpu *q)
 {
 	int i;
 
 	for_each_possible_cpu(i) {
 		const struct gnet_stats_queue *qcpu = per_cpu_ptr(q, i);
 
-		qstats->qlen = 0;
+		qstats->qlen += qcpu->backlog;
 		qstats->backlog += qcpu->backlog;
 		qstats->drops += qcpu->drops;
 		qstats->requeues += qcpu->requeues;
@@ -328,13 +322,12 @@ __gnet_stats_copy_queue_cpu(struct gnet_stats_queue *qstats,
 	}
 }
 
-void __gnet_stats_copy_queue(struct gnet_stats_queue *qstats,
-			     const struct gnet_stats_queue __percpu *cpu,
-			     const struct gnet_stats_queue *q,
-			     __u32 qlen)
+void gnet_stats_add_queue(struct gnet_stats_queue *qstats,
+			  const struct gnet_stats_queue __percpu *cpu,
+			  const struct gnet_stats_queue *q)
 {
 	if (cpu) {
-		__gnet_stats_copy_queue_cpu(qstats, cpu);
+		gnet_stats_add_queue_cpu(qstats, cpu);
 	} else {
 		qstats->qlen += q->qlen;
 		qstats->backlog += q->backlog;
@@ -342,10 +335,8 @@ void __gnet_stats_copy_queue(struct gnet_stats_queue *qstats,
 		qstats->requeues += q->requeues;
 		qstats->overlimits += q->overlimits;
 	}
-
-	qstats->qlen += qlen;
 }
-EXPORT_SYMBOL(__gnet_stats_copy_queue);
+EXPORT_SYMBOL(gnet_stats_add_queue);
 
 /**
  * gnet_stats_copy_queue - copy queue statistics into statistics TLV
@@ -368,7 +359,8 @@ gnet_stats_copy_queue(struct gnet_dump *d,
 {
 	struct gnet_stats_queue qstats = {0};
 
-	__gnet_stats_copy_queue(&qstats, cpu_q, q, qlen);
+	gnet_stats_add_queue(&qstats, cpu_q, q);
+	qstats.qlen = qlen;
 
 	if (d->compat_tc_stats) {
 		d->tc_stats.drops = qstats.drops;

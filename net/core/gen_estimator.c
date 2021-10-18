@@ -66,7 +66,7 @@ static void est_fetch_counters(struct net_rate_estimator *e,
 	if (e->stats_lock)
 		spin_lock(e->stats_lock);
 
-	__gnet_stats_copy_basic(b, e->cpu_bstats, e->bstats, e->running);
+	gnet_stats_add_basic(b, e->cpu_bstats, e->bstats, e->running);
 
 	if (e->stats_lock)
 		spin_unlock(e->stats_lock);
