@@ -39,6 +39,15 @@ unsigned int sysctl_sched_latency			= 6000000ULL;
 static unsigned int normalized_sysctl_sched_latency	= 6000000ULL;
 
 /*
+ * When tasks asks for yield, alter its vruntime
+ * to have high value, so the scheduler won't
+ * pick it if there are other tasks to run.
+ * yield mark get erased after picking another task.
+ */
+#define YIELD_MARK(se)		((se)->vruntime |= 0x8000000000000000ULL)
+#define YIELD_UNMARK(se)	((se)->vruntime &= 0x7FFFFFFFFFFFFFFFULL)
+
+/*
  * The initial- and re-scaling of tunables is configurable
  *
  * Options are:
@@ -7020,6 +7029,9 @@ simple:
 
 	p = task_of(se);
 
+	if (prev)
+		YIELD_UNMARK(&prev->se);
+
 done: __maybe_unused;
 #ifdef CONFIG_SMP
 	/*
@@ -7092,6 +7104,8 @@ static void yield_task_fair(struct rq *rq)
 	struct task_struct *curr = rq->curr;
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 	struct sched_entity *se = &curr->se;
+
+	YIELD_MARK(&curr->se);
 
 	/*
 	 * Are we the only task in the tree?
