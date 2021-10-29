@@ -167,9 +167,10 @@ static bool switch_to_kernel_context(struct intel_engine_cs *engine)
 	 * engine->wakeref.count, we may see the request completion and retire
 	 * it causing an underflow of the engine->wakeref.
 	 */
+	set_bit(CONTEXT_IS_PARKED, &ce->flags);
 	GEM_BUG_ON(atomic_read(&ce->timeline->active_count) < 0);
 
-	rq = __i915_request_create(ce, GFP_NOWAIT, false);
+	rq = __i915_request_create(ce, GFP_NOWAIT);
 	if (IS_ERR(rq))
 		/* Context switch failed, hope for the best! Maybe reset? */
 		goto out_unlock;
@@ -198,6 +199,7 @@ static bool switch_to_kernel_context(struct intel_engine_cs *engine)
 
 	result = false;
 out_unlock:
+	clear_bit(CONTEXT_IS_PARKED, &ce->flags);
 	return result;
 }
 

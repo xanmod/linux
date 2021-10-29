@@ -161,11 +161,10 @@ static inline void intel_context_enter(struct intel_context *ce)
 		ce->ops->enter(ce);
 }
 
-static inline void intel_context_mark_active(struct intel_context *ce,
-					     bool timeline_mutex_needed)
+static inline void intel_context_mark_active(struct intel_context *ce)
 {
-	if (timeline_mutex_needed)
-		lockdep_assert_held(&ce->timeline->mutex);
+	lockdep_assert(lockdep_is_held(&ce->timeline->mutex) ||
+		       test_bit(CONTEXT_IS_PARKED, &ce->flags));
 	++ce->active_count;
 }
 

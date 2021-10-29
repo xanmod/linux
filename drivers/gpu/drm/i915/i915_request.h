@@ -320,8 +320,7 @@ static inline bool dma_fence_is_i915(const struct dma_fence *fence)
 struct kmem_cache *i915_request_slab_cache(void);
 
 struct i915_request * __must_check
-__i915_request_create(struct intel_context *ce, gfp_t gfp,
-		      bool timeline_mutex_needed);
+__i915_request_create(struct intel_context *ce, gfp_t gfp);
 struct i915_request * __must_check
 i915_request_create(struct intel_context *ce);
 
@@ -610,7 +609,8 @@ i915_request_timeline(const struct i915_request *rq)
 {
 	/* Valid only while the request is being constructed (or retired). */
 	return rcu_dereference_protected(rq->timeline,
-					 lockdep_is_held(&rcu_access_pointer(rq->timeline)->mutex));
+					 lockdep_is_held(&rcu_access_pointer(rq->timeline)->mutex) ||
+					 test_bit(CONTEXT_IS_PARKED, &rq->context->flags));
 }
 
 static inline struct i915_gem_context *
