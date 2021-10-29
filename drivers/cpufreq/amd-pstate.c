@@ -36,6 +36,7 @@
 #include <linux/delay.h>
 #include <linux/uaccess.h>
 #include <linux/static_call.h>
+#include <trace/events/power.h>
 
 #include <acpi/processor.h>
 #include <acpi/cppc_acpi.h>
@@ -188,6 +189,9 @@ static void amd_pstate_update(struct amd_cpudata *cpudata, u32 min_perf,
 
 	value &= ~REQ_MAX_PERF(~0L);
 	value |= REQ_MAX_PERF(max_perf);
+
+	trace_amd_pstate_perf(min_perf, des_perf, max_perf, cpudata->cpu,
+			      (value != prev), fast_switch);
 
 	if (value == prev)
 		return;
