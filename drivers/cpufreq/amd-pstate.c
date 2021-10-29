@@ -536,14 +536,67 @@ static ssize_t show_amd_pstate_lowest_nonlinear_freq(struct cpufreq_policy *poli
 	return sprintf(&buf[0], "%u\n", freq);
 }
 
+static ssize_t show_amd_pstate_highest_perf(struct cpufreq_policy *policy,
+					    char *buf)
+{
+	u32 perf;
+	struct amd_cpudata *cpudata = policy->driver_data;
+
+	perf = READ_ONCE(cpudata->highest_perf);
+
+	return sprintf(&buf[0], "%u\n", perf);
+}
+
+static ssize_t show_amd_pstate_nominal_perf(struct cpufreq_policy *policy,
+					    char *buf)
+{
+	u32 perf;
+	struct amd_cpudata *cpudata = policy->driver_data;
+
+	perf = READ_ONCE(cpudata->nominal_perf);
+
+	return sprintf(&buf[0], "%u\n", perf);
+}
+
+static ssize_t show_amd_pstate_lowest_nonlinear_perf(struct cpufreq_policy *policy,
+						     char *buf)
+{
+	u32 perf;
+	struct amd_cpudata *cpudata = policy->driver_data;
+
+	perf = READ_ONCE(cpudata->lowest_nonlinear_perf);
+
+	return sprintf(&buf[0], "%u\n", perf);
+}
+
+static ssize_t show_amd_pstate_lowest_perf(struct cpufreq_policy *policy,
+					   char *buf)
+{
+	u32 perf;
+	struct amd_cpudata *cpudata = policy->driver_data;
+
+	perf = READ_ONCE(cpudata->lowest_perf);
+
+	return sprintf(&buf[0], "%u\n", perf);
+}
+
 cpufreq_freq_attr_ro(amd_pstate_max_freq);
 cpufreq_freq_attr_ro(amd_pstate_nominal_freq);
 cpufreq_freq_attr_ro(amd_pstate_lowest_nonlinear_freq);
+
+cpufreq_freq_attr_ro(amd_pstate_highest_perf);
+cpufreq_freq_attr_ro(amd_pstate_nominal_perf);
+cpufreq_freq_attr_ro(amd_pstate_lowest_nonlinear_perf);
+cpufreq_freq_attr_ro(amd_pstate_lowest_perf);
 
 static struct freq_attr *amd_pstate_attr[] = {
 	&amd_pstate_max_freq,
 	&amd_pstate_nominal_freq,
 	&amd_pstate_lowest_nonlinear_freq,
+	&amd_pstate_highest_perf,
+	&amd_pstate_nominal_perf,
+	&amd_pstate_lowest_nonlinear_perf,
+	&amd_pstate_lowest_perf,
 	NULL,
 };
 
