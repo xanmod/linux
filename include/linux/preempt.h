@@ -331,14 +331,6 @@ do { \
 		set_preempt_need_resched(); \
 } while (0)
 
-#ifdef CONFIG_PREEMPT_RT
-# define preempt_disable_rt()		preempt_disable()
-# define preempt_enable_rt()		preempt_enable()
-#else
-# define preempt_disable_rt()		barrier()
-# define preempt_enable_rt()		barrier()
-#endif
-
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 
 struct preempt_notifier;
