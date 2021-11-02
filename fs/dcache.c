@@ -2537,11 +2537,16 @@ EXPORT_SYMBOL(d_rehash);
 
 static inline unsigned start_dir_add(struct inode *dir)
 {
-
-	preempt_disable_rt();
+	/*
+	 * The caller has a spinlock_t (dentry::d_lock) acquired which disables
+	 * preemption on !PREEMPT_RT. On PREEMPT_RT the lock does not disable
+	 * preemption and it has be done explicitly.
+	 */
+	if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		preempt_disable();
 	for (;;) {
-		unsigned n = dir->__i_dir_seq;
-		if (!(n & 1) && cmpxchg(&dir->__i_dir_seq, n, n + 1) == n)
+		unsigned n = dir->i_dir_seq;
+		if (!(n & 1) && cmpxchg(&dir->i_dir_seq, n, n + 1) == n)
 			return n;
 		cpu_relax();
 	}
@@ -2549,8 +2554,9 @@ static inline unsigned start_dir_add(struct inode *dir)
 
 static inline void end_dir_add(struct inode *dir, unsigned n)
 {
-	smp_store_release(&dir->__i_dir_seq, n + 2);
-	preempt_enable_rt();
+	smp_store_release(&dir->i_dir_seq, n + 2);
+	if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		preempt_enable();
 }
 
 static void d_wait_lookup(struct dentry *dentry)
@@ -2586,7 +2592,7 @@ struct dentry *d_alloc_parallel(struct dentry *parent,
 
 retry:
 	rcu_read_lock();
-	seq = smp_load_acquire(&parent->d_inode->__i_dir_seq);
+	seq = smp_load_acquire(&parent->d_inode->i_dir_seq);
 	r_seq = read_seqbegin(&rename_lock);
 	dentry = __d_lookup_rcu(parent, name, &d_seq);
 	if (unlikely(dentry)) {
@@ -2614,7 +2620,7 @@ retry:
 	}
 
 	hlist_bl_lock(b);
-	if (unlikely(READ_ONCE(parent->d_inode->__i_dir_seq) != seq)) {
+	if (unlikely(READ_ONCE(parent->d_inode->i_dir_seq) != seq)) {
 		hlist_bl_unlock(b);
 		rcu_read_unlock();
 		goto retry;
