@@ -28,6 +28,7 @@ place where this information is gathered.
    media/index
    sysfs-platform_profile
    vduse
+   winesync
 
 .. only::  subproject and html
 
