@@ -173,7 +173,9 @@ static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 				   size_t cnt, loff_t *ppos)
 {
 	char buf[16];
+#ifndef CONFIG_TT_SCHED
 	unsigned int scaling;
+#endif
 
 	if (cnt > 15)
 		cnt = 15;
@@ -182,6 +184,7 @@ static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 		return -EFAULT;
 	buf[cnt] = '\0';
 
+#ifndef CONFIG_TT_SCHED
 	if (kstrtouint(buf, 10, &scaling))
 		return -EINVAL;
 
@@ -191,6 +194,7 @@ static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 	sysctl_sched_tunable_scaling = scaling;
 	if (sched_update_scaling())
 		return -EINVAL;
+#endif
 
 	*ppos += cnt;
 	return cnt;
@@ -198,7 +202,9 @@ static ssize_t sched_scaling_write(struct file *filp, const char __user *ubuf,
 
 static int sched_scaling_show(struct seq_file *m, void *v)
 {
+#ifndef CONFIG_TT_SCHED
 	seq_printf(m, "%d\n", sysctl_sched_tunable_scaling);
+#endif
 	return 0;
 }
 
@@ -309,10 +315,11 @@ static __init int sched_init_debug(void)
 	debugfs_create_file("preempt", 0644, debugfs_sched, NULL, &sched_dynamic_fops);
 #endif
 
+#ifndef CONFIG_TT_SCHED
 	debugfs_create_u32("latency_ns", 0644, debugfs_sched, &sysctl_sched_latency);
 	debugfs_create_u32("min_granularity_ns", 0644, debugfs_sched, &sysctl_sched_min_granularity);
 	debugfs_create_u32("wakeup_granularity_ns", 0644, debugfs_sched, &sysctl_sched_wakeup_granularity);
-
+#endif
 	debugfs_create_u32("latency_warn_ms", 0644, debugfs_sched, &sysctl_resched_latency_warn_ms);
 	debugfs_create_u32("latency_warn_once", 0644, debugfs_sched, &sysctl_resched_latency_warn_once);
 
@@ -573,8 +580,10 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 {
+#ifndef CONFIG_TT_SCHED
 	s64 MIN_vruntime = -1, min_vruntime, max_vruntime = -1,
 		spread, rq0_min_vruntime, spread0;
+
 	struct rq *rq = cpu_rq(cpu);
 	struct sched_entity *last;
 	unsigned long flags;
@@ -612,6 +621,8 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 			SPLIT_NS(spread0));
 	SEQ_printf(m, "  .%-30s: %d\n", "nr_spread_over",
 			cfs_rq->nr_spread_over);
+#endif
+
 	SEQ_printf(m, "  .%-30s: %d\n", "nr_running", cfs_rq->nr_running);
 	SEQ_printf(m, "  .%-30s: %d\n", "h_nr_running", cfs_rq->h_nr_running);
 	SEQ_printf(m, "  .%-30s: %d\n", "idle_h_nr_running",
@@ -765,11 +776,13 @@ do {									\
 	SEQ_printf(m, "\n");
 }
 
+#ifndef CONFIG_TT_SCHED
 static const char *sched_tunable_scaling_names[] = {
 	"none",
 	"logarithmic",
 	"linear"
 };
+#endif
 
 static void sched_debug_header(struct seq_file *m)
 {
@@ -808,18 +821,24 @@ static void sched_debug_header(struct seq_file *m)
 	SEQ_printf(m, "  .%-40s: %Ld\n", #x, (long long)(x))
 #define PN(x) \
 	SEQ_printf(m, "  .%-40s: %Ld.%06ld\n", #x, SPLIT_NS(x))
+
+#ifndef CONFIG_TT_SCHED
 	PN(sysctl_sched_latency);
 	PN(sysctl_sched_min_granularity);
 	PN(sysctl_sched_wakeup_granularity);
 	P(sysctl_sched_child_runs_first);
 	P(sysctl_sched_features);
+#endif
+
 #undef PN
 #undef P
 
+#ifndef CONFIG_TT_SCHED
 	SEQ_printf(m, "  .%-40s: %d (%s)\n",
 		"sysctl_sched_tunable_scaling",
 		sysctl_sched_tunable_scaling,
 		sched_tunable_scaling_names[sysctl_sched_tunable_scaling]);
+#endif
 	SEQ_printf(m, "\n");
 }
 
@@ -956,6 +975,22 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 
 #define P_SCHEDSTAT(F)  __PS(#F, schedstat_val(p->F))
 #define PN_SCHEDSTAT(F) __PSN(#F, schedstat_val(p->F))
+
+
+#ifdef CONFIG_TT_SCHED
+#define PN_TT(F, S) SEQ_printf(m, "%-45s: %20s\n", #F, #S)
+
+	if (p->se.tt_node.task_type == TT_NO_TYPE)
+		PN_TT(task_type, NO_TYPE);
+	else if (p->se.tt_node.task_type == TT_INTERACTIVE)
+		PN_TT(task_type, INTERACTIVE);
+	else if (p->se.tt_node.task_type == TT_REALTIME)
+		PN_TT(task_type, REALTIME);
+	else if (p->se.tt_node.task_type == TT_CPU_BOUND)
+		PN_TT(task_type, CPU_BOUND);
+	else if (p->se.tt_node.task_type == TT_BATCH)
+		PN_TT(task_type, BATCH);
+#endif
 
 	PN(se.exec_start);
 	PN(se.vruntime);

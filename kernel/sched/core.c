@@ -4459,7 +4459,9 @@ void wake_up_new_task(struct task_struct *p)
 	rq = __task_rq_lock(p, &rf);
 	update_rq_clock(rq);
 	post_init_entity_util_avg(p);
-
+#ifdef CONFIG_TT_SCHED
+	p->se.tt_node.start_time = sched_clock();
+#endif
 	activate_task(rq, p, ENQUEUE_NOCLOCK);
 	trace_sched_wakeup_new(p);
 	check_preempt_curr(rq, p, WF_FORK);
@@ -5271,7 +5273,9 @@ static void sched_tick_remote(struct work_struct *work)
 	struct rq *rq = cpu_rq(cpu);
 	struct task_struct *curr;
 	struct rq_flags rf;
+#ifndef CONFIG_TT_SCHED
 	u64 delta;
+#endif
 	int os;
 
 	/*
@@ -5290,7 +5294,7 @@ static void sched_tick_remote(struct work_struct *work)
 		goto out_unlock;
 
 	update_rq_clock(rq);
-
+#ifndef CONFIG_TT_SCHED
 	if (!is_idle_task(curr)) {
 		/*
 		 * Make sure the next tick runs within a reasonable
@@ -5299,6 +5303,7 @@ static void sched_tick_remote(struct work_struct *work)
 		delta = rq_clock_task(rq) - curr->se.exec_start;
 		WARN_ON_ONCE(delta > (u64)NSEC_PER_SEC * 3);
 	}
+#endif
 	curr->sched_class->task_tick(rq, curr, 0);
 
 	calc_load_nohz_remote(rq);
@@ -9296,6 +9301,10 @@ void __init sched_init(void)
 #endif
 
 	wait_bit_init();
+
+#ifdef CONFIG_TT_SCHED
+	printk(KERN_INFO "TT CPU scheduler v5.15 by Hamad Al Marri.");
+#endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	ptr += 2 * nr_cpu_ids * sizeof(void **);
