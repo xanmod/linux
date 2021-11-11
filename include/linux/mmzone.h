@@ -318,6 +318,13 @@ struct lruvec;
 #define MIN_NR_GENS		2
 #define MAX_NR_GENS		((unsigned int)CONFIG_NR_LRU_GENS)
 
+/* Whether to keep stats for historical generations. */
+#ifdef CONFIG_LRU_GEN_STATS
+#define NR_HIST_GENS		((unsigned int)CONFIG_NR_LRU_GENS)
+#else
+#define NR_HIST_GENS		1U
+#endif
+
 struct lrugen {
 	/* the aging increments the max generation number */
 	unsigned long max_seq;
@@ -333,13 +340,63 @@ struct lrugen {
 	bool enabled[ANON_AND_FILE];
 };
 
+enum {
+	MM_LEAF_TOTAL,		/* total leaf entries */
+	MM_LEAF_OLD,		/* old leaf entries */
+	MM_LEAF_YOUNG,		/* young leaf entries */
+	MM_NONLEAF_TOTAL,	/* total non-leaf entries */
+	MM_NONLEAF_PREV,	/* previously worthy non-leaf entries */
+	MM_NONLEAF_CUR,		/* currently worthy non-leaf entries */
+	NR_MM_STATS
+};
+
+/* mnemonic codes for the stats above */
+#define MM_STAT_CODES		"toydpc"
+
+/* double buffering bloom filters */
+#define NR_BLOOM_FILTERS	2
+
+struct lru_gen_mm_walk {
+	/* set to max_seq after each round of walk */
+	unsigned long seq;
+	/* the next mm_struct on the list to walk */
+	struct list_head *head;
+	/* the first mm_struct never walked before */
+	struct list_head *tail;
+	/* to wait for the last walker to finish */
+	struct wait_queue_head wait;
+	/* bloom filters flip after each round of walk */
+	unsigned long *filters[NR_BLOOM_FILTERS];
+	/* page table stats for debugging */
+	unsigned long stats[NR_HIST_GENS][NR_MM_STATS];
+	/* the number of concurrent walkers */
+	int nr_walkers;
+};
+
+#define MIN_BATCH_SIZE		64
 #define MAX_BATCH_SIZE		8192
+
+struct mm_walk_args {
+	struct mem_cgroup *memcg;
+	unsigned long max_seq;
+	unsigned long start_pfn;
+	unsigned long end_pfn;
+	unsigned long next_addr;
+	unsigned long bitmap[BITS_TO_LONGS(MIN_BATCH_SIZE)];
+	int node_id;
+	int swappiness;
+	int batch_size;
+	int nr_pages[MAX_NR_GENS][ANON_AND_FILE][MAX_NR_ZONES];
+	int mm_stats[NR_MM_STATS];
+	bool use_filter;
+};
 
 void lru_gen_init_state(struct mem_cgroup *memcg, struct lruvec *lruvec);
 void lru_gen_change_state(bool enable, bool main, bool swap);
 
 #ifdef CONFIG_MEMCG
 void lru_gen_init_memcg(struct mem_cgroup *memcg);
+void lru_gen_free_memcg(struct mem_cgroup *memcg);
 #endif
 
 #else /* !CONFIG_LRU_GEN */
@@ -354,6 +411,10 @@ static inline void lru_gen_change_state(bool enable, bool main, bool swap)
 
 #ifdef CONFIG_MEMCG
 static inline void lru_gen_init_memcg(struct mem_cgroup *memcg)
+{
+}
+
+static inline void lru_gen_free_memcg(struct mem_cgroup *memcg)
 {
 }
 #endif
@@ -380,6 +441,8 @@ struct lruvec {
 #ifdef CONFIG_LRU_GEN
 	/* unevictable pages are on LRU_UNEVICTABLE */
 	struct lrugen			evictable;
+	/* state for mm list and page table walks */
+	struct lru_gen_mm_walk		mm_walk;
 #endif
 #ifdef CONFIG_MEMCG
 	struct pglist_data *pgdat;

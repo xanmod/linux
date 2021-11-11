@@ -2923,6 +2923,306 @@ static bool __maybe_unused seq_is_valid(struct lruvec *lruvec)
 }
 
 /******************************************************************************
+ *                          mm_struct list
+ ******************************************************************************/
+
+static struct lru_gen_mm_list *get_mm_list(struct mem_cgroup *memcg)
+{
+	static struct lru_gen_mm_list mm_list = {
+		.fifo = LIST_HEAD_INIT(mm_list.fifo),
+		.lock = __SPIN_LOCK_UNLOCKED(mm_list.lock),
+	};
+
+#ifdef CONFIG_MEMCG
+	if (memcg)
+		return &memcg->mm_list;
+#endif
+	return &mm_list;
+}
+
+void lru_gen_add_mm(struct mm_struct *mm)
+{
+	int nid;
+	struct mem_cgroup *memcg = get_mem_cgroup_from_mm(mm);
+	struct lru_gen_mm_list *mm_list = get_mm_list(memcg);
+
+	VM_BUG_ON_MM(!list_empty(&mm->lrugen.list), mm);
+#ifdef CONFIG_MEMCG
+	VM_BUG_ON_MM(mm->lrugen.memcg, mm);
+	mm->lrugen.memcg = memcg;
+#endif
+	spin_lock(&mm_list->lock);
+
+	list_add_tail(&mm->lrugen.list, &mm_list->fifo);
+
+	for_each_node(nid) {
+		struct lruvec *lruvec = get_lruvec(nid, memcg);
+
+		if (!lruvec)
+			continue;
+
+		if (lruvec->mm_walk.tail == &mm_list->fifo)
+			lruvec->mm_walk.tail = lruvec->mm_walk.tail->prev;
+	}
+
+	spin_unlock(&mm_list->lock);
+}
+
+void lru_gen_del_mm(struct mm_struct *mm)
+{
+	int nid;
+	struct lru_gen_mm_list *mm_list;
+	struct mem_cgroup *memcg = NULL;
+
+	if (list_empty(&mm->lrugen.list))
+		return;
+
+#ifdef CONFIG_MEMCG
+	memcg = mm->lrugen.memcg;
+#endif
+	mm_list = get_mm_list(memcg);
+
+	spin_lock(&mm_list->lock);
+
+	for_each_node(nid) {
+		struct lruvec *lruvec = get_lruvec(nid, memcg);
+
+		if (!lruvec)
+			continue;
+
+		if (lruvec->mm_walk.tail == &mm->lrugen.list)
+			lruvec->mm_walk.tail = lruvec->mm_walk.tail->next;
+
+		if (lruvec->mm_walk.head != &mm->lrugen.list)
+			continue;
+
+		lruvec->mm_walk.head = lruvec->mm_walk.head->next;
+		if (lruvec->mm_walk.head == &mm_list->fifo)
+			WRITE_ONCE(lruvec->mm_walk.seq, lruvec->mm_walk.seq + 1);
+	}
+
+	list_del_init(&mm->lrugen.list);
+
+	spin_unlock(&mm_list->lock);
+
+#ifdef CONFIG_MEMCG
+	mem_cgroup_put(mm->lrugen.memcg);
+	mm->lrugen.memcg = NULL;
+#endif
+}
+
+#ifdef CONFIG_MEMCG
+void lru_gen_migrate_mm(struct mm_struct *mm)
+{
+	struct mem_cgroup *memcg;
+
+	lockdep_assert_held(&mm->owner->alloc_lock);
+
+	if (mem_cgroup_disabled())
+		return;
+
+	rcu_read_lock();
+	memcg = mem_cgroup_from_task(mm->owner);
+	rcu_read_unlock();
+	if (memcg == mm->lrugen.memcg)
+		return;
+
+	VM_BUG_ON_MM(!mm->lrugen.memcg, mm);
+	VM_BUG_ON_MM(list_empty(&mm->lrugen.list), mm);
+
+	lru_gen_del_mm(mm);
+	lru_gen_add_mm(mm);
+}
+#endif
+
+#define BLOOM_FILTER_SHIFT	15
+
+static inline int filter_gen_from_seq(unsigned long seq)
+{
+	return seq % NR_BLOOM_FILTERS;
+}
+
+static void get_item_key(void *item, int *key)
+{
+	u32 hash = hash_ptr(item, BLOOM_FILTER_SHIFT * 2);
+
+	BUILD_BUG_ON(BLOOM_FILTER_SHIFT * 2 > BITS_PER_TYPE(u32));
+
+	key[0] = hash & (BIT(BLOOM_FILTER_SHIFT) - 1);
+	key[1] = hash >> BLOOM_FILTER_SHIFT;
+}
+
+static void clear_bloom_filter(struct lruvec *lruvec, unsigned long seq)
+{
+	unsigned long *filter;
+	int gen = filter_gen_from_seq(seq);
+
+	lockdep_assert_held(&get_mm_list(lruvec_memcg(lruvec))->lock);
+
+	filter = lruvec->mm_walk.filters[gen];
+	if (filter) {
+		bitmap_clear(filter, 0, BIT(BLOOM_FILTER_SHIFT));
+		return;
+	}
+
+	filter = bitmap_zalloc(BIT(BLOOM_FILTER_SHIFT), GFP_ATOMIC);
+	WRITE_ONCE(lruvec->mm_walk.filters[gen], filter);
+}
+
+static void set_bloom_filter(struct lruvec *lruvec, unsigned long seq, void *item)
+{
+	int key[2];
+	unsigned long *filter;
+	int gen = filter_gen_from_seq(seq);
+
+	filter = READ_ONCE(lruvec->mm_walk.filters[gen]);
+	if (!filter)
+		return;
+
+	get_item_key(item, key);
+
+	if (!test_bit(key[0], filter))
+		set_bit(key[0], filter);
+	if (!test_bit(key[1], filter))
+		set_bit(key[1], filter);
+}
+
+static bool test_bloom_filter(struct lruvec *lruvec, unsigned long seq, void *item)
+{
+	int key[2];
+	unsigned long *filter;
+	int gen = filter_gen_from_seq(seq);
+
+	filter = READ_ONCE(lruvec->mm_walk.filters[gen]);
+	if (!filter)
+		return false;
+
+	get_item_key(item, key);
+
+	return test_bit(key[0], filter) && test_bit(key[1], filter);
+}
+
+static void reset_mm_stats(struct lruvec *lruvec, bool last, struct mm_walk_args *args)
+{
+	int i;
+	int hist = lru_hist_from_seq(args->max_seq);
+
+	lockdep_assert_held(&get_mm_list(lruvec_memcg(lruvec))->lock);
+
+	for (i = 0; i < NR_MM_STATS; i++) {
+		WRITE_ONCE(lruvec->mm_walk.stats[hist][i],
+			   lruvec->mm_walk.stats[hist][i] + args->mm_stats[i]);
+		args->mm_stats[i] = 0;
+	}
+
+	if (!last || NR_HIST_GENS == 1)
+		return;
+
+	hist = lru_hist_from_seq(args->max_seq + 1);
+	for (i = 0; i < NR_MM_STATS; i++)
+		WRITE_ONCE(lruvec->mm_walk.stats[hist][i], 0);
+}
+
+static bool should_skip_mm(struct mm_struct *mm, struct mm_walk_args *args)
+{
+	int type;
+	unsigned long size = 0;
+
+	if (!lru_gen_mm_is_active(mm) && !node_isset(args->node_id, mm->lrugen.nodes))
+		return true;
+
+	if (mm_is_oom_victim(mm))
+		return true;
+
+	for (type = !args->swappiness; type < ANON_AND_FILE; type++) {
+		size += type ? get_mm_counter(mm, MM_FILEPAGES) :
+			       get_mm_counter(mm, MM_ANONPAGES) +
+			       get_mm_counter(mm, MM_SHMEMPAGES);
+	}
+
+	if (size < MIN_BATCH_SIZE)
+		return true;
+
+	if (!mmget_not_zero(mm))
+		return true;
+
+	node_clear(args->node_id, mm->lrugen.nodes);
+
+	return false;
+}
+
+/* To support multiple walkers that concurrently walk an mm_struct list. */
+static bool get_next_mm(struct lruvec *lruvec, struct mm_walk_args *args,
+			struct mm_struct **iter)
+{
+	bool first = false;
+	bool last = true;
+	struct mm_struct *mm = NULL;
+	struct lru_gen_mm_walk *mm_walk = &lruvec->mm_walk;
+	struct lru_gen_mm_list *mm_list = get_mm_list(args->memcg);
+
+	if (*iter)
+		mmput_async(*iter);
+	else if (args->max_seq <= READ_ONCE(mm_walk->seq))
+		return false;
+
+	spin_lock(&mm_list->lock);
+
+	VM_BUG_ON(args->max_seq > mm_walk->seq + 1);
+	VM_BUG_ON(*iter && args->max_seq < mm_walk->seq);
+	VM_BUG_ON(*iter && !mm_walk->nr_walkers);
+
+	if (args->max_seq <= mm_walk->seq) {
+		if (!*iter)
+			last = false;
+		goto done;
+	}
+
+	if (mm_walk->head == &mm_list->fifo) {
+		VM_BUG_ON(mm_walk->nr_walkers);
+		mm_walk->head = mm_walk->head->next;
+		first = true;
+	}
+
+	while (!mm && mm_walk->head != &mm_list->fifo) {
+		mm = list_entry(mm_walk->head, struct mm_struct, lrugen.list);
+
+		mm_walk->head = mm_walk->head->next;
+
+		if (mm_walk->tail == &mm->lrugen.list) {
+			mm_walk->tail = mm_walk->tail->next;
+			args->use_filter = false;
+		}
+
+		if (should_skip_mm(mm, args))
+			mm = NULL;
+	}
+
+	if (mm_walk->head == &mm_list->fifo)
+		WRITE_ONCE(mm_walk->seq, mm_walk->seq + 1);
+done:
+	if (*iter && !mm)
+		mm_walk->nr_walkers--;
+	if (!*iter && mm)
+		mm_walk->nr_walkers++;
+
+	if (mm_walk->nr_walkers)
+		last = false;
+
+	if (mm && first)
+		clear_bloom_filter(lruvec, args->max_seq + 1);
+
+	if (*iter || last)
+		reset_mm_stats(lruvec, last, args);
+
+	spin_unlock(&mm_list->lock);
+
+	*iter = mm;
+
+	return last;
+}
+
+/******************************************************************************
  *                          state change
  ******************************************************************************/
 
@@ -3106,6 +3406,7 @@ void lru_gen_init_state(struct mem_cgroup *memcg, struct lruvec *lruvec)
 	int i;
 	int gen, type, zone;
 	struct lrugen *lrugen = &lruvec->evictable;
+	struct lru_gen_mm_list *mm_list = get_mm_list(memcg);
 
 	lrugen->max_seq = MIN_NR_GENS + 1;
 	lrugen->enabled[0] = lru_gen_enabled() && lru_gen_nr_swapfiles;
@@ -3116,6 +3417,17 @@ void lru_gen_init_state(struct mem_cgroup *memcg, struct lruvec *lruvec)
 
 	for_each_gen_type_zone(gen, type, zone)
 		INIT_LIST_HEAD(&lrugen->lists[gen][type][zone]);
+
+	if (IS_ENABLED(CONFIG_MEMORY_HOTPLUG) && !memcg)
+		spin_lock(&mm_list->lock);
+
+	lruvec->mm_walk.seq = MIN_NR_GENS;
+	lruvec->mm_walk.head = &mm_list->fifo;
+	lruvec->mm_walk.tail = &mm_list->fifo;
+	init_waitqueue_head(&lruvec->mm_walk.wait);
+
+	if (IS_ENABLED(CONFIG_MEMORY_HOTPLUG) && !memcg)
+		spin_unlock(&mm_list->lock);
 }
 
 #ifdef CONFIG_MEMCG
@@ -3123,10 +3435,28 @@ void lru_gen_init_memcg(struct mem_cgroup *memcg)
 {
 	int nid;
 
+	INIT_LIST_HEAD(&memcg->mm_list.fifo);
+	spin_lock_init(&memcg->mm_list.lock);
+
 	for_each_node(nid) {
 		struct lruvec *lruvec = get_lruvec(nid, memcg);
 
 		lru_gen_init_state(memcg, lruvec);
+	}
+}
+
+void lru_gen_free_memcg(struct mem_cgroup *memcg)
+{
+	int nid;
+
+	for_each_node(nid) {
+		int i;
+		struct lruvec *lruvec = get_lruvec(nid, memcg);
+
+		for (i = 0; i < NR_BLOOM_FILTERS; i++) {
+			bitmap_free(lruvec->mm_walk.filters[i]);
+			lruvec->mm_walk.filters[i] = NULL;
+		}
 	}
 }
 #endif
@@ -3135,6 +3465,7 @@ static int __init init_lru_gen(void)
 {
 	BUILD_BUG_ON(MIN_NR_GENS + 1 >= MAX_NR_GENS);
 	BUILD_BUG_ON(BIT(LRU_GEN_WIDTH) <= MAX_NR_GENS);
+	BUILD_BUG_ON(sizeof(MM_STAT_CODES) != NR_MM_STATS + 1);
 
 	return 0;
 };

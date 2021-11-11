@@ -100,6 +100,12 @@ static inline int lru_gen_from_seq(unsigned long seq)
 	return seq % MAX_NR_GENS;
 }
 
+/* Return a proper index regardless whether we keep stats for historical generations. */
+static inline int lru_hist_from_seq(unsigned long seq)
+{
+	return seq % NR_HIST_GENS;
+}
+
 /* The youngest and the second youngest generations are counted as active. */
 static inline bool lru_gen_is_active(struct lruvec *lruvec, int gen)
 {
