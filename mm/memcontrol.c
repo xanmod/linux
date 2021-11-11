@@ -1239,12 +1239,17 @@ void mem_cgroup_update_lru_size(struct lruvec *lruvec, enum lru_list lru,
 		*lru_size += nr_pages;
 
 	size = *lru_size;
+#ifdef CONFIG_LRU_GEN
+	/* unlikely but not a bug when reset_batch_size() is pending */
+	VM_WARN_ON(size + MAX_BATCH_SIZE < 0);
+#else
 	if (WARN_ONCE(size < 0,
 		"%s(%p, %d, %d): lru_size %ld\n",
 		__func__, lruvec, lru, nr_pages, size)) {
 		VM_BUG_ON(1);
 		*lru_size = 0;
 	}
+#endif
 
 	if (nr_pages > 0)
 		*lru_size += nr_pages;
