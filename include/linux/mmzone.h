@@ -319,6 +319,30 @@ struct page_vma_mapped_walk;
 #define MIN_NR_GENS		2
 #define MAX_NR_GENS		((unsigned int)CONFIG_NR_LRU_GENS)
 
+/*
+ * Each generation is divided into multiple tiers. Tiers represent different
+ * ranges of numbers of accesses from file descriptors, i.e.,
+ * mark_page_accessed(). In contrast to moving between generations which
+ * requires the lru lock, moving between tiers only involves an atomic
+ * operation on page->flags and therefore has a negligible cost.
+ *
+ * The purposes of tiers are to:
+ *   1) estimate whether pages accessed multiple times via file descriptors are
+ *   more active than pages accessed only via page tables by separating the two
+ *   access types into upper tiers and the base tier, and comparing refaulted %
+ *   across all tiers.
+ *   2) improve buffered io performance by deferring the protection of pages
+ *   accessed multiple times until the eviction. That is the protection happens
+ *   in the reclaim path, not the access path.
+ *
+ * Pages accessed N times via file descriptors belong to tier order_base_2(N).
+ * The base tier may be marked by PageReferenced(). All upper tiers are marked
+ * by PageReferenced() && PageWorkingset(). Additional bits from page->flags are
+ * used to support more than one upper tier.
+ */
+#define MAX_NR_TIERS		((unsigned int)CONFIG_TIERS_PER_GEN)
+#define LRU_REFS_FLAGS		(BIT(PG_referenced) | BIT(PG_workingset))
+
 /* Whether to keep stats for historical generations. */
 #ifdef CONFIG_LRU_GEN_STATS
 #define NR_HIST_GENS		((unsigned int)CONFIG_NR_LRU_GENS)
@@ -337,6 +361,15 @@ struct lrugen {
 	struct list_head lists[MAX_NR_GENS][ANON_AND_FILE][MAX_NR_ZONES];
 	/* the sizes of the multigenerational lru lists in pages */
 	unsigned long sizes[MAX_NR_GENS][ANON_AND_FILE][MAX_NR_ZONES];
+	/* the exponential moving average of refaulted */
+	unsigned long avg_refaulted[ANON_AND_FILE][MAX_NR_TIERS];
+	/* the exponential moving average of protected+evicted */
+	unsigned long avg_total[ANON_AND_FILE][MAX_NR_TIERS];
+	/* the base tier isn't protected, hence the minus one */
+	unsigned long protected[NR_HIST_GENS][ANON_AND_FILE][MAX_NR_TIERS - 1];
+	/* incremented without holding the lru lock */
+	atomic_long_t evicted[NR_HIST_GENS][ANON_AND_FILE][MAX_NR_TIERS];
+	atomic_long_t refaulted[NR_HIST_GENS][ANON_AND_FILE][MAX_NR_TIERS];
 	/* whether the multigenerational lru is enabled */
 	bool enabled[ANON_AND_FILE];
 };
