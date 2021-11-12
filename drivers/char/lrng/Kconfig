@@ -59,9 +59,39 @@ menu "Entropy Source Configuration"
 
 comment "Interrupt Entropy Source"
 
+config LRNG_IRQ
+	bool "Enable Interrupt Entropy Source as LRNG Seed Source"
+	default y
+	help
+	  The LRNG models an entropy source based on the timing of the
+	  occurrence of interrupts. Enable this option to enable this
+	  IRQ entropy source.
+
+	  The IRQ entropy source is triggered every time an interrupt
+	  arrives and thus causes the interrupt handler to execute
+	  slightly longer. Disabling the IRQ entropy source implies
+	  that the performance penalty on the interrupt handler added
+	  by the LRNG is eliminated. Yet, this entropy source is
+	  considered to be the internal entropy source of the LRNG.
+	  Thus, only disable it if you ensured that other entropy
+	  sources are available that supply the LRNG with entropy.
+
+	  If you disable the IRQ entropy source, you MUST ensure
+	  one or more entropy sources collectively have the
+	  capability to deliver sufficient entropy with one invocation
+	  at a rate compliant to the security strength of the DRNG
+	  (usually 256 bits of entropy). In addition, if those
+	  entropy sources do not deliver sufficient entropy during
+	  first request, the reseed must be triggered from user
+	  space or kernel space when sufficient entropy is considered
+	  to be present.
+
+	  If unsure, say Y.
+
 choice
 	prompt "Continuous entropy compression boot time setting"
 	default LRNG_CONTINUOUS_COMPRESSION_ENABLED
+	depends on LRNG_IRQ
 	help
 	  Select the default behavior of the interrupt entropy source
 	  continuous compression operation.
@@ -97,6 +127,7 @@ config LRNG_ENABLE_CONTINUOUS_COMPRESSION
 
 config LRNG_SWITCHABLE_CONTINUOUS_COMPRESSION
 	bool "Runtime-switchable continuous entropy compression"
+	depends on LRNG_IRQ
 	help
 	  Per default, the interrupt entropy source continuous
 	  compression operation behavior is hard-wired into the kernel.
@@ -111,6 +142,7 @@ config LRNG_SWITCHABLE_CONTINUOUS_COMPRESSION
 choice
 	prompt "LRNG Entropy Collection Pool Size"
 	default LRNG_COLLECTION_SIZE_1024
+	depends on LRNG_IRQ
 	help
 	  Select the size of the LRNG entropy collection pool
 	  storing data for the interrupt entropy source without
@@ -166,6 +198,7 @@ config LRNG_COLLECTION_SIZE
 
 config LRNG_HEALTH_TESTS
 	bool "Enable interrupt entropy source online health tests"
+	depends on LRNG_IRQ
 	help
 	  The online health tests applied to the interrupt entropy
 	  source validate the noise source at runtime for fatal
@@ -223,6 +256,7 @@ config LRNG_APT_CUTOFF
 
 config LRNG_IRQ_ENTROPY_RATE
 	int "Interrupt Entropy Source Entropy Rate"
+	depends on LRNG_IRQ
 	range 256 4294967295
 	default 256
 	help
@@ -255,6 +289,7 @@ config LRNG_JENT
 
 config LRNG_JENT_ENTROPY_RATE
 	int "Jitter RNG Entropy Source Entropy Rate"
+	depends on LRNG_JENT
 	range 0 256
 	default 16
 	help
@@ -263,13 +298,33 @@ config LRNG_JENT_ENTROPY_RATE
 	  LRNG enforces the limit that this value must be in the range
 	  between 0 and 256.
 
-	  In order to disable the Jitter RNG entropy source, the option
-	  has to be set to 0.
+	  When configuring this value to 0, the Jitter RNG entropy source
+	  will provide 256 bits of data without being credited to contain
+	  entropy.
 
 comment "CPU Entropy Source"
 
+config LRNG_CPU
+	bool "Enable CPU Entropy Source as LRNG Seed Source"
+	default y
+	help
+	  Current CPUs commonly contain entropy sources which can be
+	  used to seed the LRNG. For example, the Intel RDSEED
+	  instruction, or the POWER DARN instruction will be sourced
+	  to seed the LRNG if this option is enabled.
+
+	  Note, if this option is enabled and the underlying CPU
+	  does not offer such entropy source, the LRNG will automatically
+	  detect this and ignore the hardware.
+
+config LRNG_CPU_FULL_ENT_MULTIPLIER
+	int
+	default 1 if !LRNG_TEST_CPU_ES_COMPRESSION
+	default 123 if LRNG_TEST_CPU_ES_COMPRESSION
+
 config LRNG_CPU_ENTROPY_RATE
 	int "CPU Entropy Source Entropy Rate"
+	depends on LRNG_CPU
 	range 0 256
 	default 8
 	help
@@ -278,8 +333,9 @@ config LRNG_CPU_ENTROPY_RATE
 	  enforces the limit that this value must be in the range between
 	  0 and 256.
 
-	  In order to disable the CPU entropy source, the option has to
-	  be set to 0.
+	  When configuring this value to 0, the CPU entropy source will
+	  provide 256 bits of data without being credited to contain
+	  entropy.
 
 	  Note, this option is overwritten when the option
 	  CONFIG_RANDOM_TRUST_CPU is set.
@@ -487,6 +543,16 @@ config LRNG_RUNTIME_MAX_WO_RESEED_CONFIG
 	  allowing the setting of the maximum number of DRNG generate
 	  operations without a reseed that has full entropy. The
 	  interface is lrng_drng.max_wo_reseed.
+
+config LRNG_TEST_CPU_ES_COMPRESSION
+	bool "Force CPU ES compression operation"
+	help
+	  When enabling this option, the CPU ES compression operation
+	  is forced by setting an arbitrary value > 1 for the data
+	  multiplier even when the CPU ES would deliver full entropy.
+	  This allows testing of the compression operation. It
+	  therefore forces to pull more data from the CPU ES
+	  than what may be required.
 
 config LRNG_TESTING
 	bool

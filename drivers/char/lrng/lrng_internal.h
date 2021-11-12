@@ -11,6 +11,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/rwlock.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
@@ -20,6 +21,9 @@
 #define LRNG_DRNG_SECURITY_STRENGTH_BYTES 32
 #define LRNG_DRNG_SECURITY_STRENGTH_BITS (LRNG_DRNG_SECURITY_STRENGTH_BYTES * 8)
 #define LRNG_DRNG_BLOCKSIZE 64		/* Maximum of DRNG block sizes */
+#define LRNG_DRNG_INIT_SEED_SIZE_BITS (LRNG_DRNG_SECURITY_STRENGTH_BITS +      \
+				       CONFIG_LRNG_SEED_BUFFER_INIT_ADD_BITS)
+#define LRNG_DRNG_INIT_SEED_SIZE_BYTES (LRNG_DRNG_INIT_SEED_SIZE_BITS >> 3)
 
 /*
  * SP800-90A defines a maximum request size of 1<<16 bytes. The given value is
@@ -52,17 +56,6 @@
  * This value is allowed to be changed.
  */
 #define LRNG_DRNG_MAX_WITHOUT_RESEED	(1<<30)
-
-/*
- * Number of interrupts to be recorded to assume that DRNG security strength
- * bits of entropy are received.
- * Note: a value below the DRNG security strength should not be defined as this
- *	 may imply the DRNG can never be fully seeded in case other noise
- *	 sources are unavailable.
- *
- * This value is allowed to be changed.
- */
-#define LRNG_IRQ_ENTROPY_BITS		CONFIG_LRNG_IRQ_ENTROPY_RATE
 
 /*
  * Min required seed entropy is 128 bits covering the minimum entropy
@@ -130,8 +123,10 @@ void lrng_cc20_init_state(struct chacha20_state *state);
 
 #ifdef CONFIG_SYSCTL
 void lrng_pool_inc_numa_node(void);
+void lrng_proc_update_max_write_thresh(u32 new_digestsize);
 #else
 static inline void lrng_pool_inc_numa_node(void) { }
+static inline void lrng_proc_update_max_write_thresh(u32 new_digestsize) { }
 #endif
 
 /****************************** LRNG interfaces *******************************/
@@ -152,10 +147,12 @@ void get_random_bytes_full(void *buf, int nbytes);
 #ifdef CONFIG_LRNG_JENT
 u32 lrng_get_jent(u8 *outbuf, u32 requested_bits);
 u32 lrng_jent_entropylevel(u32 requested_bits);
-#else /* CONFIG_CRYPTO_JITTERENTROPY */
+void lrng_jent_es_state(unsigned char *buf, size_t buflen);
+#else /* CONFIG_LRNG_JENT */
 static inline u32 lrng_get_jent(u8 *outbuf, u32 requested_bits) { return 0; }
 static inline u32 lrng_jent_entropylevel(u32 requested_bits) { return 0; }
-#endif /* CONFIG_CRYPTO_JITTERENTROPY */
+static inline void lrng_jent_es_state(unsigned char *buf, size_t buflen) { }
+#endif /* CONFIG_LRNG_JENT */
 
 /************************** CPU-based Entropy Source **************************/
 
@@ -168,12 +165,19 @@ static inline u32 lrng_fast_noise_entropylevel(u32 ent_bits, u32 requested_bits)
 	return ent_bits;
 }
 
+#ifdef CONFIG_LRNG_CPU
 u32 lrng_get_arch(u8 *outbuf, u32 requested_bits);
 u32 lrng_archrandom_entropylevel(u32 requested_bits);
+void lrng_arch_es_state(unsigned char *buf, size_t buflen);
+#else /* CONFIG_LRNG_CPU */
+static inline u32 lrng_get_arch(u8 *outbuf, u32 requested_bits) { return 0; }
+static inline u32 lrng_archrandom_entropylevel(u32 requested_bits) { return 0; }
+static inline void lrng_arch_es_state(unsigned char *buf, size_t buflen) { }
+#endif /* CONFIG_LRNG_CPU */
 
 /************************** Interrupt Entropy Source **************************/
 
-bool lrng_pcpu_continuous_compression_state(void);
+#ifdef CONFIG_LRNG_IRQ
 void lrng_pcpu_reset(void);
 u32 lrng_pcpu_avail_pool_size(void);
 u32 lrng_pcpu_avail_entropy(void);
@@ -183,6 +187,25 @@ int lrng_pcpu_switch_hash(int node,
 u32 lrng_pcpu_pool_hash(u8 *outbuf, u32 requested_bits, bool fully_seeded);
 void lrng_pcpu_array_add_u32(u32 data);
 u32 lrng_gcd_analyze(u32 *history, size_t nelem);
+void lrng_irq_es_state(unsigned char *buf, size_t buflen);
+#else /* CONFIG_LRNG_IRQ */
+static inline void lrng_pcpu_reset(void) { }
+static inline u32 lrng_pcpu_avail_pool_size(void) { return 0; }
+static inline u32 lrng_pcpu_avail_entropy(void) { return 0; }
+static inline int lrng_pcpu_switch_hash(int node,
+			  const struct lrng_crypto_cb *new_cb, void *new_hash,
+			  const struct lrng_crypto_cb *old_cb)
+{
+	return 0;
+}
+static inline u32 lrng_pcpu_pool_hash(u8 *outbuf, u32 requested_bits,
+				      bool fully_seeded)
+{
+	return 0;
+}
+static inline void lrng_pcpu_array_add_u32(u32 data) { }
+static inline void lrng_irq_es_state(unsigned char *buf, size_t buflen) { }
+#endif /* CONFIG_LRNG_IRQ */
 
 /****************************** DRNG processing *******************************/
 
@@ -303,18 +326,13 @@ bool lrng_state_operational(void);
 int lrng_pool_trylock(void);
 void lrng_pool_unlock(void);
 void lrng_pool_all_numa_nodes_seeded(bool set);
-bool lrng_pool_highres_timer(void);
 void lrng_pool_add_entropy(void);
 
 struct entropy_buf {
-	u8 a[LRNG_DRNG_SECURITY_STRENGTH_BYTES +
-	     (CONFIG_LRNG_SEED_BUFFER_INIT_ADD_BITS >> 3)];
-	u8 b[LRNG_DRNG_SECURITY_STRENGTH_BYTES +
-	     (CONFIG_LRNG_SEED_BUFFER_INIT_ADD_BITS >> 3)];
-	u8 c[LRNG_DRNG_SECURITY_STRENGTH_BYTES +
-	     (CONFIG_LRNG_SEED_BUFFER_INIT_ADD_BITS >> 3)];
-	u8 d[LRNG_DRNG_SECURITY_STRENGTH_BYTES +
-	     (CONFIG_LRNG_SEED_BUFFER_INIT_ADD_BITS >> 3)];
+	u8 a[LRNG_DRNG_INIT_SEED_SIZE_BYTES];
+	u8 b[LRNG_DRNG_INIT_SEED_SIZE_BYTES];
+	u8 c[LRNG_DRNG_INIT_SEED_SIZE_BYTES];
+	u8 d[LRNG_DRNG_INIT_SEED_SIZE_BYTES];
 	u32 now, a_bits, b_bits, c_bits, d_bits;
 };
 
@@ -326,6 +344,7 @@ void lrng_init_ops(struct entropy_buf *eb);
 /*********************** Auxiliary Pool Entropy Source ************************/
 
 u32 lrng_avail_aux_entropy(void);
+void lrng_aux_es_state(unsigned char *buf, size_t buflen);
 u32 lrng_get_digestsize(void);
 void lrng_pool_set_entropy(u32 entropy_bits);
 int lrng_aux_switch_hash(const struct lrng_crypto_cb *new_cb, void *new_hash,
@@ -388,6 +407,26 @@ static inline u32 atomic_read_u32(atomic_t *v)
 {
 	return (u32)atomic_read(v);
 }
+
+/******************** Crypto Primitive Switching Support **********************/
+
+#ifdef CONFIG_LRNG_DRNG_SWITCH
+static inline void lrng_hash_lock(struct lrng_drng *drng, unsigned long *flags)
+{
+	read_lock_irqsave(&drng->hash_lock, *flags);
+}
+
+static inline void lrng_hash_unlock(struct lrng_drng *drng, unsigned long flags)
+{
+	read_unlock_irqrestore(&drng->hash_lock, flags);
+}
+#else /* CONFIG_LRNG_DRNG_SWITCH */
+static inline void lrng_hash_lock(struct lrng_drng *drng, unsigned long *flags)
+{ }
+
+static inline void lrng_hash_unlock(struct lrng_drng *drng, unsigned long flags)
+{ }
+#endif /* CONFIG_LRNG_DRNG_SWITCH */
 
 /*************************** Auxiliary functions ******************************/
 

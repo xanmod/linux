@@ -12,7 +12,6 @@
 #include <linux/uuid.h>
 
 #include "lrng_internal.h"
-#include "lrng_es_irq.h"
 
 /*
  * This function is used to return both the bootid UUID, and random
@@ -80,9 +79,15 @@ static int lrng_proc_do_poolsize(struct ctl_table *table, int write,
 }
 
 static int lrng_min_write_thresh;
-static int lrng_max_write_thresh = LRNG_MAX_DIGESTSIZE;
+static int lrng_max_write_thresh = (LRNG_WRITE_WAKEUP_ENTROPY << 3);
 static char lrng_sysctl_bootid[16];
 static int lrng_drng_reseed_max_min;
+
+void lrng_proc_update_max_write_thresh(u32 new_digestsize)
+{
+	lrng_max_write_thresh = (int)new_digestsize;
+	mb();
+}
 
 struct ctl_table random_table[] = {
 	{
@@ -142,36 +147,45 @@ static int lrng_proc_type_show(struct seq_file *m, void *v)
 {
 	struct lrng_drng *lrng_drng_init = lrng_drng_init_instance();
 	unsigned long flags = 0;
-	unsigned char buf[390];
+	unsigned char buf[250], irq[200], aux[100], cpu[90], jent[45];
 
 	lrng_drng_lock(lrng_drng_init, &flags);
 	snprintf(buf, sizeof(buf),
 		 "DRNG name: %s\n"
-		 "Hash for reading entropy pool: %s\n"
-		 "Hash for operating aux entropy pool: %s\n"
 		 "LRNG security strength in bits: %d\n"
-		 "per-CPU interrupt collection size: %u\n"
 		 "number of DRNG instances: %u\n"
-		 "Standards compliance: %s%s\n"
-		 "High-resolution timer: %s\n"
+		 "Standards compliance: %s\n"
+		 "Entropy Sources: %s%s%sAuxiliary\n"
 		 "LRNG minimally seeded: %s\n"
-		 "LRNG fully seeded: %s\n"
-		 "Continuous compression: %s\n",
+		 "LRNG fully seeded: %s\n",
 		 lrng_drng_init->crypto_cb->lrng_drng_name(),
-		 lrng_drng_init->crypto_cb->lrng_hash_name(),
-		 lrng_drng_init->crypto_cb->lrng_hash_name(),
 		 lrng_security_strength(),
-		 LRNG_DATA_NUM_VALUES,
 		 numa_drngs,
-		 lrng_sp80090b_compliant() ? "SP800-90B " : "",
 		 lrng_sp80090c_compliant() ? "SP800-90C " : "",
-		 lrng_pool_highres_timer() ? "true" : "false",
+		 IS_ENABLED(CONFIG_LRNG_IRQ) ? "IRQ " : "",
+		 IS_ENABLED(CONFIG_LRNG_JENT) ? "JitterRNG " : "",
+		 IS_ENABLED(CONFIG_LRNG_CPU) ? "CPU " : "",
 		 lrng_state_min_seeded() ? "true" : "false",
-		 lrng_state_fully_seeded() ? "true" : "false",
-		 lrng_pcpu_continuous_compression_state() ? "true" : "false");
+		 lrng_state_fully_seeded() ? "true" : "false");
+
+	lrng_aux_es_state(aux, sizeof(aux));
+
+	irq[0] = '\0';
+	lrng_irq_es_state(irq, sizeof(irq));
+
+	jent[0] = '\0';
+	lrng_jent_es_state(jent, sizeof(jent));
+
+	cpu[0] = '\0';
+	lrng_arch_es_state(cpu, sizeof(cpu));
+
 	lrng_drng_unlock(lrng_drng_init, &flags);
 
 	seq_write(m, buf, strlen(buf));
+	seq_write(m, aux, strlen(aux));
+	seq_write(m, irq, strlen(irq));
+	seq_write(m, jent, strlen(jent));
+	seq_write(m, cpu, strlen(cpu));
 
 	return 0;
 }

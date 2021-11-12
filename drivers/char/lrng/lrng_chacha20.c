@@ -31,7 +31,7 @@ struct chacha20_state {
  */
 struct chacha20_state chacha20 __latent_entropy;
 
-/**
+/*
  * Update of the ChaCha20 state by either using an unused buffer part or by
  * generating one ChaCha20 block which is half of the state of the ChaCha20.
  * The block is XORed into the key part of the state. This shall ensure

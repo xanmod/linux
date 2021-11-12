@@ -60,6 +60,15 @@ static inline void lrng_set_digestsize(u32 digestsize)
 	atomic_set(&lrng_pool.digestsize, digestsize);
 
 	/*
+	 * Update the /proc/.../write_wakeup_threshold which must not be larger
+	 * than the digest size of the curent conditioning hash.
+	 */
+	digestsize <<= 3;
+	lrng_proc_update_max_write_thresh(digestsize);
+	if (lrng_write_wakeup_bits > digestsize)
+		lrng_write_wakeup_bits = digestsize;
+
+	/*
 	 * In case the new digest is larger than the old one, cap the available
 	 * entropy to the old message digest used to process the existing data.
 	 */
@@ -134,7 +143,7 @@ lrng_pool_insert_aux_locked(const u8 *inbuf, u32 inbuflen, u32 entropy_bits)
 
 	entropy_bits = min_t(u32, entropy_bits, inbuflen << 3);
 
-	read_lock_irqsave(&drng->hash_lock, flags);
+	lrng_hash_lock(drng, &flags);
 
 	crypto_cb = drng->crypto_cb;
 	hash = drng->hash;
@@ -160,7 +169,7 @@ lrng_pool_insert_aux_locked(const u8 *inbuf, u32 inbuflen, u32 entropy_bits)
 			 crypto_cb->lrng_hash_digestsize(hash) << 3));
 
 out:
-	read_unlock_irqrestore(&drng->hash_lock, flags);
+	lrng_hash_unlock(drng, flags);
 	return ret;
 }
 
@@ -181,7 +190,7 @@ int lrng_pool_insert_aux(const u8 *inbuf, u32 inbuflen, u32 entropy_bits)
 
 /************************* Get data from entropy pool *************************/
 
-/**
+/*
  * Get auxiliary entropy pool and its entropy content for seed buffer.
  * Caller must hold lrng_pool.pool->lock.
  * @outbuf: buffer to store data in with size requested_bits
@@ -203,7 +212,7 @@ static inline u32 lrng_get_aux_pool(u8 *outbuf, u32 requested_bits)
 	if (unlikely(!pool->initialized))
 		return 0;
 
-	read_lock_irqsave(&drng->hash_lock, flags);
+	lrng_hash_lock(drng, &flags);
 
 	crypto_cb = drng->crypto_cb;
 	hash = drng->hash;
@@ -250,7 +259,7 @@ static inline u32 lrng_get_aux_pool(u8 *outbuf, u32 requested_bits)
 		memcpy(outbuf, aux_output, requested_bits >> 3);
 	}
 
-	read_unlock_irqrestore(&drng->hash_lock, flags);
+	lrng_hash_unlock(drng, flags);
 	memzero_explicit(aux_output, digestsize);
 	return returned_ent_bits;
 }
@@ -271,4 +280,15 @@ void lrng_get_backtrack_aux(struct entropy_buf *entropy_buf, u32 requested_bits)
 		pr_warn("Backtracking resistance operation failed\n");
 
 	spin_unlock_irqrestore(&pool->lock, flags);
+}
+
+void lrng_aux_es_state(unsigned char *buf, size_t buflen)
+{
+	const struct lrng_drng *lrng_drng_init = lrng_drng_init_instance();
+
+	/* Assume the lrng_drng_init lock is taken by caller */
+	snprintf(buf, buflen,
+		 "Auxiliary ES properties:\n"
+		 " Hash for operating entropy pool: %s\n",
+		 lrng_drng_init->crypto_cb->lrng_hash_name());
 }

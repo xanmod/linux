@@ -17,6 +17,16 @@
 #include "lrng_internal.h"
 #include "lrng_es_irq.h"
 
+/*
+ * Number of interrupts to be recorded to assume that DRNG security strength
+ * bits of entropy are received.
+ * Note: a value below the DRNG security strength should not be defined as this
+ *	 may imply the DRNG can never be fully seeded in case other noise
+ *	 sources are unavailable.
+ */
+#define LRNG_IRQ_ENTROPY_BITS		CONFIG_LRNG_IRQ_ENTROPY_RATE
+
+
 /* Number of interrupts required for LRNG_DRNG_SECURITY_STRENGTH_BITS entropy */
 static u32 lrng_irq_entropy_bits = LRNG_IRQ_ENTROPY_BITS;
 /* Is high-resolution timer present? */
@@ -142,7 +152,7 @@ u32 lrng_gcd_analyze(u32 *history, size_t nelem)
 	return running_gcd;
 }
 
-static void jent_gcd_add_value(u32 time)
+static void lrng_gcd_add_value(u32 time)
 {
 	u32 ptr = (u32)atomic_inc_return_relaxed(&lrng_gcd_history_ptr);
 
@@ -173,7 +183,7 @@ static void jent_gcd_add_value(u32 time)
 }
 
 /* Return boolean whether LRNG identified presence of high-resolution timer */
-bool lrng_pool_highres_timer(void)
+static bool lrng_pool_highres_timer(void)
 {
 	return lrng_irq_highres_timer;
 }
@@ -195,11 +205,6 @@ static inline u32 lrng_data_to_entropy(u32 irqnum)
 static inline bool lrng_pcpu_pool_online(int cpu)
 {
 	return per_cpu(lrng_pcpu_lock_init, cpu);
-}
-
-bool lrng_pcpu_continuous_compression_state(void)
-{
-	return lrng_pcpu_continuous_compression;
 }
 
 static void lrng_pcpu_check_compression_state(void)
@@ -230,14 +235,17 @@ static int __init lrng_init_time_source(void)
 		lrng_irq_highres_timer = true;
 		lrng_irq_entropy_bits = irq_entropy;
 	} else {
+		u32 new_entropy = irq_entropy * LRNG_IRQ_OVERSAMPLING_FACTOR;
+
 		lrng_health_disable();
 		lrng_irq_highres_timer = false;
-		lrng_irq_entropy_bits = irq_entropy *
-					LRNG_IRQ_OVERSAMPLING_FACTOR;
+		lrng_irq_entropy_bits = (irq_entropy < new_entropy) ?
+					 new_entropy : irq_entropy;
 		pr_warn("operating without high-resolution timer and applying IRQ oversampling factor %u\n",
 			LRNG_IRQ_OVERSAMPLING_FACTOR);
 		lrng_pcpu_check_compression_state();
 	}
+	mb();
 
 	return 0;
 }
@@ -300,7 +308,7 @@ u32 lrng_pcpu_avail_entropy(void)
 	return lrng_reduce_by_osr(lrng_data_to_entropy(irq));
 }
 
-/**
+/*
  * Trigger a switch of the hash implementation for the per-CPU pool.
  *
  * For each per-CPU pool, obtain the message digest with the old hash
@@ -422,7 +430,7 @@ lrng_pcpu_pool_hash_one(const struct lrng_crypto_cb *pcpu_crypto_cb,
 	return found_irqs;
 }
 
-/**
+/*
  * Hash all per-CPU pools and return the digest to be used as seed data for
  * seeding a DRNG. The caller must guarantee backtracking resistance.
  * The function will only copy as much data as entropy is available into the
@@ -454,7 +462,7 @@ u32 lrng_pcpu_pool_hash(u8 *outbuf, u32 requested_bits, bool fully_seeded)
 	void *hash;
 
 	/* Lock guarding replacement of per-NUMA hash */
-	read_lock_irqsave(&drng->hash_lock, flags);
+	lrng_hash_lock(drng, &flags);
 
 	crypto_cb = drng->crypto_cb;
 	hash = drng->hash;
@@ -488,12 +496,12 @@ u32 lrng_pcpu_pool_hash(u8 *outbuf, u32 requested_bits, bool fully_seeded)
 							     cpu, digest,
 							     &digestsize);
 		} else {
-			read_lock_irqsave(&pcpu_drng->hash_lock, flags2);
+			lrng_hash_lock(pcpu_drng, &flags2);
 			found_irqs =
 				lrng_pcpu_pool_hash_one(pcpu_drng->crypto_cb,
 							pcpu_drng->hash, cpu,
 							digest, &digestsize);
-			read_unlock_irqrestore(&pcpu_drng->hash_lock, flags2);
+			lrng_hash_unlock(pcpu_drng, flags2);
 		}
 
 		/* Inject the digest into the state of all per-CPU pools */
@@ -541,7 +549,7 @@ u32 lrng_pcpu_pool_hash(u8 *outbuf, u32 requested_bits, bool fully_seeded)
 
 out:
 	crypto_cb->lrng_hash_desc_zero(shash);
-	read_unlock_irqrestore(&drng->hash_lock, flags);
+	lrng_hash_unlock(drng, flags);
 	memzero_explicit(digest, sizeof(digest));
 	return returned_ent_bits;
 
@@ -568,7 +576,7 @@ static inline void lrng_pcpu_array_compress(void)
 	if (lrng_drng && lrng_drng[node])
 		drng = lrng_drng[node];
 
-	read_lock_irqsave(&drng->hash_lock, flags);
+	lrng_hash_lock(drng, &flags);
 	crypto_cb = drng->crypto_cb;
 	hash = drng->hash;
 
@@ -595,7 +603,7 @@ static inline void lrng_pcpu_array_compress(void)
 	}
 
 	spin_unlock_irqrestore(lock, flags2);
-	read_unlock_irqrestore(&drng->hash_lock, flags);
+	lrng_hash_unlock(drng, flags);
 }
 
 /* Compress data array into hash */
@@ -664,7 +672,7 @@ static inline void _lrng_pcpu_array_add_u32(u32 data)
 	/* MSB of data go into previous unit */
 	pre_array = lrng_data_idx2array(pre_ptr);
 	/* zeroization of slot to ensure the following OR adds the data */
-	this_cpu_and(lrng_pcpu_array[pre_array], ~(0xffffffff &~ mask));
+	this_cpu_and(lrng_pcpu_array[pre_array], ~(0xffffffff & ~mask));
 	this_cpu_or(lrng_pcpu_array[pre_array], data & ~mask);
 
 	/* Invoke compression as we just filled data array completely */
@@ -742,7 +750,7 @@ static inline void lrng_time_process(void)
 	if (unlikely(!lrng_gcd_tested())) {
 		/* When GCD is unknown, we process the full time stamp */
 		lrng_time_process_common(now_time, _lrng_pcpu_array_add_u32);
-		jent_gcd_add_value(now_time);
+		lrng_gcd_add_value(now_time);
 	} else {
 		/* GCD is known and applied */
 		lrng_time_process_common((now_time / lrng_gcd_timer) &
@@ -794,3 +802,22 @@ void add_interrupt_randomness(int irq, int irq_flg)
 	}
 }
 EXPORT_SYMBOL(add_interrupt_randomness);
+
+void lrng_irq_es_state(unsigned char *buf, size_t buflen)
+{
+	const struct lrng_drng *lrng_drng_init = lrng_drng_init_instance();
+
+	/* Assume the lrng_drng_init lock is taken by caller */
+	snprintf(buf, buflen,
+		 "IRQ ES properties:\n"
+		 " Hash for operating entropy pool: %s\n"
+		 " per-CPU interrupt collection size: %u\n"
+		 " Standards compliance: %s\n"
+		 " High-resolution timer: %s\n"
+		 " Continuous compression: %s\n",
+		 lrng_drng_init->crypto_cb->lrng_hash_name(),
+		 LRNG_DATA_NUM_VALUES,
+		 lrng_sp80090b_compliant() ? "SP800-90B " : "",
+		 lrng_pool_highres_timer() ? "true" : "false",
+		 lrng_pcpu_continuous_compression ? "true" : "false");
+}

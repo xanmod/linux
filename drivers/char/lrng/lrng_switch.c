@@ -179,7 +179,7 @@ static int lrng_drngs_switch(const struct lrng_crypto_cb *cb)
 	return 0;
 }
 
-/**
+/*
  * lrng_set_drng_cb - Register new cryptographic callback functions for DRNG
  * The registering implies that all old DRNG states are replaced with new
  * DRNG states.

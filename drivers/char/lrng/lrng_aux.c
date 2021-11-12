@@ -103,7 +103,7 @@ void invalidate_batched_entropy(void)
 	}
 }
 
-/**
+/*
  * randomize_page - Generate a random, page aligned address
  * @start:	The smallest acceptable address the caller will take.
  * @range:	The size of the area, starting at @start, within which the

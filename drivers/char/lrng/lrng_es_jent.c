@@ -45,7 +45,7 @@ static int __init lrng_jent_initialize(void)
 }
 device_initcall(lrng_jent_initialize);
 
-/**
+/*
  * lrng_get_jent() - Get Jitter RNG entropy
  *
  * @outbuf: buffer to store entropy
@@ -64,7 +64,7 @@ u32 lrng_get_jent(u8 *outbuf, u32 requested_bits)
 
 	spin_lock_irqsave(&lrng_jent_lock, flags);
 
-	if (!ent_bits || !lrng_jent_initialized) {
+	if (!lrng_jent_initialized) {
 		spin_unlock_irqrestore(&lrng_jent_lock, flags);
 		return 0;
 	}
@@ -87,4 +87,11 @@ u32 lrng_jent_entropylevel(u32 requested_bits)
 {
 	return lrng_fast_noise_entropylevel((lrng_jent_initialized) ?
 					    jitterrng : 0, requested_bits);
+}
+
+void lrng_jent_es_state(unsigned char *buf, size_t buflen)
+{
+	snprintf(buf, buflen,
+		 "JitterRNG ES properties:\n"
+		 " Enabled: %s\n", lrng_jent_initialized ? "true" : "false");
 }

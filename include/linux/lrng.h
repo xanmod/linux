@@ -10,7 +10,7 @@
 #include <linux/errno.h>
 #include <linux/types.h>
 
-/**
+/*
  * struct lrng_crypto_cb - cryptographic callback functions
  * @lrng_drng_name		Name of DRNG
  * @lrng_hash_name		Name of Hash used for reading entropy pool
