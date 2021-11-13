@@ -19,13 +19,38 @@ int __weak arch_asym_cpu_priority(int cpu)
 }
 
 /* Give new sched_entity start runnable values to heavy its load in infant time */
-void init_entity_runnable_average(struct sched_entity *se) {}
-void post_init_entity_util_avg(struct task_struct *p) {}
 void update_max_interval(void) {}
 static int newidle_balance(struct rq *this_rq, struct rq_flags *rf);
 
 static void migrate_task_rq_fair(struct task_struct *p, int new_cpu)
 {
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	if (p->on_rq == TASK_ON_RQ_MIGRATING) {
+		/*
+		 * In case of TASK_ON_RQ_MIGRATING we in fact hold the 'old'
+		 * rq->lock and can modify state directly.
+		 */
+		lockdep_assert_rq_held(task_rq(p));
+		detach_entity_cfs_rq(&p->se);
+
+	} else {
+		/*
+		 * We are supposed to update the task to "current" time, then
+		 * its up to date and ready to go to new CPU/cfs_rq. But we
+		 * have difficulty in getting what current time is, so simply
+		 * throw away the out-of-date time. This will result in the
+		 * wakee task is less decayed, but giving the wakee more load
+		 * sounds not bad.
+		 */
+		remove_entity_load_avg(&p->se);
+	}
+
+	/* We have migrated, no longer consider this task hot */
+	p->se.exec_start = 0;
+#endif
+	/* Tell new CPU we are migrated */
+	p->se.avg.last_update_time = 0;
+
 	update_scan_period(p, new_cpu);
 }
 
@@ -51,7 +76,67 @@ void init_cfs_rq(struct cfs_rq *cfs_rq)
 #endif
 }
 
-void reweight_task(struct task_struct *p, int prio) {}
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+static void update_curr(struct cfs_rq *cfs_rq);
+
+static inline void update_load_add(struct load_weight *lw, unsigned long inc)
+{
+	lw->weight += inc;
+	lw->inv_weight = 0;
+}
+
+static inline void update_load_sub(struct load_weight *lw, unsigned long dec)
+{
+	lw->weight -= dec;
+	lw->inv_weight = 0;
+}
+
+static inline void update_load_set(struct load_weight *lw, unsigned long w)
+{
+	lw->weight = w;
+	lw->inv_weight = 0;
+}
+
+static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
+			    unsigned long weight)
+{
+	if (se->on_rq) {
+		/* commit outstanding execution time */
+		if (cfs_rq->curr == se)
+			update_curr(cfs_rq);
+		update_load_sub(&cfs_rq->load, se->load.weight);
+	}
+	dequeue_load_avg(cfs_rq, se);
+
+	update_load_set(&se->load, weight);
+
+#ifdef CONFIG_SMP
+	do {
+		u32 divider = get_pelt_divider(&se->avg);
+
+		se->avg.load_avg = div_u64(se_weight(se) * se->avg.load_sum, divider);
+	} while (0);
+#endif
+
+	enqueue_load_avg(cfs_rq, se);
+	if (se->on_rq)
+		update_load_add(&cfs_rq->load, se->load.weight);
+
+}
+#endif
+
+void reweight_task(struct task_struct *p, int prio)
+{
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	struct sched_entity *se = &p->se;
+	struct cfs_rq *cfs_rq = cfs_rq_of(se);
+	struct load_weight *load = &se->load;
+	unsigned long weight = scale_load(sched_prio_to_weight[prio]);
+
+	reweight_entity(cfs_rq, se, weight);
+	load->inv_weight = sched_prio_to_wmult[prio];
+#endif
+}
 
 static inline struct sched_entity *se_of(struct tt_node *ttn)
 {
@@ -109,12 +194,10 @@ static void
 account_entity_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 #ifdef CONFIG_SMP
-	if (entity_is_task(se)) {
-		struct rq *rq = rq_of(cfs_rq);
+	struct rq *rq = rq_of(cfs_rq);
 
-		account_numa_enqueue(rq, task_of(se));
-		list_add(&se->group_node, &rq->cfs_tasks);
-	}
+	account_numa_enqueue(rq, task_of(se));
+	list_add(&se->group_node, &rq->cfs_tasks);
 #endif
 	cfs_rq->nr_running++;
 }
@@ -123,10 +206,8 @@ static void
 account_entity_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 #ifdef CONFIG_SMP
-	if (entity_is_task(se)) {
-		account_numa_dequeue(rq_of(cfs_rq), task_of(se));
-		list_del_init(&se->group_node);
-	}
+	account_numa_dequeue(rq_of(cfs_rq), task_of(se));
+	list_del_init(&se->group_node);
 #endif
 	cfs_rq->nr_running--;
 }
@@ -153,10 +234,15 @@ prio_changed_fair(struct rq *rq, struct task_struct *p, int oldprio)
 		check_preempt_curr(rq, p, 0);
 }
 
-static void switched_from_fair(struct rq *rq, struct task_struct *p) {}
+static void switched_from_fair(struct rq *rq, struct task_struct *p)
+{
+	detach_task_cfs_rq(p);
+}
 
 static void switched_to_fair(struct rq *rq, struct task_struct *p)
 {
+	attach_task_cfs_rq(p);
+
 	if (task_on_rq_queued(p)) {
 		/*
 		 * We were most likely switched from sched_rt, so

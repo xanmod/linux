@@ -7,6 +7,7 @@
 #include "sched.h"
 #include "pelt.h"
 #include "fair_numa.h"
+#include "tt_stats.h"
 #include "bs.h"
 
 unsigned int __read_mostly tt_max_lifetime	= 22000; // in ms
@@ -288,7 +289,18 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	update_curr(cfs_rq);
 
+	/*
+	 * When enqueuing a sched_entity, we must:
+	 *   - Update loads to have both entity and cfs_rq synced with now.
+	 *   - Add its load to cfs_rq->runnable_avg
+	 *   - For group_entity, update its weight to reflect the new share of
+	 *     its group cfs_rq
+	 *   - Add its new weight to cfs_rq->load.weight
+	 */
+	update_load_avg(cfs_rq, se, UPDATE_TG | DO_ATTACH);
 	account_entity_enqueue(cfs_rq, se);
+	check_schedstat_required();
+	update_stats_enqueue(cfs_rq, se, flags);
 
 	if (!curr)
 		__enqueue_entity(cfs_rq, se);
@@ -313,6 +325,17 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	update_curr(cfs_rq);
 
+	/*
+	 * When dequeuing a sched_entity, we must:
+	 *   - Update loads to have both entity and cfs_rq synced with now.
+	 *   - Subtract its load from the cfs_rq->runnable_avg.
+	 *   - Subtract its previous weight from cfs_rq->load.weight.
+	 *   - For group entity, update its weight to reflect the new share
+	 *     of its group cfs_rq.
+	 */
+	update_load_avg(cfs_rq, se, UPDATE_TG);
+	update_stats_dequeue(cfs_rq, se, flags);
+
 	if (se != cfs_rq->curr)
 		__dequeue_entity(cfs_rq, se);
 
@@ -326,6 +349,23 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	int idle_h_nr_running = task_has_idle_policy(p);
+	int task_new = !(flags & ENQUEUE_WAKEUP);
+
+	/*
+	 * The code below (indirectly) updates schedutil which looks at
+	 * the cfs_rq utilization to select a frequency.
+	 * Let's add the task's estimated utilization to the cfs_rq's
+	 * estimated utilization, before we update schedutil.
+	 */
+	util_est_enqueue(&rq->cfs, p);
+
+	/*
+	 * If in_iowait is set, the code below may not trigger any cpufreq
+	 * utilization updates, so do it here explicitly with the IOWAIT flag
+	 * passed.
+	 */
+	if (p->in_iowait)
+		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
 	if (!se->on_rq) {
 		enqueue_entity(cfs_rq, se, flags);
@@ -334,6 +374,9 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 	add_nr_running(rq, 1);
+
+	if (!task_new)
+		update_overutilized_status(rq);
 }
 
 static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
@@ -341,6 +384,9 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_entity *se = &p->se;
 	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 	int idle_h_nr_running = task_has_idle_policy(p);
+	int task_sleep = flags & DEQUEUE_SLEEP;
+
+	util_est_dequeue(&rq->cfs, p);
 
 	dequeue_entity(cfs_rq, se, flags);
 
@@ -348,6 +394,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	cfs_rq->idle_h_nr_running -= idle_h_nr_running;
 
 	sub_nr_running(rq, 1);
+	util_est_update(&rq->cfs, p, task_sleep);
 }
 
 static void yield_task_fair(struct rq *rq)
@@ -849,6 +896,8 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	rq_unpin_lock(this_rq, rf);
 	raw_spin_unlock(&this_rq->__lock);
 
+	update_blocked_averages(this_cpu);
+
 	for_each_online_cpu(cpu) {
 		/*
 		 * Stop searching for tasks to pull if there are
@@ -1052,6 +1101,10 @@ DEFINE_SCHED_CLASS(fair) = {
 	.get_rr_interval	= get_rr_interval_fair,
 
 	.update_curr		= update_curr_fair,
+
+#ifdef CONFIG_UCLAMP_TASK
+	.uclamp_enabled		= 1,
+#endif
 };
 
 __init void init_sched_fair_class(void)
