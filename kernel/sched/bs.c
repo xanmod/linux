@@ -6,8 +6,8 @@
  */
 #include "sched.h"
 #include "pelt.h"
-#include "fair_numa.h"
 #include "tt_stats.h"
+#include "fair_numa.h"
 #include "bs.h"
 
 unsigned int __read_mostly tt_max_lifetime	= 22000; // in ms

@@ -221,6 +221,42 @@ static inline void cfs_rq_util_change(struct cfs_rq *cfs_rq, int flags)
 	}
 }
 
+#if defined(CONFIG_NUMA_BALANCING) || (defined(CONFIG_SMP) && defined(CONFIG_TT_ACCOUNTING_STATS))
+static unsigned long capacity_of(int cpu)
+{
+	return cpu_rq(cpu)->cpu_capacity;
+}
+
+static inline unsigned long cfs_rq_load_avg(struct cfs_rq *cfs_rq)
+{
+	return cfs_rq->avg.load_avg;
+}
+
+static inline unsigned long cfs_rq_runnable_avg(struct cfs_rq *cfs_rq)
+{
+	return cfs_rq->avg.runnable_avg;
+}
+
+static inline unsigned long cpu_util(int cpu)
+{
+	struct cfs_rq *cfs_rq;
+	unsigned int util;
+
+	cfs_rq = &cpu_rq(cpu)->cfs;
+	util = READ_ONCE(cfs_rq->avg.util_avg);
+
+	if (sched_feat(UTIL_EST))
+		util = max(util, READ_ONCE(cfs_rq->avg.util_est.enqueued));
+
+	return min_t(unsigned long, util, capacity_orig_of(cpu));
+}
+
+static unsigned long task_h_load(struct task_struct *p)
+{
+	return p->se.avg.load_avg;
+}
+#endif
+
 #if defined(CONFIG_SMP) && defined(CONFIG_TT_ACCOUNTING_STATS)
 /*
  * The margin used when comparing utilization with CPU capacity.
@@ -228,11 +264,6 @@ static inline void cfs_rq_util_change(struct cfs_rq *cfs_rq, int flags)
  * (default: ~20%)
  */
 #define fits_capacity(cap, max)	((cap) * 1280 < (max) * 1024)
-
-static unsigned long capacity_of(int cpu)
-{
-	return cpu_rq(cpu)->cpu_capacity;
-}
 
 static inline void
 enqueue_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se)
@@ -517,16 +548,6 @@ static void remove_entity_load_avg(struct sched_entity *se)
 	raw_spin_unlock_irqrestore(&cfs_rq->removed.lock, flags);
 }
 
-static inline unsigned long cfs_rq_runnable_avg(struct cfs_rq *cfs_rq)
-{
-	return cfs_rq->avg.runnable_avg;
-}
-
-static inline unsigned long cfs_rq_load_avg(struct cfs_rq *cfs_rq)
-{
-	return cfs_rq->avg.load_avg;
-}
-
 static inline unsigned long task_util(struct task_struct *p)
 {
 	return READ_ONCE(p->se.avg.util_avg);
@@ -696,11 +717,6 @@ static inline int task_fits_capacity(struct task_struct *p, long capacity)
 	return fits_capacity(uclamp_task_util(p), capacity);
 }
 
-static unsigned long task_h_load(struct task_struct *p)
-{
-	return p->se.avg.load_avg;
-}
-
 static inline void update_misfit_status(struct task_struct *p, struct rq *rq)
 {
 	if (!static_branch_unlikely(&sched_asym_cpucapacity))
@@ -780,20 +796,6 @@ static inline void check_schedstat_required(void)
 }
 
 #if defined(CONFIG_SMP) && defined(CONFIG_TT_ACCOUNTING_STATS)
-static inline unsigned long cpu_util(int cpu)
-{
-	struct cfs_rq *cfs_rq;
-	unsigned int util;
-
-	cfs_rq = &cpu_rq(cpu)->cfs;
-	util = READ_ONCE(cfs_rq->avg.util_avg);
-
-	if (sched_feat(UTIL_EST))
-		util = max(util, READ_ONCE(cfs_rq->avg.util_est.enqueued));
-
-	return min_t(unsigned long, util, capacity_orig_of(cpu));
-}
-
 static inline bool cpu_overutilized(int cpu)
 {
 	return !fits_capacity(cpu_util(cpu), capacity_of(cpu));
