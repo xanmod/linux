@@ -1012,6 +1012,7 @@ out:
 	if (unlikely(on_null_domain(this_rq) || !cpu_active(cpu_of(this_rq))))
 		return;
 
+	update_blocked_averages(this_rq->cpu);
 	nohz_balancer_kick(this_rq);
 }
 

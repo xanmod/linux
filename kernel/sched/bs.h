@@ -58,12 +58,16 @@ static void rq_online_fair(struct rq *rq) {}
 static void rq_offline_fair(struct rq *rq) {}
 static void task_dead_fair(struct task_struct *p)
 {
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	remove_entity_load_avg(&p->se);
+#else
 	struct cfs_rq *cfs_rq = cfs_rq_of(&p->se);
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&cfs_rq->removed.lock, flags);
 	++cfs_rq->removed.nr;
 	raw_spin_unlock_irqrestore(&cfs_rq->removed.lock, flags);
+#endif
 }
 
 #endif /** CONFIG_SMP */
