@@ -1003,8 +1003,12 @@ static void task_fork_fair(struct task_struct *p)
 	cfs_rq = task_cfs_rq(current);
 
 	curr = cfs_rq->curr;
-	if (curr)
+	if (curr) {
 		update_curr(cfs_rq);
+
+		if (sysctl_sched_child_runs_first)
+			resched_curr(rq);
+	}
 
 	rq_unlock(rq, &rf);
 }
