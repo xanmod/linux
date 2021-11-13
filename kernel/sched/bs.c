@@ -192,6 +192,9 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	struct tt_node *ttn = &curr->tt_node;
 	u64 now = sched_clock();
 	u64 delta_exec;
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	struct task_struct *curtask = task_of(curr);
+#endif
 
 	if (unlikely(!curr))
 		return;
@@ -201,13 +204,26 @@ static void update_curr(struct cfs_rq *cfs_rq)
 		return;
 
 	curr->exec_start = now;
+
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	schedstat_set(curr->statistics.exec_max,
+		      max(delta_exec, curr->statistics.exec_max));
+#endif
 	curr->sum_exec_runtime += delta_exec;
 
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	schedstat_add(cfs_rq->exec_clock, delta_exec);
+#endif
 	ttn->curr_burst += delta_exec;
 	ttn->vruntime += convert_to_vruntime(delta_exec, curr);
 	detect_type(ttn, now, 0);
-
 	normalize_lifetime(now, &curr->tt_node);
+
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	trace_sched_stat_runtime(curtask, delta_exec, curr->vruntime);
+	cgroup_account_cputime(curtask, delta_exec);
+	account_group_exec_runtime(curtask, delta_exec);
+#endif
 }
 
 static void update_curr_fair(struct rq *rq)
@@ -434,11 +450,33 @@ static bool yield_to_task_fair(struct rq *rq, struct task_struct *p)
 static void
 set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
-	if (se->on_rq)
+	if (se->on_rq) {
+		/*
+		 * Any task has to be enqueued before it get to execute on
+		 * a CPU. So account for the time it spent waiting on the
+		 * runqueue.
+		 */
+		update_stats_wait_end(cfs_rq, se);
 		__dequeue_entity(cfs_rq, se);
+		update_load_avg(cfs_rq, se, UPDATE_TG);
+	}
 
 	se->exec_start = sched_clock();
 	cfs_rq->curr = se;
+
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	/*
+	 * Track our maximum slice length, if the CPU's load is at
+	 * least twice that of our own weight (i.e. dont track it
+	 * when there are only lesser-weight tasks around):
+	 */
+	if (schedstat_enabled() &&
+	    rq_of(cfs_rq)->cfs.load.weight >= 2*se->load.weight) {
+		schedstat_set(se->statistics.slice_max,
+			max((u64)schedstat_val(se->statistics.slice_max),
+			    se->sum_exec_runtime - se->prev_sum_exec_runtime));
+	}
+#endif
 	se->prev_sum_exec_runtime = se->sum_exec_runtime;
 }
 
@@ -497,6 +535,8 @@ done: __maybe_unused;
 	 */
 	list_move(&p->se.group_node, &rq->cfs_tasks);
 #endif
+
+	update_misfit_status(p, rq);
 
 	return p;
 
@@ -561,11 +601,12 @@ static void put_prev_entity(struct cfs_rq *cfs_rq, struct sched_entity *prev)
 	 * If still on the runqueue then deactivate_task()
 	 * was not called and update_curr() has to be done:
 	 */
-	if (prev->on_rq)
+	if (prev->on_rq) {
 		update_curr(cfs_rq);
-
-	if (prev->on_rq)
+		update_stats_wait_start(cfs_rq, prev);
 		__enqueue_entity(cfs_rq, prev);
+		update_load_avg(cfs_rq, prev, 0);
+	}
 
 	cfs_rq->curr = NULL;
 }
@@ -606,6 +647,11 @@ static void
 entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
 {
 	update_curr(cfs_rq);
+
+	/*
+	 * Ensure that runnable average is periodically updated.
+	 */
+	update_load_avg(cfs_rq, curr, UPDATE_TG);
 
 	if (cfs_rq->nr_running > 1)
 		check_preempt_tick(cfs_rq, curr);
@@ -1028,6 +1074,9 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 
 	if (static_branch_unlikely(&sched_numa_balancing))
 		task_tick_numa(rq, curr);
+
+	update_misfit_status(curr, rq);
+	update_overutilized_status(task_rq(curr));
 }
 
 static void task_fork_fair(struct task_struct *p)

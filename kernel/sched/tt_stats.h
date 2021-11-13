@@ -193,6 +193,10 @@ update_stats_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 }
 #else
 static inline void
+update_stats_wait_start(struct cfs_rq *cfs_rq, struct sched_entity *se) {}
+static inline void
+update_stats_wait_end(struct cfs_rq *cfs_rq, struct sched_entity *se) {}
+static inline void
 update_stats_enqueue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags) {}
 static inline void
 update_stats_dequeue(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags) {}
