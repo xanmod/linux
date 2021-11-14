@@ -1058,7 +1058,16 @@ out:
 	if (unlikely(on_null_domain(this_rq) || !cpu_active(cpu_of(this_rq))))
 		return;
 
-	update_blocked_averages(this_rq->cpu);
+#ifdef CONFIG_TT_ACCOUNTING_STATS
+	if (time_after_eq(jiffies, this_rq->next_balance)) {
+		/* scale ms to jiffies */
+		unsigned long interval = msecs_to_jiffies(19);
+
+		this_rq->next_balance = jiffies + interval;
+		update_blocked_averages(this_rq->cpu);
+	}
+#endif
+
 	nohz_balancer_kick(this_rq);
 }
 

@@ -686,6 +686,4 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 	 */
 	if (nohz_idle_balance(this_rq, idle))
 		return;
-
-	update_blocked_averages(this_rq->cpu);
 }
