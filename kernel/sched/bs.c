@@ -11,6 +11,7 @@
 #include "bs.h"
 
 unsigned int __read_mostly tt_max_lifetime	= 22000; // in ms
+int __read_mostly tt_rt_prio			= -20;
 
 #define INTERACTIVE_HRRN	2U
 #define RT_WAIT_DELTA		800000U
@@ -169,7 +170,7 @@ static u64 convert_to_vruntime(u64 delta, struct sched_entity *se)
 {
 	struct task_struct *p = task_of(se);
 	s64 prio_diff;
-	int prio = IS_REALTIME(&se->tt_node) ? -20 : PRIO_TO_NICE(p->prio);
+	int prio = IS_REALTIME(&se->tt_node) ? tt_rt_prio : PRIO_TO_NICE(p->prio);
 
 	if (prio == 0)
 		return delta;
