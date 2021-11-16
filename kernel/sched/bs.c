@@ -886,7 +886,7 @@ migrate_degrades_locality(struct task_struct *p, struct rq *dst_rq, struct rq *s
 		return -1;
 
 	src_nid = cpu_to_node(cpu_of(src_rq));
-	dst_nid = cpu_to_node(cpus_of(dst_cpu));
+	dst_nid = cpu_to_node(cpu_of(dst_rq));
 
 	if (src_nid == dst_nid)
 		return -1;
