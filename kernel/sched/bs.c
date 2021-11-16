@@ -21,9 +21,6 @@ unsigned int __read_mostly tt_max_lifetime	= 22000; // in ms
 #define RACE_TIME 40000000
 #define FACTOR (RACE_TIME / HZ_PERIOD)
 
-#define YIELD_MARK(ttn)		((ttn)->vruntime |= 0x8000000000000000ULL)
-#define YIELD_UNMARK(ttn)	((ttn)->vruntime &= 0x7FFFFFFFFFFFFFFFULL)
-
 #define IS_REALTIME(ttn)	((ttn)->task_type == TT_REALTIME)
 #define IS_INTERACTIVE(ttn)	((ttn)->task_type == TT_INTERACTIVE)
 #define IS_NO_TYPE(ttn)		((ttn)->task_type == TT_NO_TYPE)
@@ -418,13 +415,14 @@ static void yield_task_fair(struct rq *rq)
 	struct task_struct *curr = rq->curr;
 	struct cfs_rq *cfs_rq = task_cfs_rq(curr);
 
-	YIELD_MARK(&curr->se.tt_node);
-
 	/*
 	 * Are we the only task in the tree?
 	 */
 	if (unlikely(rq->nr_running == 1))
 		return;
+
+	if (cfs_rq->h_nr_running > 1)
+		YIELD_MARK(&curr->se.tt_node);
 
 	if (curr->policy != SCHED_BATCH) {
 		update_rq_clock(rq);

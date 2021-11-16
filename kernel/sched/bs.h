@@ -1,3 +1,5 @@
+#define YIELD_MARK(ttn)		((ttn)->vruntime |= 0x8000000000000000ULL)
+#define YIELD_UNMARK(ttn)	((ttn)->vruntime &= 0x7FFFFFFFFFFFFFFFULL)
 
 /*
  * After fork, child runs first. If set to 0 (default) then
@@ -44,12 +46,11 @@ static void migrate_task_rq_fair(struct task_struct *p, int new_cpu)
 		 */
 		remove_entity_load_avg(&p->se);
 	}
-
-	/* We have migrated, no longer consider this task hot */
-	p->se.exec_start = 0;
 #endif
 	/* Tell new CPU we are migrated */
 	p->se.avg.last_update_time = 0;
+
+	YIELD_UNMARK(&p->se.tt_node);
 
 	update_scan_period(p, new_cpu);
 }
