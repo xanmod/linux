@@ -486,38 +486,14 @@ struct task_numa_env {
 	int best_cpu;
 };
 
-static inline unsigned long cfs_rq_load_avg(struct cfs_rq *cfs_rq)
-{
-	return cfs_rq->avg.load_avg;
-}
-
 static unsigned long cpu_load(struct rq *rq)
 {
 	return cfs_rq_load_avg(&rq->cfs);
 }
 
-static inline unsigned long cfs_rq_runnable_avg(struct cfs_rq *cfs_rq)
-{
-	return cfs_rq->avg.runnable_avg;
-}
-
 static unsigned long cpu_runnable(struct rq *rq)
 {
 	return cfs_rq_runnable_avg(&rq->cfs);
-}
-
-static inline unsigned long cpu_util(int cpu)
-{
-	struct cfs_rq *cfs_rq;
-	unsigned int util;
-
-	cfs_rq = &cpu_rq(cpu)->cfs;
-	util = READ_ONCE(cfs_rq->avg.util_avg);
-
-	if (sched_feat(UTIL_EST))
-		util = max(util, READ_ONCE(cfs_rq->avg.util_est.enqueued));
-
-	return min_t(unsigned long, util, capacity_orig_of(cpu));
 }
 
 /*
@@ -589,11 +565,6 @@ static inline int numa_idle_core(int idle_core, int cpu)
 	return idle_core;
 }
 #endif
-
-static unsigned long capacity_of(int cpu)
-{
-	return cpu_rq(cpu)->cpu_capacity;
-}
 
 /*
  * Gather all necessary information to make NUMA balancing placement
@@ -714,11 +685,6 @@ static bool load_too_imbalanced(long src_load, long dst_load,
 
 	/* Would this change make things worse? */
 	return (imb > old_imb);
-}
-
-static unsigned long task_h_load(struct task_struct *p)
-{
-	return p->se.avg.load_avg;
 }
 
 /*

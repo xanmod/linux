@@ -113,6 +113,10 @@
 static int sixty = 60;
 #endif
 
+#ifdef CONFIG_TT_SCHED
+static int neg_twenty	= -20;
+static int thirty_nine	= 39;
+#endif
 static int __maybe_unused neg_one = -1;
 static int __maybe_unused two = 2;
 static int __maybe_unused four = 4;
@@ -1807,6 +1811,15 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_tt_rt_prio",
+		.data		= &tt_rt_prio,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &neg_twenty,
+		.extra2		= &thirty_nine,
 	},
 #endif
 #ifdef CONFIG_SCHEDSTATS

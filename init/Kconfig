@@ -109,6 +109,14 @@ config TT_SCHED
 	bool "TT Scheduler"
 	default y
 
+config TT_ACCOUNTING_STATS
+	bool "TT include all accounting and statistics"
+	depends on TT_SCHED
+	default y
+	help
+	  This will include all CFS tasks' load accounting and statistics.
+	  If you are using 'performance' governor and do not depend/care
+	  about tasks statistics, then choose N. Otherwise say Y.
 
 menu "General setup"
 
@@ -821,8 +829,7 @@ menu "Scheduler features"
 
 config UCLAMP_TASK
 	bool "Enable utilization clamping for RT/FAIR tasks"
-	depends on CPU_FREQ_GOV_SCHEDUTIL
-	depends on !TT_SCHED
+	depends on CPU_FREQ_GOV_SCHEDUTIL && TT_ACCOUNTING_STATS
 	help
 	  This feature enables the scheduler to track the clamped utilization
 	  of each CPU based on RUNNABLE tasks scheduled on that CPU.
