@@ -195,7 +195,7 @@ driver.
 
 There are two types of hardware implementations for ``amd-pstate``: one is
 `Full MSR Support <perf_cap_>`_ and another is `Shared Memory Support
-<perf_cap_>`_. It can use :c:macro:`X86_FEATURE_AMD_CPPC` feature flag (for
+<perf_cap_>`_. It can use :c:macro:`X86_FEATURE_CPPC` feature flag (for
 details refer to Processor Programming Reference (PPR) for AMD Family
 19h Model 21h, Revision B0 Processors [3]_) to indicate the different
 types. ``amd-pstate`` is to register different ``amd_pstate_perf_funcs``
@@ -208,7 +208,7 @@ Full MSR Support
 -----------------
 
 Some new Zen3 processors such as Cezanne provide the MSR registers directly
-while the :c:macro:`X86_FEATURE_AMD_CPPC` CPU feature flag is set.
+while the :c:macro:`X86_FEATURE_CPPC` CPU feature flag is set.
 ``amd-pstate`` can handle the MSR register to implement the fast switch
 function in ``CPUFreq`` that can shrink latency of frequency control on the
 interrupt context.
@@ -216,8 +216,8 @@ interrupt context.
 Shared Memory Support
 ----------------------
 
-If :c:macro:`X86_FEATURE_AMD_CPPC` CPU feature flag is not set, that means
-the processor supports shared memory solution. In this case, ``amd-pstate``
+If :c:macro:`X86_FEATURE_CPPC` CPU feature flag is not set, that means the
+processor supports shared memory solution. In this case, ``amd-pstate``
 uses the ``cppc_acpi`` helper methods to implement the callback functions
 of ``amd_pstate_perf_funcs``.
 

@@ -1277,7 +1277,7 @@ EXPORT_SYMBOL_GPL(cppc_get_perf_ctrs);
 
 /**
  * cppc_set_enable - Set to enable CPPC on the processor by writing the
- * Continuous Performance Control package EnableRegister feild.
+ * Continuous Performance Control package EnableRegister field.
  * @cpu: CPU for which to enable CPPC register.
  * @enable: 0 - disable, 1 - enable CPPC feature on the processor.
  *

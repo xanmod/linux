@@ -1,21 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * amd-pstate.c - AMD Processor P-state Frequency Driver
  *
  * Copyright (C) 2021 Advanced Micro Devices, Inc. All Rights Reserved.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  *
  * Author: Huang Rui <ray.huang@amd.com>
  */
@@ -36,7 +23,6 @@
 #include <linux/delay.h>
 #include <linux/uaccess.h>
 #include <linux/static_call.h>
-#include <trace/events/power.h>
 
 #include <acpi/processor.h>
 #include <acpi/cppc_acpi.h>
@@ -45,9 +31,23 @@
 #include <asm/processor.h>
 #include <asm/cpufeature.h>
 #include <asm/cpu_device_id.h>
+#include "amd-pstate-trace.h"
 
 #define AMD_PSTATE_TRANSITION_LATENCY	0x20000
 #define AMD_PSTATE_TRANSITION_DELAY	500
+
+/* TODO: We need more time to fine tune processors with shared memory solution
+ * with community together.
+ *
+ * There are some performance drops on the CPU benchmarks which reports from
+ * Suse. We are co-working with them to fine tune the shared memory solution. So
+ * we disable it by default to go acpi-cpufreq on these processors and add a
+ * module parameter to be able to enable it manually for debugging.
+ */
+static bool shared_mem = false;
+module_param(shared_mem, bool, 0444);
+MODULE_PARM_DESC(shared_mem,
+		 "enable amd-pstate on processors with shared memory solution (false = disabled (default), true = enabled)");
 
 static struct cpufreq_driver amd_pstate_driver;
 
@@ -192,8 +192,8 @@ static void amd_pstate_update(struct amd_cpudata *cpudata, u32 min_perf,
 	value &= ~REQ_MAX_PERF(~0L);
 	value |= REQ_MAX_PERF(max_perf);
 
-	trace_amd_pstate_perf(min_perf, des_perf, max_perf, cpudata->cpu,
-			      (value != prev), fast_switch);
+	trace_amd_pstate_perf(min_perf, des_perf, max_perf,
+			      cpudata->cpu, (value != prev), fast_switch);
 
 	if (value == prev)
 		return;
@@ -217,63 +217,59 @@ static int amd_pstate_target(struct cpufreq_policy *policy,
 {
 	struct cpufreq_freqs freqs;
 	struct amd_cpudata *cpudata = policy->driver_data;
-	unsigned long amd_max_perf, amd_min_perf, amd_des_perf,
-		      amd_cap_perf;
+	unsigned long max_perf, min_perf, des_perf, cap_perf;
 
 	if (!cpudata->max_freq)
 		return -ENODEV;
 
-	amd_cap_perf = READ_ONCE(cpudata->highest_perf);
-	amd_min_perf = READ_ONCE(cpudata->lowest_nonlinear_perf);
-	amd_max_perf = amd_cap_perf;
+	cap_perf = READ_ONCE(cpudata->highest_perf);
+	min_perf = READ_ONCE(cpudata->lowest_nonlinear_perf);
+	max_perf = cap_perf;
 
 	freqs.old = policy->cur;
 	freqs.new = target_freq;
 
-	amd_des_perf = DIV_ROUND_CLOSEST(target_freq * amd_cap_perf,
-					 cpudata->max_freq);
+	des_perf = DIV_ROUND_CLOSEST(target_freq * cap_perf,
+				     cpudata->max_freq);
 
 	cpufreq_freq_transition_begin(policy, &freqs);
-	amd_pstate_update(cpudata, amd_min_perf, amd_des_perf,
-			  amd_max_perf, false);
+	amd_pstate_update(cpudata, min_perf, des_perf,
+			  max_perf, false);
 	cpufreq_freq_transition_end(policy, &freqs, false);
 
 	return 0;
 }
 
 static void amd_pstate_adjust_perf(unsigned int cpu,
-				   unsigned long min_perf,
+				   unsigned long _min_perf,
 				   unsigned long target_perf,
 				   unsigned long capacity)
 {
-	unsigned long amd_max_perf, amd_min_perf, amd_des_perf,
-		      amd_cap_perf, lowest_nonlinear_perf;
+	unsigned long max_perf, min_perf, des_perf,
+		      cap_perf, lowest_nonlinear_perf;
 	struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
 	struct amd_cpudata *cpudata = policy->driver_data;
 
-	amd_cap_perf = READ_ONCE(cpudata->highest_perf);
+	cap_perf = READ_ONCE(cpudata->highest_perf);
 	lowest_nonlinear_perf = READ_ONCE(cpudata->lowest_nonlinear_perf);
 
 	if (target_perf < capacity)
-		amd_des_perf = DIV_ROUND_UP(amd_cap_perf * target_perf,
-					    capacity);
+		des_perf = DIV_ROUND_UP(cap_perf * target_perf, capacity);
 
-	amd_min_perf = READ_ONCE(cpudata->highest_perf);
-	if (min_perf < capacity)
-		amd_min_perf = DIV_ROUND_UP(amd_cap_perf * min_perf, capacity);
+	min_perf = READ_ONCE(cpudata->highest_perf);
+	if (_min_perf < capacity)
+		min_perf = DIV_ROUND_UP(cap_perf * _min_perf, capacity);
 
-	if (amd_min_perf < lowest_nonlinear_perf)
-		amd_min_perf = lowest_nonlinear_perf;
+	if (min_perf < lowest_nonlinear_perf)
+		min_perf = lowest_nonlinear_perf;
 
-	amd_max_perf = amd_cap_perf;
-	if (amd_max_perf < amd_min_perf)
-		amd_max_perf = amd_min_perf;
+	max_perf = cap_perf;
+	if (max_perf < min_perf)
+		max_perf = min_perf;
 
-	amd_des_perf = clamp_t(unsigned long, amd_des_perf,
-			       amd_min_perf, amd_max_perf);
+	des_perf = clamp_t(unsigned long, des_perf, min_perf, max_perf);
 
-	amd_pstate_update(cpudata, amd_min_perf, amd_des_perf,
-			  amd_max_perf, true);
+	amd_pstate_update(cpudata, min_perf, des_perf, max_perf, true);
 }
 
 static int amd_get_min_freq(struct amd_cpudata *cpudata)
@@ -314,16 +310,13 @@ static int amd_get_max_freq(struct amd_cpudata *cpudata)
 static int amd_get_nominal_freq(struct amd_cpudata *cpudata)
 {
 	struct cppc_perf_caps cppc_perf;
-	u32 nominal_freq;
 
 	int ret = cppc_get_perf_caps(cpudata->cpu, &cppc_perf);
 	if (ret)
 		return ret;
 
-	nominal_freq = cppc_perf.nominal_freq;
-
 	/* Switch to khz */
-	return nominal_freq * 1000;
+	return cppc_perf.nominal_freq * 1000;
 }
 
 static int amd_get_lowest_nonlinear_freq(struct amd_cpudata *cpudata)
@@ -342,8 +335,8 @@ static int amd_get_lowest_nonlinear_freq(struct amd_cpudata *cpudata)
 
 	lowest_nonlinear_perf = cppc_perf.lowest_nonlinear_perf;
 
-	lowest_nonlinear_ratio = div_u64(lowest_nonlinear_perf <<
-					 SCHED_CAPACITY_SHIFT, nominal_perf);
+	lowest_nonlinear_ratio = div_u64(lowest_nonlinear_perf << SCHED_CAPACITY_SHIFT,
+					 nominal_perf);
 
 	lowest_nonlinear_freq = nominal_freq * lowest_nonlinear_ratio >> SCHED_CAPACITY_SHIFT;
 
@@ -393,7 +386,6 @@ static void amd_pstate_boost_init(struct amd_cpudata *cpudata)
 static int amd_pstate_cpu_init(struct cpufreq_policy *policy)
 {
 	int min_freq, max_freq, nominal_freq, lowest_nonlinear_freq, ret;
-	unsigned int cpu = policy->cpu;
 	struct device *dev;
 	struct amd_cpudata *cpudata;
 
@@ -405,7 +397,7 @@ static int amd_pstate_cpu_init(struct cpufreq_policy *policy)
 	if (!cpudata)
 		return -ENOMEM;
 
-	cpudata->cpu = cpu;
+	cpudata->cpu = policy->cpu;
 
 	ret = amd_pstate_init_perf(cpudata);
 	if (ret)
@@ -435,7 +427,7 @@ static int amd_pstate_cpu_init(struct cpufreq_policy *policy)
 	/* It will be updated by governor */
 	policy->cur = policy->cpuinfo.min_freq;
 
-	if (boot_cpu_has(X86_FEATURE_AMD_CPPC))
+	if (boot_cpu_has(X86_FEATURE_CPPC))
 		policy->fast_switch_possible = true;
 
 	ret = freq_qos_add_request(&policy->constraints, &cpudata->req[0],
@@ -464,7 +456,6 @@ static int amd_pstate_cpu_init(struct cpufreq_policy *policy)
 
 	return 0;
 
-	freq_qos_remove_request(&cpudata->req[1]);
 free_cpudata2:
 	freq_qos_remove_request(&cpudata->req[0]);
 free_cpudata1:
@@ -506,21 +497,6 @@ static ssize_t show_amd_pstate_max_freq(struct cpufreq_policy *policy,
 	return sprintf(&buf[0], "%u\n", max_freq);
 }
 
-static ssize_t show_amd_pstate_nominal_freq(struct cpufreq_policy *policy,
-					    char *buf)
-{
-	int nominal_freq;
-	struct amd_cpudata *cpudata;
-
-	cpudata = policy->driver_data;
-
-	nominal_freq = amd_get_nominal_freq(cpudata);
-	if (nominal_freq < 0)
-		return nominal_freq;
-
-	return sprintf(&buf[0], "%u\n", nominal_freq);
-}
-
 static ssize_t show_amd_pstate_lowest_nonlinear_freq(struct cpufreq_policy *policy,
 						     char *buf)
 {
@@ -536,6 +512,9 @@ static ssize_t show_amd_pstate_lowest_nonlinear_freq(struct cpufreq_policy *poli
 	return sprintf(&buf[0], "%u\n", freq);
 }
 
+/* In some of ASICs, the highest_perf is not the one in the _CPC table, so we
+ * need to expose it to sysfs.
+ */
 static ssize_t show_amd_pstate_highest_perf(struct cpufreq_policy *policy,
 					    char *buf)
 {
@@ -547,56 +526,15 @@ static ssize_t show_amd_pstate_highest_perf(struct cpufreq_policy *policy,
 	return sprintf(&buf[0], "%u\n", perf);
 }
 
-static ssize_t show_amd_pstate_nominal_perf(struct cpufreq_policy *policy,
-					    char *buf)
-{
-	u32 perf;
-	struct amd_cpudata *cpudata = policy->driver_data;
-
-	perf = READ_ONCE(cpudata->nominal_perf);
-
-	return sprintf(&buf[0], "%u\n", perf);
-}
-
-static ssize_t show_amd_pstate_lowest_nonlinear_perf(struct cpufreq_policy *policy,
-						     char *buf)
-{
-	u32 perf;
-	struct amd_cpudata *cpudata = policy->driver_data;
-
-	perf = READ_ONCE(cpudata->lowest_nonlinear_perf);
-
-	return sprintf(&buf[0], "%u\n", perf);
-}
-
-static ssize_t show_amd_pstate_lowest_perf(struct cpufreq_policy *policy,
-					   char *buf)
-{
-	u32 perf;
-	struct amd_cpudata *cpudata = policy->driver_data;
-
-	perf = READ_ONCE(cpudata->lowest_perf);
-
-	return sprintf(&buf[0], "%u\n", perf);
-}
-
 cpufreq_freq_attr_ro(amd_pstate_max_freq);
-cpufreq_freq_attr_ro(amd_pstate_nominal_freq);
 cpufreq_freq_attr_ro(amd_pstate_lowest_nonlinear_freq);
 
 cpufreq_freq_attr_ro(amd_pstate_highest_perf);
-cpufreq_freq_attr_ro(amd_pstate_nominal_perf);
-cpufreq_freq_attr_ro(amd_pstate_lowest_nonlinear_perf);
-cpufreq_freq_attr_ro(amd_pstate_lowest_perf);
 
 static struct freq_attr *amd_pstate_attr[] = {
 	&amd_pstate_max_freq,
-	&amd_pstate_nominal_freq,
 	&amd_pstate_lowest_nonlinear_freq,
 	&amd_pstate_highest_perf,
-	&amd_pstate_nominal_perf,
-	&amd_pstate_lowest_nonlinear_perf,
-	&amd_pstate_lowest_perf,
 	NULL,
 };
 
@@ -619,8 +557,7 @@ static int __init amd_pstate_init(void)
 		return -ENODEV;
 
 	if (!acpi_cpc_valid()) {
-		pr_debug("%s, the _CPC object is not present in SBIOS\n",
-			 __func__);
+		pr_debug("the _CPC object is not present in SBIOS\n");
 		return -ENODEV;
 	}
 
@@ -629,34 +566,41 @@ static int __init amd_pstate_init(void)
 		return -EEXIST;
 
 	/* capability check */
-	if (boot_cpu_has(X86_FEATURE_AMD_CPPC)) {
-		pr_debug("%s, AMD CPPC MSR based functionality is supported\n",
-			 __func__);
+	if (boot_cpu_has(X86_FEATURE_CPPC)) {
+		pr_debug("AMD CPPC MSR based functionality is supported\n");
 		amd_pstate_driver.adjust_perf = amd_pstate_adjust_perf;
-	} else {
+	} else if (shared_mem) {
 		static_call_update(amd_pstate_enable, cppc_enable);
 		static_call_update(amd_pstate_init_perf, cppc_init_perf);
 		static_call_update(amd_pstate_update_perf, cppc_update_perf);
+	} else {
+		return -ENODEV;
 	}
 
 	/* enable amd pstate feature */
 	ret = amd_pstate_enable(true);
 	if (ret) {
-		pr_err("%s, failed to enable amd-pstate with return %d\n",
-		       __func__, ret);
+		pr_err("failed to enable amd-pstate with return %d\n", ret);
 		return ret;
 	}
 
 	ret = cpufreq_register_driver(&amd_pstate_driver);
-	if (ret) {
-		pr_err("%s, return %d\n", __func__, ret);
-		return ret;
-	}
+	if (ret)
+		pr_err("failed to register amd_pstate_driver with return %d\n",
+		       ret);
 
-	return 0;
+	return ret;
 }
 
-device_initcall(amd_pstate_init);
+static void __exit amd_pstate_exit(void)
+{
+	cpufreq_unregister_driver(&amd_pstate_driver);
+
+	amd_pstate_enable(false);
+}
+
+module_init(amd_pstate_init);
+module_exit(amd_pstate_exit);
 
 MODULE_AUTHOR("Huang Rui <ray.huang@amd.com>");
 MODULE_DESCRIPTION("AMD Processor P-state Frequency Driver");
