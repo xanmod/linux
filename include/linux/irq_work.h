@@ -3,6 +3,7 @@
 #define _LINUX_IRQ_WORK_H
 
 #include <linux/smp_types.h>
+#include <linux/rcuwait.h>
 
 /*
  * An entry can be in one of four states:
@@ -22,6 +23,7 @@ struct irq_work {
 		};
 	};
 	void (*func)(struct irq_work *);
+	struct rcuwait irqwait;
 };
 
 static inline
@@ -29,13 +31,19 @@ void init_irq_work(struct irq_work *work, void (*func)(struct irq_work *))
 {
 	atomic_set(&work->flags, 0);
 	work->func = func;
+	rcuwait_init(&work->irqwait);
 }
 
 #define DEFINE_IRQ_WORK(name, _f) struct irq_work name = {	\
 		.flags = ATOMIC_INIT(0),			\
-		.func  = (_f)					\
+		.func  = (_f),					\
+		.irqwait = __RCUWAIT_INITIALIZER(irqwait),	\
 }
 
+static inline bool irq_work_is_busy(struct irq_work *work)
+{
+	return atomic_read(&work->flags) & IRQ_WORK_BUSY;
+}
 
 bool irq_work_queue(struct irq_work *work);
 bool irq_work_queue_on(struct irq_work *work, int cpu);
