@@ -40,6 +40,16 @@ void init_irq_work(struct irq_work *work, void (*func)(struct irq_work *))
 		.irqwait = __RCUWAIT_INITIALIZER(irqwait),	\
 }
 
+#define __IRQ_WORK_INIT(_func, _flags) (struct irq_work){	\
+	.flags = ATOMIC_INIT(_flags),				\
+	.func = (_func),					\
+	.irqwait = __RCUWAIT_INITIALIZER(irqwait),		\
+}
+
+#define IRQ_WORK_INIT(_func) __IRQ_WORK_INIT(_func, 0)
+#define IRQ_WORK_INIT_LAZY(_func) __IRQ_WORK_INIT(_func, IRQ_WORK_LAZY)
+#define IRQ_WORK_INIT_HARD(_func) __IRQ_WORK_INIT(_func, IRQ_WORK_HARD_IRQ)
+
 static inline bool irq_work_is_busy(struct irq_work *work)
 {
 	return atomic_read(&work->flags) & IRQ_WORK_BUSY;
@@ -61,12 +71,6 @@ void irq_work_single(void *arg);
 static inline bool irq_work_needs_cpu(void) { return false; }
 static inline void irq_work_run(void) { }
 static inline void irq_work_single(void *arg) { }
-#endif
-
-#if defined(CONFIG_IRQ_WORK) && defined(CONFIG_PREEMPT_RT)
-void irq_work_tick_soft(void);
-#else
-static inline void irq_work_tick_soft(void) { }
 #endif
 
 #endif /* _LINUX_IRQ_WORK_H */
