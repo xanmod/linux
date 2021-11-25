@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.15.4 Kernel Configuration
+# Linux/x86 5.15.5 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-11 (Debian 11.2.0-10) 11.2.0"
 CONFIG_CC_IS_GCC=y
@@ -10319,6 +10319,7 @@ CONFIG_PSTORE_COMPRESS_DEFAULT="zstd"
 # CONFIG_PSTORE_CONSOLE is not set
 # CONFIG_PSTORE_PMSG is not set
 CONFIG_PSTORE_RAM=m
+# CONFIG_PSTORE_BLK is not set
 CONFIG_SYSV_FS=m
 CONFIG_UFS_FS=m
 # CONFIG_UFS_FS_WRITE is not set
