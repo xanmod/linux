@@ -3149,6 +3149,11 @@ void wake_up_klogd(void)
 	preempt_enable();
 }
 
+void printk_trigger_flush(void)
+{
+	wake_up_klogd();
+}
+
 /*
  * printk rate limiting, lifted from the networking subsystem.
  *
