@@ -73,7 +73,7 @@ struct amd_cpudata {
 
 static inline int pstate_enable(bool enable)
 {
-	return wrmsrl_safe(MSR_AMD_CPPC_ENABLE, enable ? 1 : 0);
+	return wrmsrl_safe(MSR_AMD_CPPC_ENABLE, enable);
 }
 
 static int cppc_enable(bool enable)
@@ -81,7 +81,7 @@ static int cppc_enable(bool enable)
 	int cpu, ret = 0;
 
 	for_each_online_cpu(cpu) {
-		ret = cppc_set_enable(cpu, enable ? 1 : 0);
+		ret = cppc_set_enable(cpu, enable);
 		if (ret)
 			return ret;
 	}
@@ -253,6 +253,7 @@ static void amd_pstate_adjust_perf(unsigned int cpu,
 	cap_perf = READ_ONCE(cpudata->highest_perf);
 	lowest_nonlinear_perf = READ_ONCE(cpudata->lowest_nonlinear_perf);
 
+	des_perf = cap_perf;
 	if (target_perf < capacity)
 		des_perf = DIV_ROUND_UP(cap_perf * target_perf, capacity);
 
@@ -574,6 +575,7 @@ static int __init amd_pstate_init(void)
 		static_call_update(amd_pstate_init_perf, cppc_init_perf);
 		static_call_update(amd_pstate_update_perf, cppc_update_perf);
 	} else {
+		pr_info("This processor supports shared memory solution, you can enable it with amd_pstate.shared_mem=1\n");
 		return -ENODEV;
 	}
 

@@ -93,7 +93,7 @@ unsigned long cpufreq_get_sysfs_value_from_table(unsigned int cpu,
 	char linebuf[MAX_LINE_LEN];
 	char *endp;
 
-	if (!table && !table[index] && index >= size)
+	if (!table || index >= size || !table[index])
 		return 0;
 
 	len = sysfs_cpufreq_read_file(cpu, table[index], linebuf,

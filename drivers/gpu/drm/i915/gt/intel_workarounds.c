@@ -621,13 +621,6 @@ static void gen12_ctx_workarounds_init(struct intel_engine_cs *engine,
 	       FF_MODE2_GS_TIMER_MASK,
 	       FF_MODE2_GS_TIMER_224,
 	       0, false);
-
-	/*
-	 * Wa_14012131227:dg1
-	 * Wa_1508744258:tgl,rkl,dg1,adl-s,adl-p
-	 */
-	wa_masked_en(wal, GEN7_COMMON_SLICE_CHICKEN1,
-		     GEN9_RHWO_OPTIMIZATION_DISABLE);
 }
 
 static void dg1_ctx_workarounds_init(struct intel_engine_cs *engine,
@@ -1520,7 +1513,11 @@ static void tgl_whitelist_build(struct intel_engine_cs *engine)
 				  RING_FORCE_TO_NONPRIV_ACCESS_RD |
 				  RING_FORCE_TO_NONPRIV_RANGE_4);
 
-		/* Wa_1808121037:tgl */
+		/*
+		 * Wa_1808121037:tgl
+		 * Wa_14012131227:dg1
+		 * Wa_1508744258:tgl,rkl,dg1,adl-s,adl-p
+		 */
 		whitelist_reg(w, GEN7_COMMON_SLICE_CHICKEN1);
 
 		/* Wa_1806527549:tgl */
