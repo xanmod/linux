@@ -3,6 +3,7 @@
 #define _LINUX_IRQ_WORK_H
 
 #include <linux/smp_types.h>
+#include <linux/rcuwait.h>
 
 /*
  * An entry can be in one of four states:
@@ -22,6 +23,7 @@ struct irq_work {
 		};
 	};
 	void (*func)(struct irq_work *);
+	struct rcuwait irqwait;
 };
 
 static inline
@@ -29,13 +31,34 @@ void init_irq_work(struct irq_work *work, void (*func)(struct irq_work *))
 {
 	atomic_set(&work->flags, 0);
 	work->func = func;
+	rcuwait_init(&work->irqwait);
 }
 
 #define DEFINE_IRQ_WORK(name, _f) struct irq_work name = {	\
 		.flags = ATOMIC_INIT(0),			\
-		.func  = (_f)					\
+		.func  = (_f),					\
+		.irqwait = __RCUWAIT_INITIALIZER(irqwait),	\
 }
 
+#define __IRQ_WORK_INIT(_func, _flags) (struct irq_work){	\
+	.flags = ATOMIC_INIT(_flags),				\
+	.func = (_func),					\
+	.irqwait = __RCUWAIT_INITIALIZER(irqwait),		\
+}
+
+#define IRQ_WORK_INIT(_func) __IRQ_WORK_INIT(_func, 0)
+#define IRQ_WORK_INIT_LAZY(_func) __IRQ_WORK_INIT(_func, IRQ_WORK_LAZY)
+#define IRQ_WORK_INIT_HARD(_func) __IRQ_WORK_INIT(_func, IRQ_WORK_HARD_IRQ)
+
+static inline bool irq_work_is_busy(struct irq_work *work)
+{
+	return atomic_read(&work->flags) & IRQ_WORK_BUSY;
+}
+
+static inline bool irq_work_is_hard(struct irq_work *work)
+{
+	return atomic_read(&work->flags) & IRQ_WORK_HARD_IRQ;
+}
 
 bool irq_work_queue(struct irq_work *work);
 bool irq_work_queue_on(struct irq_work *work, int cpu);
@@ -53,12 +76,6 @@ void irq_work_single(void *arg);
 static inline bool irq_work_needs_cpu(void) { return false; }
 static inline void irq_work_run(void) { }
 static inline void irq_work_single(void *arg) { }
-#endif
-
-#if defined(CONFIG_IRQ_WORK) && defined(CONFIG_PREEMPT_RT)
-void irq_work_tick_soft(void);
-#else
-static inline void irq_work_tick_soft(void) { }
 #endif
 
 #endif /* _LINUX_IRQ_WORK_H */
