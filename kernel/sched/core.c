@@ -44,6 +44,10 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_update_nr_running_tp);
 
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
 
+#ifdef CONFIG_TT_SCHED
+struct rq *grq = NULL;
+#endif
+
 #ifdef CONFIG_SCHED_DEBUG
 /*
  * Debugging: various feature bits
@@ -2986,6 +2990,14 @@ void relax_compatible_cpus_allowed_ptr(struct task_struct *p)
 	kfree(user_mask);
 }
 
+#ifdef CONFIG_TT_SCHED
+inline void dec_nr_lat_sensitive(unsigned int cpu)
+{
+	if (per_cpu(nr_lat_sensitive, cpu))
+		per_cpu(nr_lat_sensitive, cpu)--;
+}
+#endif
+
 void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 {
 #ifdef CONFIG_SCHED_DEBUG
@@ -3031,6 +3043,12 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 	trace_sched_migrate_task(p, new_cpu);
 
 	if (task_cpu(p) != new_cpu) {
+#ifdef CONFIG_TT_SCHED
+		if (task_is_lat_sensitive(p)) {
+			dec_nr_lat_sensitive(task_cpu(p));
+			per_cpu(nr_lat_sensitive, new_cpu)++;
+		}
+#endif
 		if (p->sched_class->migrate_task_rq)
 			p->sched_class->migrate_task_rq(p, new_cpu);
 		p->se.nr_migrations++;
@@ -4444,7 +4462,9 @@ void wake_up_new_task(struct task_struct *p)
 {
 	struct rq_flags rf;
 	struct rq *rq;
-
+#ifdef CONFIG_TT_SCHED
+	int target_cpu = 0;
+#endif
 	raw_spin_lock_irqsave(&p->pi_lock, rf.flags);
 	WRITE_ONCE(p->__state, TASK_RUNNING);
 #ifdef CONFIG_SMP
@@ -4458,9 +4478,20 @@ void wake_up_new_task(struct task_struct *p)
 	 */
 	p->recent_used_cpu = task_cpu(p);
 	rseq_migrate(p);
+#ifdef CONFIG_TT_SCHED
+	target_cpu = select_task_rq(p, task_cpu(p), WF_FORK);
+	__set_task_cpu(p, target_cpu);
+#else
 	__set_task_cpu(p, select_task_rq(p, task_cpu(p), WF_FORK));
 #endif
+#endif
 	rq = __task_rq_lock(p, &rf);
+
+#ifdef CONFIG_TT_SCHED
+	if (task_is_lat_sensitive(p))
+		per_cpu(nr_lat_sensitive, target_cpu)++;
+#endif
+
 	update_rq_clock(rq);
 	post_init_entity_util_avg(p);
 #ifdef CONFIG_TT_SCHED
@@ -4847,6 +4878,11 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	if (unlikely(prev_state == TASK_DEAD)) {
 		if (prev->sched_class->task_dead)
 			prev->sched_class->task_dead(prev);
+
+#ifdef CONFIG_TT_SCHED
+		if (task_is_lat_sensitive(prev))
+			dec_nr_lat_sensitive(prev->cpu);
+#endif
 
 		/*
 		 * Remove function-return probe instances associated with this
@@ -9288,6 +9324,9 @@ static struct kmem_cache *task_group_cache __read_mostly;
 
 DECLARE_PER_CPU(cpumask_var_t, load_balance_mask);
 DECLARE_PER_CPU(cpumask_var_t, select_idle_mask);
+#ifdef CONFIG_TT_SCHED
+DEFINE_PER_CPU(int, nr_lat_sensitive);
+#endif
 
 void __init sched_init(void)
 {
@@ -9413,8 +9452,15 @@ void __init sched_init(void)
 		rq->balance_callback = &balance_push_callback;
 		rq->active_balance = 0;
 		rq->next_balance = jiffies;
+		rq->lat_decay = jiffies;
 		rq->push_cpu = 0;
 		rq->cpu = i;
+#ifdef CONFIG_TT_SCHED
+		if (!grq) {
+			grq = rq;
+			printk(KERN_INFO "Global runqueue is on cpu %d", cpu_of(grq));
+		}
+#endif
 		rq->online = 0;
 		rq->idle_stamp = 0;
 		rq->avg_idle = 2*sysctl_sched_migration_cost;
@@ -9437,6 +9483,9 @@ void __init sched_init(void)
 #endif /* CONFIG_SMP */
 		hrtick_rq_init(rq);
 		atomic_set(&rq->nr_iowait, 0);
+#ifdef CONFIG_TT_SCHED
+		per_cpu(nr_lat_sensitive, i) = 0;
+#endif
 
 #ifdef CONFIG_SCHED_CORE
 		rq->core = rq;

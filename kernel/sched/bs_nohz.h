@@ -456,6 +456,14 @@ static void idle_balance(struct rq *this_rq)
 	unsigned int max = 0;
 	struct rq_flags src_rf;
 
+	if (IS_CAND_BL_ENABLED) {
+		if (idle_pull_global_candidate(this_rq))
+			return;
+	} else if (IS_GRQ_BL_ENABLED) {
+		pull_from_grq(this_rq);
+		return;
+	}
+
 	for_each_online_cpu(cpu) {
 		/*
 		 * Stop searching for tasks to pull if there are
