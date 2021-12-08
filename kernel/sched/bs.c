@@ -307,14 +307,11 @@ static void __dequeue_entity_port(struct tt_node **port, struct sched_entity *se
 	struct tt_node *ttn = &se->tt_node;
 
 	// if only one se in rq
-	if ((*port)->next == NULL) {
+	if ((*port)->next == NULL)
 		(*port) = NULL;
-	}
 	// if it is the head
-	else if (ttn == (*port)) {
-		(*port)		= (*port)->next;
-		(*port)->prev	= NULL; // ??
-	}
+	else if (ttn == (*port))
+		(*port) = (*port)->next;
 }
 
 static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
