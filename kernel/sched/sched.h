@@ -91,6 +91,11 @@
 #define TT_NO_TYPE	2
 #define TT_CPU_BOUND	3
 #define TT_BATCH	4
+
+#define TT_BL_NORM	0
+#define TT_BL_CAND	1
+#define TT_BL_GRQ	2
+extern struct rq *grq;
 #endif
 
 struct rq;
@@ -205,6 +210,15 @@ static inline int task_has_dl_policy(struct task_struct *p)
 {
 	return dl_policy(p->policy);
 }
+
+#ifdef CONFIG_TT_SCHED
+static inline int task_is_lat_sensitive(struct task_struct *p)
+{
+	unsigned int tt = p->se.tt_node.task_type;
+
+	return (tt == TT_INTERACTIVE);
+}
+#endif
 
 #define cap_scale(v, s) ((v)*(s) >> SCHED_CAPACITY_SHIFT)
 
@@ -561,6 +575,7 @@ struct cfs_rq {
 	struct sched_entity	*curr;
 #ifdef CONFIG_TT_SCHED
 	struct tt_node		*head;
+	u64			local_cand_hrrn;
 #else
 	struct sched_entity	*next;
 	struct sched_entity	*last;
@@ -990,6 +1005,9 @@ struct rq {
 	struct task_struct	*idle;
 	struct task_struct	*stop;
 	unsigned long		next_balance;
+#ifdef CONFIG_TT_SCHED
+	unsigned long		lat_decay;
+#endif
 	struct mm_struct	*prev_mm;
 
 	unsigned int		clock_update_flags;
@@ -1794,6 +1812,9 @@ DECLARE_PER_CPU(struct sched_domain_shared __rcu *, sd_llc_shared);
 DECLARE_PER_CPU(struct sched_domain __rcu *, sd_numa);
 DECLARE_PER_CPU(struct sched_domain __rcu *, sd_asym_packing);
 DECLARE_PER_CPU(struct sched_domain __rcu *, sd_asym_cpucapacity);
+#ifdef CONFIG_TT_SCHED
+DECLARE_PER_CPU(int, nr_lat_sensitive);
+#endif
 extern struct static_key_false sched_asym_cpucapacity;
 
 struct sched_group_capacity {
@@ -2265,6 +2286,10 @@ extern void update_group_capacity(struct sched_domain *sd, int cpu);
 
 extern void trigger_load_balance(struct rq *rq);
 
+#ifdef CONFIG_TT_SCHED
+extern int idle_pull_global_candidate(struct rq *dist_rq);
+#endif
+
 extern void set_cpus_allowed_common(struct task_struct *p, const struct cpumask *new_mask, u32 flags);
 
 static inline struct task_struct *get_push_task(struct rq *rq)
@@ -2408,6 +2433,10 @@ extern void activate_task(struct rq *rq, struct task_struct *p, int flags);
 extern void deactivate_task(struct rq *rq, struct task_struct *p, int flags);
 
 extern void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags);
+
+#ifdef CONFIG_TT_SCHED
+extern inline void dec_nr_lat_sensitive(unsigned int cpu);
+#endif
 
 extern const_debug unsigned int sysctl_sched_nr_migrate;
 extern const_debug unsigned int sysctl_sched_migration_cost;
