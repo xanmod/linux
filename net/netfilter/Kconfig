@@ -983,6 +983,14 @@ config NETFILTER_XT_TARGET_NETMAP
 
 	To compile it as a module, choose M here. If unsure, say N.
 
+config NETFILTER_XT_TARGET_FULLCONENAT
+        tristate '"FULLCONENAT" target support'
+        depends on NF_NAT
+        help
+        Full Cone NAT
+
+        To compile it as a module, choose M here. If unsure, say N.
+
 config NETFILTER_XT_TARGET_NFLOG
 	tristate '"NFLOG" target support'
 	default m if NETFILTER_ADVANCED=n
