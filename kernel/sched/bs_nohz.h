@@ -674,6 +674,173 @@ static inline bool nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle
 static inline void nohz_newidle_balance(struct rq *this_rq) { }
 #endif /* CONFIG_NO_HZ_COMMON */
 
+static int task_can_move_to_grq(struct task_struct *p)
+{
+	if (task_running(task_rq(p), p))
+		return 0;
+
+	if (kthread_is_per_cpu(p))
+		return 0;
+
+	if (is_migration_disabled(p))
+		return 0;
+
+	if (p->nr_cpus_allowed <= 1)
+		return 0;
+
+	return 1;
+}
+
+void push_to_grq(struct rq *rq)
+{
+	struct cfs_rq *cfs_rq = &rq->cfs;
+	struct sched_entity *se;
+	struct tt_node *ttn, *next, *port = NULL;
+	struct task_struct *p;
+	struct rq_flags rf, grf;
+
+	if (rq == grq)
+		return;
+
+	if (!cfs_rq->head)
+		return;
+
+	/* no need to push a single task and take it again */
+	if (cfs_rq->h_nr_running == 1 && !grq->cfs.head)
+		return;
+
+	rq_lock_irqsave(rq, &rf);
+	update_rq_clock(rq);
+
+	/// dequeue tasks from this rq
+	ttn = cfs_rq->head;
+	while (ttn) {
+		next = ttn->next;
+
+		se = se_of(ttn);
+		p = task_of(se);
+
+		if (!task_can_move_to_grq(p))
+			goto next;
+
+		// deactivate
+		deactivate_task(rq, p, DEQUEUE_NOCLOCK);
+		// enqueue to port
+		__enqueue_entity_port(&port, se);
+
+		set_task_cpu(p, cpu_of(grq));
+
+next:
+		ttn = next;
+	}
+
+	rq_unlock_irqrestore(rq, &rf);
+
+	if (!port)
+		return;
+
+	LOCK_GRQ(grf);
+
+	/// enqueue tasks to grq
+	while (port) {
+		se = se_of(port);
+		p = task_of(se);
+		// enqueue to port
+		__dequeue_entity_port(&port, se);
+
+		// activate
+		activate_task(grq, p, ENQUEUE_NOCLOCK);
+	}
+
+	UNLOCK_GRQ(grf);
+}
+
+static void try_pull_from_grq(struct rq *dist_rq)
+{
+	struct rq_flags rf;
+	struct rq_flags grf;
+	struct cfs_rq *cfs_rq = &dist_rq->cfs;
+	struct sched_entity *se_global = NULL, *se_local = NULL;
+	struct task_struct *p = NULL;
+	struct tt_node *ttn;
+
+	if (dist_rq == grq)
+		return;
+
+	/* if no tasks to pull, exit */
+	if (!grq->cfs.head)
+		return;
+
+	rq_lock_irqsave(dist_rq, &rf);
+	update_rq_clock(dist_rq);
+	se_local = pick_next_entity(cfs_rq, cfs_rq->curr);
+	rq_unlock_irqrestore(dist_rq, &rf);
+
+	rq_lock_irqsave(grq, &grf);
+	update_rq_clock(grq);
+	se_global = pick_next_entity_from_grq(dist_rq, se_local);
+
+	if (se_global == se_local) {
+		rq_unlock(grq, &grf);
+		local_irq_restore(grf.flags);
+		return;
+	}
+
+	ttn = &se_global->tt_node;
+	p = task_of(se_global);
+
+	// detach task
+	deactivate_task(grq, p, DEQUEUE_NOCLOCK);
+	set_task_cpu(p, cpu_of(dist_rq));
+
+	// unlock src rq
+	rq_unlock(grq, &grf);
+
+	// lock dist rq
+	rq_lock(dist_rq, &rf);
+	update_rq_clock(dist_rq);
+
+	activate_task(dist_rq, p, ENQUEUE_NOCLOCK);
+	check_preempt_curr(dist_rq, p, 0);
+
+	// unlock dist rq
+	rq_unlock(dist_rq, &rf);
+	local_irq_restore(grf.flags);
+}
+
+static void nohz_try_pull_from_grq(void)
+{
+	int cpu;
+	struct cpumask idle_mask;
+	struct cpumask non_idle_mask;
+
+	cpumask_clear(&non_idle_mask);
+
+	/* first, push to grq*/
+	for_each_online_cpu(cpu) {
+		if (cpu == 0) continue;
+		if (!idle_cpu(cpu)) {
+			push_to_grq(cpu_rq(cpu));
+			cpumask_set_cpu(cpu, &non_idle_mask);
+		} else {
+			cpumask_set_cpu(cpu, &idle_mask);
+		}
+	}
+
+	/* second, idle cpus pull first */
+	for_each_cpu(cpu, &idle_mask) {
+		if (cpu == 0) continue;
+		if (idle_cpu(cpu))
+			pull_from_grq(cpu_rq(cpu));
+	}
+
+	/* last, non idle pull */
+	for_each_cpu(cpu, &non_idle_mask) {
+		if (!idle_cpu(cpu) && time_after_eq(jiffies, grq->lat_decay))
+			try_pull_from_grq(cpu_rq(cpu));
+	}
+}
+
 /*
  * run_rebalance_domains is triggered when needed from the scheduler tick.
  * Also triggered for nohz idle balancing (with nohz_balancing_kick set).
@@ -692,6 +859,5 @@ static __latent_entropy void run_rebalance_domains(struct softirq_action *h)
 	 * load balance only within the local sched_domain hierarchy
 	 * and abort nohz_idle_balance altogether if we pull some load.
 	 */
-	if (nohz_idle_balance(this_rq, idle))
-		return;
+	nohz_idle_balance(this_rq, idle);
 }
