@@ -1815,6 +1815,13 @@ static struct ctl_table kern_table[] = {
 		.extra2		= &two,
 	},
 	{
+		.procname	= "sched_tt_grq_balance_ms",
+		.data		= &tt_grq_balance_ms,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+	{
 		.procname	= "sched_tt_max_lifetime",
 		.data		= &tt_max_lifetime,
 		.maxlen		= sizeof(unsigned int),

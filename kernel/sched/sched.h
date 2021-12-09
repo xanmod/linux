@@ -1007,6 +1007,7 @@ struct rq {
 	unsigned long		next_balance;
 #ifdef CONFIG_TT_SCHED
 	unsigned long		lat_decay;
+	unsigned long		grq_next_balance;
 #endif
 	struct mm_struct	*prev_mm;
 

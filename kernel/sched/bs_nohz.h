@@ -836,8 +836,14 @@ static void nohz_try_pull_from_grq(void)
 
 	/* last, non idle pull */
 	for_each_cpu(cpu, &non_idle_mask) {
-		if (!idle_cpu(cpu) && time_after_eq(jiffies, grq->lat_decay))
+		/* mybe it is idle now */
+		if (idle_cpu(cpu)) {
+			pull_from_grq(cpu_rq(cpu));
+		} else if (time_after_eq(jiffies, grq->grq_next_balance)) {
+			/* if not idle, try pull every grq_next_balance */
 			try_pull_from_grq(cpu_rq(cpu));
+			grq->grq_next_balance = jiffies + msecs_to_jiffies(tt_grq_balance_ms);
+		}
 	}
 }
 

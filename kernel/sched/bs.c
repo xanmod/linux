@@ -24,6 +24,7 @@ struct global_candidate {
 struct global_candidate global_candidate = {0, 0, MAX_HRRN};
 
 unsigned int __read_mostly tt_balancer_opt	= 0;
+unsigned int __read_mostly tt_grq_balance_ms	= 6;
 
 unsigned int __read_mostly tt_max_lifetime	= 22000; // in ms
 int __read_mostly tt_rt_prio			= -20;
