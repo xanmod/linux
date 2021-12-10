@@ -755,7 +755,7 @@ next:
 	UNLOCK_GRQ(grf);
 }
 
-static void try_pull_from_grq(struct rq *dist_rq)
+static int try_pull_from_grq(struct rq *dist_rq)
 {
 	struct rq_flags rf;
 	struct rq_flags grf;
@@ -765,11 +765,11 @@ static void try_pull_from_grq(struct rq *dist_rq)
 	struct tt_node *ttn;
 
 	if (dist_rq == grq)
-		return;
+		return 0;
 
 	/* if no tasks to pull, exit */
 	if (!grq->cfs.head)
-		return;
+		return 0;
 
 	rq_lock_irqsave(dist_rq, &rf);
 	update_rq_clock(dist_rq);
@@ -783,7 +783,7 @@ static void try_pull_from_grq(struct rq *dist_rq)
 	if (se_global == se_local) {
 		rq_unlock(grq, &grf);
 		local_irq_restore(grf.flags);
-		return;
+		return 0;
 	}
 
 	ttn = &se_global->tt_node;
@@ -806,13 +806,28 @@ static void try_pull_from_grq(struct rq *dist_rq)
 	// unlock dist rq
 	rq_unlock(dist_rq, &rf);
 	local_irq_restore(grf.flags);
+	return 1;
+}
+
+static inline void
+update_grq_next_balance(struct rq *rq, int pulled)
+{
+	/*
+	 * if not pulled any, keep eager,
+	 * otherwise set next balance
+	 */
+	if (tt_grq_balance_ms && pulled)
+		rq->grq_next_balance = jiffies + msecs_to_jiffies(tt_grq_balance_ms);
 }
 
 static void nohz_try_pull_from_grq(void)
 {
 	int cpu;
+	struct rq *rq;
 	struct cpumask idle_mask;
 	struct cpumask non_idle_mask;
+	bool balance_time;
+	int pulled = 0;
 
 	cpumask_clear(&non_idle_mask);
 
@@ -829,21 +844,28 @@ static void nohz_try_pull_from_grq(void)
 
 	/* second, idle cpus pull first */
 	for_each_cpu(cpu, &idle_mask) {
-		if (cpu == 0) continue;
-		if (idle_cpu(cpu))
-			pull_from_grq(cpu_rq(cpu));
+		if (cpu == 0 || !idle_cpu(cpu))
+			continue;
+
+		rq = cpu_rq(cpu);
+		pulled = pull_from_grq(rq);
+		update_grq_next_balance(rq, pulled);
 	}
 
 	/* last, non idle pull */
 	for_each_cpu(cpu, &non_idle_mask) {
+		rq = cpu_rq(cpu);
+		balance_time = time_after_eq(jiffies, rq->grq_next_balance);
+		pulled = 0;
+
 		/* mybe it is idle now */
-		if (idle_cpu(cpu)) {
-			pull_from_grq(cpu_rq(cpu));
-		} else if (time_after_eq(jiffies, grq->grq_next_balance)) {
+		if (idle_cpu(cpu))
+			pulled = pull_from_grq(cpu_rq(cpu));
+		else if (tt_grq_balance_ms == 0 || balance_time)
 			/* if not idle, try pull every grq_next_balance */
-			try_pull_from_grq(cpu_rq(cpu));
-			grq->grq_next_balance = jiffies + msecs_to_jiffies(tt_grq_balance_ms);
-		}
+			pulled = try_pull_from_grq(rq);
+
+		update_grq_next_balance(rq, pulled);
 	}
 }
 
