@@ -462,7 +462,8 @@ static void idle_balance(struct rq *this_rq)
 	} else if (IS_GRQ_BL_ENABLED) {
 		pull_from_grq(this_rq);
 		return;
-	}
+	} else if (IS_PWR_BL_ENABLED)
+		return;
 
 	for_each_online_cpu(cpu) {
 		/*

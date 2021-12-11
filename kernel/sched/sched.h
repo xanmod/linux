@@ -95,7 +95,12 @@
 #define TT_BL_NORM	0
 #define TT_BL_CAND	1
 #define TT_BL_GRQ	2
+#define TT_BL_PWR	3
 extern struct rq *grq;
+
+#define IS_CAND_BL_ENABLED (tt_balancer_opt == TT_BL_CAND)
+#define IS_GRQ_BL_ENABLED (tt_balancer_opt == TT_BL_GRQ)
+#define IS_PWR_BL_ENABLED (tt_balancer_opt == TT_BL_PWR)
 #endif
 
 struct rq;

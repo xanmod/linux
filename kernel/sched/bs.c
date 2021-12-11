@@ -29,9 +29,6 @@ unsigned int __read_mostly tt_grq_balance_ms	= 6;
 unsigned int __read_mostly tt_max_lifetime	= 22000; // in ms
 int __read_mostly tt_rt_prio			= -20;
 
-#define IS_CAND_BL_ENABLED (tt_balancer_opt == TT_BL_CAND)
-#define IS_GRQ_BL_ENABLED (tt_balancer_opt == TT_BL_GRQ)
-
 #define LOCK_GRQ(grf) ({ \
 	rq_lock_irqsave(grq, &(grf)); \
 	update_rq_clock(grq); \
@@ -1038,6 +1035,35 @@ wake_affine(struct task_struct *p, int this_cpu, int prev_cpu, int sync)
 	return target;
 }
 
+static int find_energy_efficient_cpu(struct rq *rq, struct task_struct *p)
+{
+	int target = -1, cpu;
+	struct tt_node *ttn = &p->se.tt_node;
+	unsigned int min = ~0;
+
+	/*
+	 * If type is realtime, interactive, or no type,
+	 * find non idle cpu. Otherwise, use normal balancing
+	 */
+	if (ttn->vruntime > 1 && ttn->task_type > TT_NO_TYPE)
+		return -1;
+
+	for_each_online_cpu(cpu) {
+		if (unlikely(!cpumask_test_cpu(cpu, p->cpus_ptr)))
+			continue;
+
+		if (idle_cpu(cpu))
+			continue;
+
+		if (cpu_rq(cpu)->nr_running < min) {
+			target = cpu;
+			min = cpu_rq(cpu)->nr_running;
+		}
+	}
+
+	return target;
+}
+
 static int
 select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 {
@@ -1049,6 +1075,12 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 	int new_cpu = prev_cpu;
 	int sync = (wake_flags & WF_SYNC) && !(current->flags & PF_EXITING);
 	int want_affine = 0;
+
+	if (IS_PWR_BL_ENABLED) {
+		int pe_cpu = find_energy_efficient_cpu(rq, p);
+		if (pe_cpu != -1)
+			return pe_cpu;
+	}
 
 	/*
 	 * required for stable ->cpus_allowed
@@ -1177,6 +1209,34 @@ static inline int migrate_degrades_locality(struct task_struct *p,
 #endif
 
 static int
+can_migrate_task_powersave(struct task_struct *p, struct rq *dst_rq, struct rq *src_rq)
+{
+	int tsk_cache_hot;
+
+	/* Disregard pcpu kthreads; they are where they need to be. */
+	if (kthread_is_per_cpu(p))
+		return 0;
+
+	if (!cpumask_test_cpu(cpu_of(dst_rq), p->cpus_ptr))
+		return 0;
+
+	if (task_running(src_rq, p))
+		return 0;
+
+	tsk_cache_hot = migrate_degrades_locality(p, dst_rq, src_rq);
+	if (tsk_cache_hot == -1)
+		tsk_cache_hot = task_hot(p, dst_rq, src_rq);
+
+	if (tsk_cache_hot > 0)
+		return 0;
+
+	if (p->se.tt_node.task_type < TT_CPU_BOUND)
+		return 0;
+
+	return 1;
+}
+
+static int
 can_migrate_task(struct task_struct *p, struct rq *dst_rq, struct rq *src_rq)
 {
 	int tsk_cache_hot;
@@ -1226,6 +1286,34 @@ static void pull_from(struct rq *dist_rq,
 	rq_unlock(dist_rq, &rf);
 
 	local_irq_restore(src_rf->flags);
+}
+
+static int move_task_powersave(struct rq *dist_rq, struct rq *src_rq,
+			struct rq_flags *src_rf)
+{
+	struct cfs_rq *src_cfs_rq = &src_rq->cfs;
+	struct task_struct *p;
+	struct tt_node *ttn = src_cfs_rq->head;
+
+	while (ttn) {
+		p = task_of(se_of(ttn));
+		if (can_migrate_task_powersave(p, dist_rq, src_rq)) {
+			pull_from(dist_rq, src_rq, src_rf, p);
+			return 1;
+		}
+
+		ttn = ttn->next;
+	}
+
+	/*
+	 * Here we know we have not migrated any task,
+	 * thus, we need to unlock and return 0
+	 * Note: the pull_from does the unlocking for us.
+	 */
+	rq_unlock(src_rq, src_rf);
+	local_irq_restore(src_rf->flags);
+
+	return 0;
 }
 
 static int move_task(struct rq *dist_rq, struct rq *src_rq,
@@ -1444,7 +1532,7 @@ static int newidle_balance(struct rq *this_rq, struct rq_flags *rf)
 	/*
 	 * Do not pull tasks towards !active CPUs...
 	 */
-	if (!cpu_active(this_cpu))
+	if (IS_PWR_BL_ENABLED || !cpu_active(this_cpu))
 		return 0;
 
 	rq_unpin_lock(this_rq, rf);
@@ -1657,7 +1745,10 @@ void trigger_load_balance(struct rq *this_rq)
 		goto out;
 	}
 
-	move_task(min_rq, max_rq, &src_rf);
+	if (IS_PWR_BL_ENABLED && idle_cpu(cpu_of(min_rq)) && max - min == 2)
+		move_task_powersave(min_rq, max_rq, &src_rf);
+	else
+		move_task(min_rq, max_rq, &src_rf);
 
 out:
 #ifdef CONFIG_TT_ACCOUNTING_STATS
