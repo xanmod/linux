@@ -675,7 +675,7 @@ static inline bool nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle
 static inline void nohz_newidle_balance(struct rq *this_rq) { }
 #endif /* CONFIG_NO_HZ_COMMON */
 
-static int task_can_move_to_grq(struct task_struct *p)
+static int task_can_move_to_grq(struct task_struct *p, struct rq *src_rq)
 {
 	if (task_running(task_rq(p), p))
 		return 0;
@@ -687,6 +687,9 @@ static int task_can_move_to_grq(struct task_struct *p)
 		return 0;
 
 	if (p->nr_cpus_allowed <= 1)
+		return 0;
+
+	if (task_hot(p, grq, src_rq))
 		return 0;
 
 	return 1;
@@ -717,7 +720,7 @@ void push_to_grq(struct rq *rq)
 		se = se_of(ttn);
 		p = task_of(se);
 
-		if (!task_can_move_to_grq(p))
+		if (!task_can_move_to_grq(p, rq))
 			goto next;
 
 		// deactivate

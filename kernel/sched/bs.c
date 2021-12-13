@@ -1430,6 +1430,9 @@ can_migrate_task_grq(struct tt_node *ttn, struct rq *dst_rq)
 	if (task_running(grq, p))
 		return 0;
 
+	if (task_hot(p, dst_rq, grq))
+		return 0;
+
 	return 1;
 }
 
