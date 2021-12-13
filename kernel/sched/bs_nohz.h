@@ -825,34 +825,44 @@ static void nohz_try_pull_from_grq(void)
 {
 	int cpu;
 	struct rq *rq;
+	struct cpumask idle_mask;
 	struct cpumask non_idle_mask;
-	bool balance;
+	bool balance_time;
 	int pulled = 0;
 
 	cpumask_clear(&non_idle_mask);
 
+	/* first, push to grq*/
 	for_each_online_cpu(cpu) {
 		if (cpu == 0) continue;
-		rq = cpu_rq(cpu);
-		pulled = 0;
-
-		if (idle_cpu(cpu))
-			pulled = pull_from_grq(rq);
-		else
+		if (!idle_cpu(cpu)) {
+			push_to_grq(cpu_rq(cpu));
 			cpumask_set_cpu(cpu, &non_idle_mask);
+		} else {
+			cpumask_set_cpu(cpu, &idle_mask);
+		}
+	}
 
+	/* second, idle cpus pull first */
+	for_each_cpu(cpu, &idle_mask) {
+		if (cpu == 0 || !idle_cpu(cpu))
+			continue;
+
+		rq = cpu_rq(cpu);
+		pulled = pull_from_grq(rq);
 		update_grq_next_balance(rq, pulled);
 	}
 
+	/* last, non idle pull */
 	for_each_cpu(cpu, &non_idle_mask) {
 		rq = cpu_rq(cpu);
-		balance = time_after_eq(jiffies, rq->grq_next_balance);
+		balance_time = time_after_eq(jiffies, rq->grq_next_balance);
 		pulled = 0;
 
 		/* mybe it is idle now */
 		if (idle_cpu(cpu))
-			pulled = pull_from_grq(rq);
-		else if (tt_grq_balance_ms == 0 || balance)
+			pulled = pull_from_grq(cpu_rq(cpu));
+		else if (tt_grq_balance_ms == 0 || balance_time)
 			/* if not idle, try pull every grq_next_balance */
 			pulled = try_pull_from_grq(rq);
 

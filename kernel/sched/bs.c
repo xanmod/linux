@@ -1697,8 +1697,6 @@ void trigger_load_balance(struct rq *this_rq)
 			idle_pull_global_candidate(this_rq);
 		else
 			active_pull_global_candidate(this_rq, 1);
-	} else if (IS_GRQ_BL_ENABLED) {
-		push_to_grq(this_rq);
 	}
 
 	if (this_cpu != 0)
