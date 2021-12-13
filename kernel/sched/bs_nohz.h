@@ -706,10 +706,6 @@ void push_to_grq(struct rq *rq)
 	if (!cfs_rq->head)
 		return;
 
-	/* no need to push a single task and take it again */
-	if (cfs_rq->h_nr_running == 1 && !grq->cfs.head)
-		return;
-
 	rq_lock_irqsave(rq, &rf);
 	update_rq_clock(rq);
 
