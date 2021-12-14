@@ -1040,6 +1040,7 @@ static int find_energy_efficient_cpu(struct rq *rq, struct task_struct *p)
 	int target = -1, cpu;
 	struct tt_node *ttn = &p->se.tt_node;
 	unsigned int min = ~0;
+	bool all_non_idle = true;
 
 	/*
 	 * If type is realtime, interactive, or no type,
@@ -1052,14 +1053,25 @@ static int find_energy_efficient_cpu(struct rq *rq, struct task_struct *p)
 		if (unlikely(!cpumask_test_cpu(cpu, p->cpus_ptr)))
 			continue;
 
-		if (idle_cpu(cpu))
+		if (idle_cpu(cpu)) {
+			all_non_idle = false;
 			continue;
+		}
 
 		if (cpu_rq(cpu)->nr_running < min) {
 			target = cpu;
 			min = cpu_rq(cpu)->nr_running;
 		}
 	}
+
+	/*
+	 * If all cpus are non-idle, then fallback
+	 * to normal TT balancing. Since no energy
+	 * saving at this point, at least try to
+	 * use cpu affain.
+	 */
+	if (all_non_idle)
+		return -1;
 
 	return target;
 }
