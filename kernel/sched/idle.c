@@ -263,6 +263,9 @@ static void do_idle(void)
 	int cpu = smp_processor_id();
 #ifdef CONFIG_TT_SCHED
 	int pm_disabled = per_cpu(nr_lat_sensitive, cpu);
+
+	if (IS_PWR_BL_ENABLED)
+		pm_disabled = 0;
 #endif
 
 	/*
