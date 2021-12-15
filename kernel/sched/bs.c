@@ -707,24 +707,6 @@ pick_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	return se_of(ttn);
 }
 
-static void active_pull_global_candidate(struct rq *dist_rq, int check_preempt);
-
-static void try_pull_global_candidate(struct rq *rq, struct rq_flags *rf)
-{
-	struct rq_flags _rf;
-
-	if (!rf)
-		rf = &_rf;
-
-	rq_unpin_lock(rq, rf);
-	raw_spin_unlock(&rq->__lock);
-
-	active_pull_global_candidate(rq, 0);
-
-	raw_spin_lock(&rq->__lock);
-	rq_repin_lock(rq, rf);
-}
-
 struct task_struct *
 pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
@@ -733,7 +715,14 @@ pick_next_task_fair(struct rq *rq, struct task_struct *prev, struct rq_flags *rf
 	struct task_struct *p;
 	int new_tasks;
 
-	if (IS_CAND_BL_ENABLED) try_pull_global_candidate(rq, rf);
+	if (IS_CAND_BL_ENABLED) {
+		/*
+		 * to cpu0, don't push any
+		 * candidates to this rq
+		 */
+		cfs_rq->local_cand_hrrn = 0;
+		clear_rq_candidate(cfs_rq);
+	}
 
 again:
 	if (!sched_fair_runnable(rq))
@@ -870,8 +859,8 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 
 	if (next != curr) {
 		if (IS_CAND_BL_ENABLED) {
+			clear_this_candidate(next);
 			cfs_rq->local_cand_hrrn = HRRN_PERCENT(&next->tt_node, sched_clock());
-			__update_candidate(cfs_rq, &next->tt_node);
 		}
 
 		resched_curr(rq_of(cfs_rq));
@@ -1522,6 +1511,74 @@ static int pull_from_grq(struct rq *dist_rq)
 	return 1;
 }
 
+static void active_pull_global_candidate(struct rq *dist_rq)
+{
+	struct cfs_rq *cfs_rq = &dist_rq->cfs;
+	u64 cand_hrrn = READ_ONCE(global_candidate.hrrn);
+	u64 local_hrrn = READ_ONCE(cfs_rq->local_cand_hrrn);
+	struct rq *src_rq;
+	struct task_struct *p;
+	struct rq_flags rf, src_rf;
+	struct tt_node *cand;
+
+	cand = READ_ONCE(global_candidate.candidate);
+
+	if (!cand)
+		return;
+
+	if ((s64)(local_hrrn - cand_hrrn) <= 0)
+		return;
+
+	src_rq = READ_ONCE(global_candidate.rq);
+	if (!src_rq || src_rq == dist_rq)
+		return;
+
+	rq_lock_irqsave(src_rq, &src_rf);
+	update_rq_clock(src_rq);
+		raw_spin_lock(&global_candidate.lock);
+			cand = global_candidate.candidate;
+			cand_hrrn = global_candidate.hrrn;
+
+			if (!cand)
+				goto fail_unlock;
+
+			p = task_of(se_of(cand));
+			if (task_rq(p) != src_rq ||
+			    !can_migrate_candidate(p, dist_rq, src_rq))
+				goto fail_unlock;
+
+			if ((s64)(local_hrrn - cand_hrrn) <= 0)
+				goto fail_unlock;
+
+			global_candidate.rq = NULL;
+			global_candidate.candidate = NULL;
+			global_candidate.hrrn = MAX_HRRN;
+		raw_spin_unlock(&global_candidate.lock);
+
+		// detach task
+		deactivate_task(src_rq, p, DEQUEUE_NOCLOCK);
+		set_task_cpu(p, cpu_of(dist_rq));
+	// unlock src rq
+	rq_unlock(src_rq, &src_rf);
+
+	// lock dist rq
+	rq_lock(dist_rq, &rf);
+	update_rq_clock(dist_rq);
+		activate_task(dist_rq, p, ENQUEUE_NOCLOCK);
+		check_preempt_curr(dist_rq, p, 0);
+	// unlock dist rq
+	rq_unlock(dist_rq, &rf);
+
+	local_irq_restore(src_rf.flags);
+
+	return;
+
+fail_unlock:
+	raw_spin_unlock(&global_candidate.lock);
+	rq_unlock(src_rq, &src_rf);
+	local_irq_restore(src_rf.flags);
+}
+
 static inline int on_null_domain(struct rq *rq)
 {
 	return unlikely(!rcu_dereference_sched(rq->sd));
@@ -1625,77 +1682,6 @@ out:
 	return pulled_task;
 }
 
-static void active_pull_global_candidate(struct rq *dist_rq, int check_preempt)
-{
-	struct cfs_rq *cfs_rq = &dist_rq->cfs;
-	u64 cand_hrrn = READ_ONCE(global_candidate.hrrn);
-	u64 local_hrrn = READ_ONCE(cfs_rq->local_cand_hrrn);
-	struct rq *src_rq;
-	struct task_struct *p;
-	struct rq_flags rf, src_rf;
-	struct tt_node *cand;
-
-	cand = READ_ONCE(global_candidate.candidate);
-
-	if (!cand)
-		return;
-
-	if ((s64)(local_hrrn - cand_hrrn) >= 0)
-		return;
-
-	src_rq = READ_ONCE(global_candidate.rq);
-	if (!src_rq || src_rq == dist_rq)
-		return;
-
-	rq_lock_irqsave(src_rq, &src_rf);
-	update_rq_clock(src_rq);
-		raw_spin_lock(&global_candidate.lock);
-			cand = global_candidate.candidate;
-			cand_hrrn = global_candidate.hrrn;
-
-			if (!cand)
-				goto fail_unlock;
-
-			p = task_of(se_of(cand));
-			if (task_rq(p) != src_rq ||
-			    !can_migrate_candidate(p, dist_rq, src_rq))
-				goto fail_unlock;
-
-			if ((s64)(local_hrrn - cand_hrrn) >= 0)
-				goto fail_unlock;
-
-			global_candidate.rq = NULL;
-			global_candidate.candidate = NULL;
-			global_candidate.hrrn = MAX_HRRN;
-		raw_spin_unlock(&global_candidate.lock);
-
-		// detach task
-		deactivate_task(src_rq, p, DEQUEUE_NOCLOCK);
-		set_task_cpu(p, cpu_of(dist_rq));
-	// unlock src rq
-	rq_unlock(src_rq, &src_rf);
-
-	// lock dist rq
-	rq_lock(dist_rq, &rf);
-	update_rq_clock(dist_rq);
-		activate_task(dist_rq, p, ENQUEUE_NOCLOCK);
-		update_candidate(cfs_rq);
-
-		if (check_preempt)
-			check_preempt_curr(dist_rq, p, 0);
-	// unlock dist rq
-	rq_unlock(dist_rq, &rf);
-
-	local_irq_restore(src_rf.flags);
-
-	return;
-
-fail_unlock:
-	raw_spin_unlock(&global_candidate.lock);
-	rq_unlock(src_rq, &src_rf);
-	local_irq_restore(src_rf.flags);
-}
-
 void trigger_load_balance(struct rq *this_rq)
 {
 	int this_cpu = cpu_of(this_rq);
@@ -1707,17 +1693,12 @@ void trigger_load_balance(struct rq *this_rq)
 	if (unlikely(on_null_domain(this_rq) || !cpu_active(cpu_of(this_rq))))
 		return;
 
-	if (IS_CAND_BL_ENABLED) {
-		if (this_rq->idle_balance || !sched_fair_runnable(this_rq))
-			idle_pull_global_candidate(this_rq);
-		else
-			active_pull_global_candidate(this_rq, 1);
-	}
-
 	if (this_cpu != 0)
 		goto out;
 
-	if (IS_GRQ_BL_ENABLED) {
+	if (IS_CAND_BL_ENABLED) {
+		nohz_try_pull_from_candidate();
+	} else if (IS_GRQ_BL_ENABLED) {
 		nohz_try_pull_from_grq();
 		goto out;
 	}

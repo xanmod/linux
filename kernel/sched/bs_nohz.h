@@ -675,6 +675,59 @@ static inline bool nohz_idle_balance(struct rq *this_rq, enum cpu_idle_type idle
 static inline void nohz_newidle_balance(struct rq *this_rq) { }
 #endif /* CONFIG_NO_HZ_COMMON */
 
+static void update_curr_lightweight(struct cfs_rq *cfs_rq)
+{
+	struct sched_entity *curr = cfs_rq->curr;
+	struct tt_node *ttn = &curr->tt_node;
+	u64 now = sched_clock();
+	u64 delta_exec;
+
+	if (!curr)
+		return;
+
+	delta_exec = now - curr->exec_start;
+	if (unlikely((s64)delta_exec <= 0))
+		return;
+
+	curr->exec_start = now;
+	curr->sum_exec_runtime += delta_exec;
+
+	ttn->curr_burst += delta_exec;
+	ttn->vruntime += convert_to_vruntime(delta_exec, curr);
+	cfs_rq->local_cand_hrrn = HRRN_PERCENT(&curr->tt_node, now);
+}
+
+static void nohz_try_pull_from_candidate(void)
+{
+	int cpu;
+	struct rq *rq;
+	struct cfs_rq *cfs_rq;
+#ifdef CONFIG_NO_HZ_FULL
+	struct rq_flags rf;
+#endif
+
+	/* first, push to grq*/
+	for_each_online_cpu(cpu) {
+		rq = cpu_rq(cpu);
+#ifdef CONFIG_NO_HZ_FULL
+		cfs_rq = &rq->cfs;
+
+		if (idle_cpu(cpu) || cfs_rq->nr_running > 1)
+			goto out;
+
+		rq_lock_irqsave(rq, &rf);
+		update_rq_clock(rq);
+		update_curr_lightweight(cfs_rq);
+		rq_unlock_irqrestore(rq, &rf);
+out:
+#endif
+		if (idle_cpu(cpu) || !sched_fair_runnable(rq))
+			idle_pull_global_candidate(rq);
+		else
+			active_pull_global_candidate(rq);
+	}
+}
+
 static int task_can_move_to_grq(struct task_struct *p, struct rq *src_rq)
 {
 	if (task_running(task_rq(p), p))
