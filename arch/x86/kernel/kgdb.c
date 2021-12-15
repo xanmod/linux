@@ -502,9 +502,12 @@ static int kgdb_nmi_handler(unsigned int cmd, struct pt_regs *regs)
 		if (atomic_read(&kgdb_active) != -1) {
 			/* KGDB CPU roundup */
 			cpu = raw_smp_processor_id();
-			kgdb_nmicallback(cpu, regs);
-			set_bit(cpu, was_in_debug_nmi);
-			touch_nmi_watchdog();
+
+			if (!kgdb_roundup_delay(cpu)) {
+				kgdb_nmicallback(cpu, regs);
+				set_bit(cpu, was_in_debug_nmi);
+				touch_nmi_watchdog();
+			}
 
 			return NMI_HANDLED;
 		}

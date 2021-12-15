@@ -64,6 +64,7 @@
 #include <linux/rcuwait.h>
 #include <linux/compat.h>
 #include <linux/io_uring.h>
+#include <linux/kprobes.h>
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
@@ -168,8 +169,14 @@ static void delayed_put_task_struct(struct rcu_head *rhp)
 {
 	struct task_struct *tsk = container_of(rhp, struct task_struct, rcu);
 
+	kprobe_flush_task(tsk);
 	perf_event_delayed_put(tsk);
 	trace_sched_process_free(tsk);
+
+	/* RT enabled kernels delay freeing the VMAP'ed task stack */
+	if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		put_task_stack(tsk);
+
 	put_task_struct(tsk);
 }
 

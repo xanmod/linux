@@ -203,22 +203,23 @@ static void timekeeping_check_update(struct timekeeper *tk, u64 offset)
 	const char *name = tk->tkr_mono.clock->name;
 
 	if (offset > max_cycles) {
-		printk_deferred("WARNING: timekeeping: Cycle offset (%lld) is larger than allowed by the '%s' clock's max_cycles value (%lld): time overflow danger\n",
-				offset, name, max_cycles);
-		printk_deferred("         timekeeping: Your kernel is sick, but tries to cope by capping time updates\n");
+		printk("WARNING: timekeeping: Cycle offset (%lld) is larger than allowed by the '%s' clock's max_cycles value (%lld): time overflow danger\n",
+		       offset, name, max_cycles);
+		printk("         timekeeping: Your kernel is sick, but tries to cope by capping time updates\n");
 	} else {
 		if (offset > (max_cycles >> 1)) {
-			printk_deferred("INFO: timekeeping: Cycle offset (%lld) is larger than the '%s' clock's 50%% safety margin (%lld)\n",
-					offset, name, max_cycles >> 1);
-			printk_deferred("      timekeeping: Your kernel is still fine, but is feeling a bit nervous\n");
+			printk("INFO: timekeeping: Cycle offset (%lld) is larger than the '%s' clock's 50%% safety margin (%lld)\n",
+			       offset, name, max_cycles >> 1);
+			printk("      timekeeping: Your kernel is still fine, but is feeling a bit nervous\n");
 		}
 	}
 
 	if (tk->underflow_seen) {
 		if (jiffies - tk->last_warning > WARNING_FREQ) {
-			printk_deferred("WARNING: Underflow in clocksource '%s' observed, time update ignored.\n", name);
-			printk_deferred("         Please report this, consider using a different clocksource, if possible.\n");
-			printk_deferred("         Your kernel is probably still fine.\n");
+			printk("WARNING: Underflow in clocksource '%s' observed, time update ignored.\n",
+			       name);
+			printk("         Please report this, consider using a different clocksource, if possible.\n");
+			printk("         Your kernel is probably still fine.\n");
 			tk->last_warning = jiffies;
 		}
 		tk->underflow_seen = 0;
@@ -226,9 +227,10 @@ static void timekeeping_check_update(struct timekeeper *tk, u64 offset)
 
 	if (tk->overflow_seen) {
 		if (jiffies - tk->last_warning > WARNING_FREQ) {
-			printk_deferred("WARNING: Overflow in clocksource '%s' observed, time update capped.\n", name);
-			printk_deferred("         Please report this, consider using a different clocksource, if possible.\n");
-			printk_deferred("         Your kernel is probably still fine.\n");
+			printk("WARNING: Overflow in clocksource '%s' observed, time update capped.\n",
+			       name);
+			printk("         Please report this, consider using a different clocksource, if possible.\n");
+			printk("         Your kernel is probably still fine.\n");
 			tk->last_warning = jiffies;
 		}
 		tk->overflow_seen = 0;
@@ -1669,9 +1671,7 @@ static void __timekeeping_inject_sleeptime(struct timekeeper *tk,
 					   const struct timespec64 *delta)
 {
 	if (!timespec64_valid_strict(delta)) {
-		printk_deferred(KERN_WARNING
-				"__timekeeping_inject_sleeptime: Invalid "
-				"sleep delta value!\n");
+		pr_warn("%s: Invalid sleep delta value!\n", __func__);
 		return;
 	}
 	tk_xtime_add(tk, delta);

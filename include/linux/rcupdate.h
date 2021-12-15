@@ -94,6 +94,13 @@ void rcu_init_tasks_generic(void);
 static inline void rcu_init_tasks_generic(void) { }
 #endif
 
+#if defined(CONFIG_PROVE_RCU) && defined(CONFIG_TASKS_RCU_GENERIC)
+void rcu_tasks_initiate_self_tests(void);
+#else
+static inline void rcu_tasks_initiate_self_tests(void) {}
+#endif
+
+
 #ifdef CONFIG_RCU_STALL_COMMON
 void rcu_sysrq_start(void);
 void rcu_sysrq_end(void);

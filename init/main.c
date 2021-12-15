@@ -1604,6 +1604,7 @@ static noinline void __init kernel_init_freeable(void)
 
 	rcu_init_tasks_generic();
 	do_pre_smp_initcalls();
+	rcu_tasks_initiate_self_tests();
 	lockup_detector_init();
 
 	smp_init();

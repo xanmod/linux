@@ -22,4 +22,8 @@ static inline void __user *arch_untagged_si_addr(void __user *addr,
 }
 #define arch_untagged_si_addr arch_untagged_si_addr
 
+#if defined(CONFIG_PREEMPT_RT)
+#define ARCH_RT_DELAYS_SIGNAL_SEND
+#endif
+
 #endif

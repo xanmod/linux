@@ -69,6 +69,7 @@ struct trace_entry {
 	unsigned char		flags;
 	unsigned char		preempt_count;
 	int			pid;
+	unsigned char		preempt_lazy_count;
 };
 
 #define TRACE_EVENT_TYPE_MAX						\
@@ -157,9 +158,10 @@ static inline void tracing_generic_entry_update(struct trace_entry *entry,
 						unsigned int trace_ctx)
 {
 	entry->preempt_count		= trace_ctx & 0xff;
+	entry->preempt_lazy_count	= (trace_ctx >> 16) & 0xff;
 	entry->pid			= current->pid;
 	entry->type			= type;
-	entry->flags =			trace_ctx >> 16;
+	entry->flags			= trace_ctx >> 24;
 }
 
 unsigned int tracing_gen_ctx_irq_test(unsigned int irqs_status);
@@ -172,6 +174,7 @@ enum trace_flag_type {
 	TRACE_FLAG_SOFTIRQ		= 0x10,
 	TRACE_FLAG_PREEMPT_RESCHED	= 0x20,
 	TRACE_FLAG_NMI			= 0x40,
+	TRACE_FLAG_NEED_RESCHED_LAZY	= 0x80,
 };
 
 #ifdef CONFIG_TRACE_IRQFLAGS_SUPPORT

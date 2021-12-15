@@ -16,6 +16,13 @@
 
 #include <linux/atomic.h>
 #include <linux/types.h>
+#include <linux/printk.h>
+#include <linux/seqlock.h>
+
+struct latched_seq {
+	seqcount_latch_t	latch;
+	u64			val[2];
+};
 
 struct vc_data;
 struct console_font_op;
@@ -136,10 +143,12 @@ static inline int con_debug_leave(void)
 #define CON_ANYTIME	(16) /* Safe to call when cpu is offline */
 #define CON_BRL		(32) /* Used for a braille device */
 #define CON_EXTENDED	(64) /* Use the extended output format a la /dev/kmsg */
+#define CON_HANDOVER	(128) /* Device was previously a boot console. */
 
 struct console {
 	char	name[16];
 	void	(*write)(struct console *, const char *, unsigned);
+	void	(*write_atomic)(struct console *co, const char *s, unsigned int count);
 	int	(*read)(struct console *, char *, unsigned);
 	struct tty_driver *(*device)(struct console *, int *);
 	void	(*unblank)(void);
@@ -149,6 +158,16 @@ struct console {
 	short	flags;
 	short	index;
 	int	cflag;
+#ifdef CONFIG_PRINTK
+	char	sync_buf[CONSOLE_LOG_MAX];
+	struct latched_seq printk_seq;
+	struct latched_seq printk_sync_seq;
+#ifdef CONFIG_HAVE_NMI
+	struct latched_seq printk_sync_nmi_seq;
+#endif
+#endif /* CONFIG_PRINTK */
+
+	struct task_struct *thread;
 	uint	ispeed;
 	uint	ospeed;
 	void	*data;

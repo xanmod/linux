@@ -920,13 +920,21 @@ static void do_signal(struct pt_regs *regs)
 void do_notify_resume(struct pt_regs *regs, unsigned long thread_flags)
 {
 	do {
-		if (thread_flags & _TIF_NEED_RESCHED) {
+		if (thread_flags & _TIF_NEED_RESCHED_MASK) {
 			/* Unmask Debug and SError for the next task */
 			local_daif_restore(DAIF_PROCCTX_NOIRQ);
 
 			schedule();
 		} else {
 			local_daif_restore(DAIF_PROCCTX);
+
+#ifdef ARCH_RT_DELAYS_SIGNAL_SEND
+			if (unlikely(current->forced_info.si_signo)) {
+				struct task_struct *t = current;
+				force_sig_info(&t->forced_info);
+				t->forced_info.si_signo = 0;
+			}
+#endif
 
 			if (thread_flags & _TIF_UPROBE)
 				uprobe_notify_resume(regs);

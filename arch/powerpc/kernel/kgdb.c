@@ -120,11 +120,19 @@ int kgdb_skipexception(int exception, struct pt_regs *regs)
 
 static int kgdb_debugger_ipi(struct pt_regs *regs)
 {
-	kgdb_nmicallback(raw_smp_processor_id(), regs);
+	int cpu = raw_smp_processor_id();
+
+	if (!kgdb_roundup_delay(cpu))
+		kgdb_nmicallback(cpu, regs);
 	return 0;
 }
 
 #ifdef CONFIG_SMP
+void kgdb_roundup_cpu(unsigned int cpu)
+{
+	smp_send_debugger_break_cpu(cpu);
+}
+
 void kgdb_roundup_cpus(void)
 {
 	smp_send_debugger_break();
