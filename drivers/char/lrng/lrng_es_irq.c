@@ -762,7 +762,7 @@ static inline void lrng_time_process(void)
 }
 
 /* Hot code path - Callback for interrupt handler */
-void add_interrupt_randomness(int irq, int irq_flg)
+void add_interrupt_randomness(int irq, int irq_flg, __u64 ip)
 {
 	if (lrng_pool_highres_timer()) {
 		lrng_time_process();
