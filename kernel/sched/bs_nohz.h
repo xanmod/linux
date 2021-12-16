@@ -826,6 +826,7 @@ static int try_pull_from_grq(struct rq *dist_rq)
 
 	rq_lock_irqsave(dist_rq, &rf);
 	update_rq_clock(dist_rq);
+	update_curr_lightweight(cfs_rq);
 	se_local = pick_next_entity(cfs_rq, cfs_rq->curr);
 	rq_unlock_irqrestore(dist_rq, &rf);
 
@@ -900,6 +901,9 @@ static void nohz_try_pull_from_grq(void)
 		if (cpu == 0 || !idle_cpu(cpu))
 			continue;
 
+		if (grq->cfs.nr_running <= 1)
+			return;
+
 		rq = cpu_rq(cpu);
 		pulled = pull_from_grq(rq);
 		update_grq_next_balance(rq, pulled);
@@ -910,6 +914,9 @@ static void nohz_try_pull_from_grq(void)
 		rq = cpu_rq(cpu);
 		balance_time = time_after_eq(jiffies, rq->grq_next_balance);
 		pulled = 0;
+
+		if (grq->cfs.nr_running <= 1)
+			return;
 
 		/* mybe it is idle now */
 		if (idle_cpu(cpu))
