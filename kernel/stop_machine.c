@@ -51,7 +51,11 @@ static bool stop_machine_initialized = false;
 
 void print_stop_info(const char *log_lvl, struct task_struct *task)
 {
-	struct cpu_stopper *stopper = this_cpu_ptr(&cpu_stopper);
+	/*
+	 * If @task is a stopper task, it cannot migrate and task_cpu() is
+	 * stable.
+	 */
+	struct cpu_stopper *stopper = per_cpu_ptr(&cpu_stopper, task_cpu(task));
 
 	if (task != stopper->thread)
 		return;
