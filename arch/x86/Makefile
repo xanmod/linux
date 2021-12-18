@@ -125,9 +125,9 @@ else
         cflags-$(CONFIG_MBOBCAT) 	+= -march=btver1
         cflags-$(CONFIG_MJAGUAR) 	+= -march=btver2
         cflags-$(CONFIG_MBULLDOZER) 	+= -march=bdver1
-        cflags-$(CONFIG_MPILEDRIVER)	+= -march=bdver2
-        cflags-$(CONFIG_MSTEAMROLLER) 	+= -march=bdver3
-        cflags-$(CONFIG_MEXCAVATOR) 	+= -march=bdver4
+        cflags-$(CONFIG_MPILEDRIVER)	+= -march=bdver2 -mno-tbm
+        cflags-$(CONFIG_MSTEAMROLLER) 	+= -march=bdver3 -mno-tbm
+        cflags-$(CONFIG_MEXCAVATOR) 	+= -march=bdver4 -mno-tbm
         cflags-$(CONFIG_MZEN) 		+= -march=znver1
         cflags-$(CONFIG_MZEN2) 	+= -march=znver2
         cflags-$(CONFIG_MZEN3) 	+= -march=znver3
