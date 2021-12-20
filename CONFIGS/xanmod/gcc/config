@@ -1,8 +1,8 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.10.83 Kernel Configuration
+# Linux/x86 5.10.87 Kernel Configuration
 #
-CONFIG_CC_VERSION_TEXT="gcc-11 (Debian 11.2.0-10) 11.2.0"
+CONFIG_CC_VERSION_TEXT="gcc-11 (Debian 11.2.0-12) 11.2.0"
 CONFIG_CC_IS_GCC=y
 CONFIG_GCC_VERSION=110200
 CONFIG_LD_VERSION=237000000
