@@ -11,7 +11,6 @@
 
 #include <libintl.h>
 #include <locale.h>
-#include <stdbool.h>
 
 #include "helpers/bitmask.h"
 #include <cpupower.h>
@@ -74,7 +73,6 @@ enum cpupower_cpu_vendor {X86_VENDOR_UNKNOWN = 0, X86_VENDOR_INTEL,
 #define CPUPOWER_CAP_AMD_HW_PSTATE	0x00000100
 #define CPUPOWER_CAP_AMD_PSTATEDEF	0x00000200
 #define CPUPOWER_CAP_AMD_CPB_MSR	0x00000400
-#define CPUPOWER_CAP_AMD_PSTATE		0x00000800
 
 #define CPUPOWER_AMD_CPBDIS		0x02000000
 
@@ -137,16 +135,6 @@ extern int decode_pstates(unsigned int cpu, int boost_states,
 
 extern int cpufreq_has_boost_support(unsigned int cpu, int *support,
 				     int *active, int * states);
-
-/* AMD P-States stuff **************************/
-extern bool cpupower_amd_pstate_enabled(void);
-extern void amd_pstate_boost_init(unsigned int cpu,
-				  int *support, int *active);
-extern void amd_pstate_show_perf_and_freq(unsigned int cpu,
-					  int no_rounding);
-
-/* AMD P-States stuff **************************/
-
 /*
  * CPUID functions returning a single datum
  */
@@ -179,15 +167,6 @@ static inline int cpufreq_has_boost_support(unsigned int cpu, int *support,
 					    int *active, int * states)
 { return -1; }
 
-static inline bool cpupower_amd_pstate_enabled(void)
-{ return false; }
-static void amd_pstate_boost_init(unsigned int cpu,
-				  int *support, int *active)
-{ return; }
-static inline void amd_pstate_show_perf_and_freq(unsigned int cpu,
-						 int no_rounding)
-{ return; }
-
 /* cpuid and cpuinfo helpers  **************************/
 
 static inline unsigned int cpuid_eax(unsigned int op) { return 0; };
@@ -205,6 +184,5 @@ extern struct bitmask *offline_cpus;
 void get_cpustate(void);
 void print_online_cpus(void);
 void print_offline_cpus(void);
-void print_speed(unsigned long speed, int no_rounding);
 
 #endif /* __CPUPOWERUTILS_HELPERS__ */
