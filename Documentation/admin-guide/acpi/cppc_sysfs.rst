@@ -4,8 +4,6 @@
 Collaborative Processor Performance Control (CPPC)
 ==================================================
 
-.. _cppc_sysfs:
-
 CPPC
 ====
 
