@@ -83,21 +83,20 @@ static const char *cpufreq_value_files[MAX_CPUFREQ_VALUE_READ_FILES] = {
 	[STATS_NUM_TRANSITIONS] = "stats/total_trans"
 };
 
-unsigned long cpufreq_get_sysfs_value_from_table(unsigned int cpu,
-						 const char **table,
-						 unsigned index,
-						 unsigned size)
+
+static unsigned long sysfs_cpufreq_get_one_value(unsigned int cpu,
+						 enum cpufreq_value which)
 {
 	unsigned long value;
 	unsigned int len;
 	char linebuf[MAX_LINE_LEN];
 	char *endp;
 
-	if (!table || index >= size || !table[index])
+	if (which >= MAX_CPUFREQ_VALUE_READ_FILES)
 		return 0;
 
-	len = sysfs_cpufreq_read_file(cpu, table[index], linebuf,
-				      sizeof(linebuf));
+	len = sysfs_cpufreq_read_file(cpu, cpufreq_value_files[which],
+				linebuf, sizeof(linebuf));
 
 	if (len == 0)
 		return 0;
@@ -108,14 +107,6 @@ unsigned long cpufreq_get_sysfs_value_from_table(unsigned int cpu,
 		return 0;
 
 	return value;
-}
-
-static unsigned long sysfs_cpufreq_get_one_value(unsigned int cpu,
-						 enum cpufreq_value which)
-{
-	return cpufreq_get_sysfs_value_from_table(cpu, cpufreq_value_files,
-						  which,
-						  MAX_CPUFREQ_VALUE_READ_FILES);
 }
 
 /* read access to files which contain one string */

@@ -118,6 +118,8 @@ static DEFINE_PER_CPU(struct cpc_desc *, cpc_desc_ptr);
  */
 #define NUM_RETRIES 500ULL
 
+#define OVER_16BTS_MASK ~0xFFFFULL
+
 #define define_one_cppc_ro(_name)		\
 static struct kobj_attribute _name =		\
 __ATTR(_name, 0444, show_##_name, NULL)
@@ -761,14 +763,16 @@ int acpi_cppc_processor_probe(struct acpi_processor *pr)
 				}
 			} else if (gas_t->space_id == ACPI_ADR_SPACE_SYSTEM_IO) {
 				if (gas_t->access_width < 1 || gas_t->access_width > 3) {
-					/* 1 = 8-bit, 2 = 16-bit, and 3 = 32-bit. SystemIO doesn't
-					 * implement 64-bit registers.
+					/*
+					 * 1 = 8-bit, 2 = 16-bit, and 3 = 32-bit.
+					 * SystemIO doesn't implement 64-bit
+					 * registers.
 					 */
 					pr_debug("Invalid access width %d for SystemIO register\n",
 						gas_t->access_width);
 					goto out_free;
 				}
-				if (gas_t->address & ~0xFFFFULL) {
+				if (gas_t->address & OVER_16BTS_MASK) {
 					/* SystemIO registers use 16-bit integer addresses */
 					pr_debug("Invalid IO port %llu for SystemIO register\n",
 						gas_t->address);
@@ -956,10 +960,11 @@ static int cpc_read(int cpu, struct cpc_register_resource *reg_res, u64 *val)
 		u32 width = 8 << (reg->access_width - 1);
 		acpi_status status;
 
-		status = acpi_os_read_port((acpi_io_address)reg->address, (u32 *)val, width);
-
-		if (status != AE_OK) {
-			pr_debug("Error: Failed to read SystemIO port %llx\n", reg->address);
+		status = acpi_os_read_port((acpi_io_address)reg->address,
+					   (u32 *)val, width);
+		if (ACPI_FAILURE(status)) {
+			pr_debug("Error: Failed to read SystemIO port %llx\n",
+				 reg->address);
 			return -EFAULT;
 		}
 
@@ -1007,10 +1012,11 @@ static int cpc_write(int cpu, struct cpc_register_resource *reg_res, u64 val)
 		u32 width = 8 << (reg->access_width - 1);
 		acpi_status status;
 
-		status = acpi_os_write_port((acpi_io_address)reg->address, (u32)val, width);
-
-		if (status != AE_OK) {
-			pr_debug("Error: Failed to write SystemIO port %llx\n", reg->address);
+		status = acpi_os_write_port((acpi_io_address)reg->address,
+					    (u32)val, width);
+		if (ACPI_FAILURE(status)) {
+			pr_debug("Error: Failed to write SystemIO port %llx\n",
+				 reg->address);
 			return -EFAULT;
 		}
 

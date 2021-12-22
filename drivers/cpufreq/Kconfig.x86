@@ -43,8 +43,8 @@ config X86_AMD_PSTATE
 	help
 	  This driver adds a CPUFreq driver which utilizes a fine grain
 	  processor performance frequency control range instead of legacy
-	  performance levels. This driver supports the AMD processors with
-	  _CPC object in the SBIOS.
+	  performance levels. _CPC needs to be present in the ACPI tables
+	  of the system.
 
 	  For details, take a look at:
 	  <file:Documentation/admin-guide/pm/amd-pstate.rst>.

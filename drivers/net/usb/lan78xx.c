@@ -3002,7 +3002,7 @@ static void lan78xx_terminate_urbs(struct lan78xx_net *dev)
 	/* maybe wait for deletions to finish. */
 	while (!skb_queue_empty(&dev->rxq) ||
 	       !skb_queue_empty(&dev->txq)) {
-		schedule_msec_hrtimeout((UNLINK_TIMEOUT_MS));
+		schedule_timeout(msecs_to_jiffies(UNLINK_TIMEOUT_MS));
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		netif_dbg(dev, ifdown, dev->net,
 			  "waited for %d urb completions", temp);

@@ -5,6 +5,19 @@
  * Copyright (C) 2021 Advanced Micro Devices, Inc. All Rights Reserved.
  *
  * Author: Huang Rui <ray.huang@amd.com>
+ *
+ * AMD P-State introduces a new CPU performance scaling design for AMD
+ * processors using the ACPI Collaborative Performance and Power Control (CPPC)
+ * feature which works with the AMD SMU firmware providing a finer grained
+ * frequency control range. It is to replace the legacy ACPI P-States control,
+ * allows a flexible, low-latency interface for the Linux kernel to directly
+ * communicate the performance hints to hardware.
+ *
+ * AMD P-State is supported on recent AMD Zen base CPU series include some of
+ * Zen2 and Zen3 processors. _CPC needs to be present in the ACPI tables of AMD
+ * P-State supported system. And there are two types of hardware implementations
+ * for AMD P-State: 1) Full MSR Solution and 2) Shared Memory Solution.
+ * X86_FEATURE_CPPC CPU feature flag is used to distinguish the different types.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -36,7 +49,8 @@
 #define AMD_PSTATE_TRANSITION_LATENCY	0x20000
 #define AMD_PSTATE_TRANSITION_DELAY	500
 
-/* TODO: We need more time to fine tune processors with shared memory solution
+/*
+ * TODO: We need more time to fine tune processors with shared memory solution
  * with community together.
  *
  * There are some performance drops on the CPU benchmarks which reports from
@@ -51,11 +65,29 @@ MODULE_PARM_DESC(shared_mem,
 
 static struct cpufreq_driver amd_pstate_driver;
 
+/**
+ * struct amd_cpudata - private CPU data for AMD P-State
+ * @cpu: CPU number
+ * @cppc_req_cached: cached performance request hints
+ * @highest_perf: the maximum performance an individual processor may reach,
+ *		  assuming ideal conditions
+ * @nominal_perf: the maximum sustained performance level of the processor,
+ *		  assuming ideal operating conditions
+ * @lowest_nonlinear_perf: the lowest performance level at which nonlinear power
+ *			   savings are achieved
+ * @lowest_perf: the absolute lowest performance level of the processor
+ * @max_freq: the frequency that mapped to highest_perf
+ * @min_freq: the frequency that mapped to lowest_perf
+ * @nominal_freq: the frequency that mapped to nominal_perf
+ * @lowest_nonlinear_freq: the frequency that mapped to lowest_nonlinear_perf
+ *
+ * The amd_cpudata is key private data for each CPU thread in AMD P-State, and
+ * represents all the attributes and goals that AMD P-State requests at runtime.
+ */
 struct amd_cpudata {
 	int	cpu;
 
-	struct freq_qos_request req[2];
-
+	struct	freq_qos_request req[2];
 	u64	cppc_req_cached;
 
 	u32	highest_perf;
@@ -80,7 +112,7 @@ static int cppc_enable(bool enable)
 {
 	int cpu, ret = 0;
 
-	for_each_online_cpu(cpu) {
+	for_each_present_cpu(cpu) {
 		ret = cppc_set_enable(cpu, enable);
 		if (ret)
 			return ret;
@@ -479,7 +511,8 @@ static int amd_pstate_cpu_exit(struct cpufreq_policy *policy)
 
 /* Sysfs attributes */
 
-/* This frequency is to indicate the maximum hardware frequency.
+/*
+ * This frequency is to indicate the maximum hardware frequency.
  * If boost is not active but supported, the frequency will be larger than the
  * one in cpuinfo.
  */
@@ -513,7 +546,8 @@ static ssize_t show_amd_pstate_lowest_nonlinear_freq(struct cpufreq_policy *poli
 	return sprintf(&buf[0], "%u\n", freq);
 }
 
-/* In some of ASICs, the highest_perf is not the one in the _CPC table, so we
+/*
+ * In some of ASICs, the highest_perf is not the one in the _CPC table, so we
  * need to expose it to sysfs.
  */
 static ssize_t show_amd_pstate_highest_perf(struct cpufreq_policy *policy,
