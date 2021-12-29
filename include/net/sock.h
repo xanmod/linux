@@ -261,7 +261,6 @@ struct bpf_local_storage;
   *	@sk_wq: sock wait queue and async head
   *	@sk_rx_dst: receive input route used by early demux
   *	@sk_rx_dst_ifindex: ifindex for @sk_rx_dst
-  *	@sk_rx_dst_cookie: cookie for @sk_rx_dst
   *	@sk_dst_cache: destination cache
   *	@sk_dst_pending_confirm: need to confirm neighbour
   *	@sk_policy: flow policy
@@ -435,7 +434,6 @@ struct sock {
 #endif
 	struct dst_entry	*sk_rx_dst;
 	int			sk_rx_dst_ifindex;
-	u32			sk_rx_dst_cookie;
 
 	struct dst_entry __rcu	*sk_dst_cache;
 	atomic_t		sk_omem_alloc;
