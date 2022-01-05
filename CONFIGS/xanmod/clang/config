@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.15.12 Kernel Configuration
+# Linux/x86 5.15.13 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="Debian clang version 12.0.1-16"
 CONFIG_GCC_VERSION=0
@@ -966,9 +966,9 @@ CONFIG_BLOCK_HOLDER_DEPRECATED=y
 #
 # IO Schedulers
 #
-CONFIG_MQ_IOSCHED_DEADLINE=m
+CONFIG_MQ_IOSCHED_DEADLINE=y
 CONFIG_MQ_IOSCHED_KYBER=m
-CONFIG_IOSCHED_BFQ=y
+CONFIG_IOSCHED_BFQ=m
 CONFIG_BFQ_GROUP_IOSCHED=y
 # CONFIG_BFQ_CGROUP_DEBUG is not set
 # end of IO Schedulers
