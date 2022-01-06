@@ -428,7 +428,7 @@ static int dd_init_queue(struct request_queue *q, struct elevator_type *e)
 	dd->fifo_expire[READ] = read_expire;
 	dd->fifo_expire[WRITE] = write_expire;
 	dd->writes_starved = writes_starved;
-	dd->front_merges = 1;
+	dd->front_merges = 0;
 	dd->fifo_batch = fifo_batch;
 	spin_lock_init(&dd->lock);
 	spin_lock_init(&dd->zone_lock);
