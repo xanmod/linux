@@ -85,6 +85,30 @@ static int put_mutex(int fd, __u32 mutex, __u32 owner, __u32 *count)
 	return ret;
 }
 
+static int read_event_state(int fd, __u32 event, __u32 *signaled, __u32 *manual)
+{
+	struct winesync_event_args args;
+	int ret;
+
+	args.event = event;
+	args.signaled = 0xdeadbeef;
+	args.manual = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_READ_EVENT, &args);
+	*signaled = args.signaled;
+	*manual = args.manual;
+	return ret;
+}
+
+#define check_event_state(fd, event, signaled, manual) \
+	({ \
+		__u32 __signaled, __manual; \
+		int ret = read_event_state((fd), (event), \
+					   &__signaled, &__manual); \
+		EXPECT_EQ(0, ret); \
+		EXPECT_EQ((signaled), __signaled); \
+		EXPECT_EQ((manual), __manual); \
+	})
+
 static int wait_objs(int fd, unsigned long request, __u32 count,
 		     const __u32 *objs, __u32 owner, __u32 *index)
 {
@@ -345,6 +369,74 @@ TEST(mutex_state)
 	check_mutex_state(fd, mutex, 1, 123);
 
 	ret = ioctl(fd, WINESYNC_IOC_DELETE, &mutex_args.mutex);
+	EXPECT_EQ(0, ret);
+
+	close(fd);
+}
+
+TEST(manual_event_state)
+{
+	struct winesync_event_args event_args;
+	__u32 index;
+	int fd, ret;
+
+	fd = open("/dev/winesync", O_CLOEXEC | O_RDONLY);
+	ASSERT_LE(0, fd);
+
+	event_args.manual = 1;
+	event_args.signaled = 0;
+	event_args.event = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, event_args.event);
+	check_event_state(fd, event_args.event, 0, 1);
+
+	event_args.signaled = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+	check_event_state(fd, event_args.event, 1, 1);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, event_args.signaled);
+	check_event_state(fd, event_args.event, 1, 1);
+
+	ret = wait_any(fd, 1, &event_args.event, 123, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+	check_event_state(fd, event_args.event, 1, 1);
+
+	event_args.signaled = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, event_args.signaled);
+	check_event_state(fd, event_args.event, 0, 1);
+
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+	check_event_state(fd, event_args.event, 0, 1);
+
+	ret = wait_any(fd, 1, &event_args.event, 123, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(ETIMEDOUT, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+
+	ret = ioctl(fd, WINESYNC_IOC_PULSE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, event_args.signaled);
+	check_event_state(fd, event_args.event, 0, 1);
+
+	ret = ioctl(fd, WINESYNC_IOC_PULSE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+	check_event_state(fd, event_args.event, 0, 1);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
 	EXPECT_EQ(0, ret);
 
 	close(fd);
