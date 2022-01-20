@@ -65,5 +65,7 @@ struct winesync_wait_args {
 					      struct winesync_event_args)
 #define WINESYNC_IOC_PULSE_EVENT	_IOWR(WINESYNC_IOC_BASE, 13, \
 					      struct winesync_event_args)
+#define WINESYNC_IOC_READ_EVENT		_IOWR(WINESYNC_IOC_BASE, 14, \
+					      struct winesync_event_args)
 
 #endif
