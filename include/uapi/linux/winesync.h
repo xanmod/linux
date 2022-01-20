@@ -59,5 +59,7 @@ struct winesync_wait_args {
 					      struct winesync_mutex_args)
 #define WINESYNC_IOC_CREATE_EVENT	_IOWR(WINESYNC_IOC_BASE, 10, \
 					      struct winesync_event_args)
+#define WINESYNC_IOC_SET_EVENT		_IOWR(WINESYNC_IOC_BASE, 11, \
+					      struct winesync_event_args)
 
 #endif
