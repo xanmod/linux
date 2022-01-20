@@ -747,6 +747,35 @@ static int winesync_set_event(struct winesync_device *dev, void __user *argp)
 	return 0;
 }
 
+static int winesync_reset_event(struct winesync_device *dev, void __user *argp)
+{
+	struct winesync_event_args __user *user_args = argp;
+	struct winesync_event_args args;
+	struct winesync_obj *event;
+	bool prev_state;
+
+	if (copy_from_user(&args, argp, sizeof(args)))
+		return -EFAULT;
+
+	event = get_obj_typed(dev, args.event, WINESYNC_TYPE_EVENT);
+	if (!event)
+		return -EINVAL;
+
+	spin_lock(&event->lock);
+
+	prev_state = event->u.event.signaled;
+	event->u.event.signaled = false;
+
+	spin_unlock(&event->lock);
+
+	put_obj(event);
+
+	if (put_user(prev_state, &user_args->signaled))
+		return -EFAULT;
+
+	return 0;
+}
+
 static int winesync_schedule(const struct winesync_q *q, ktime_t *timeout)
 {
 	int ret = 0;
@@ -1049,6 +1078,8 @@ static long winesync_char_ioctl(struct file *file, unsigned int cmd,
 		return winesync_read_mutex(dev, argp);
 	case WINESYNC_IOC_READ_SEM:
 		return winesync_read_sem(dev, argp);
+	case WINESYNC_IOC_RESET_EVENT:
+		return winesync_reset_event(dev, argp);
 	case WINESYNC_IOC_SET_EVENT:
 		return winesync_set_event(dev, argp);
 	case WINESYNC_IOC_WAIT_ALL:
