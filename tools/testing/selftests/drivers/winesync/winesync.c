@@ -610,6 +610,7 @@ TEST(test_wait_any)
 
 TEST(test_wait_all)
 {
+	struct winesync_event_args event_args = {0};
 	struct winesync_mutex_args mutex_args = {0};
 	struct winesync_sem_args sem_args = {0};
 	__u32 objs[2], owner, index;
@@ -631,6 +632,11 @@ TEST(test_wait_all)
 	ret = ioctl(fd, WINESYNC_IOC_CREATE_MUTEX, &mutex_args);
 	EXPECT_EQ(0, ret);
 	EXPECT_NE(0xdeadbeef, mutex_args.mutex);
+
+	event_args.manual = true;
+	event_args.signaled = true;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
 
 	objs[0] = sem_args.sem;
 	objs[1] = mutex_args.mutex;
@@ -680,6 +686,14 @@ TEST(test_wait_all)
 	check_sem_state(fd, sem_args.sem, 1, 3);
 	check_mutex_state(fd, mutex_args.mutex, 1, 123);
 
+	objs[0] = sem_args.sem;
+	objs[1] = event_args.event;
+	ret = wait_all(fd, 2, objs, 123, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+	check_sem_state(fd, sem_args.sem, 0, 3);
+	check_event_state(fd, event_args.event, 1, 1);
+
 	/* test waiting on the same object twice */
 	objs[0] = objs[1] = sem_args.sem;
 	ret = wait_all(fd, 2, objs, 123, &index);
@@ -689,6 +703,8 @@ TEST(test_wait_all)
 	ret = ioctl(fd, WINESYNC_IOC_DELETE, &sem_args.sem);
 	EXPECT_EQ(0, ret);
 	ret = ioctl(fd, WINESYNC_IOC_DELETE, &mutex_args.mutex);
+	EXPECT_EQ(0, ret);
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
 	EXPECT_EQ(0, ret);
 
 	close(fd);
@@ -829,6 +845,7 @@ static int wait_for_thread(pthread_t thread, unsigned int ms)
 
 TEST(wake_any)
 {
+	struct winesync_event_args event_args = {0};
 	struct winesync_mutex_args mutex_args = {0};
 	struct winesync_wait_args wait_args = {0};
 	struct winesync_sem_args sem_args = {0};
@@ -918,10 +935,103 @@ TEST(wake_any)
 	EXPECT_EQ(0, thread_args.ret);
 	EXPECT_EQ(1, wait_args.index);
 
+	/* test waking events */
+
+	event_args.manual = false;
+	event_args.signaled = false;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	objs[1] = event_args.event;
+	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 1000);
+	ret = pthread_create(&thread, NULL, wait_thread, &thread_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(ETIMEDOUT, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+	check_event_state(fd, event_args.event, 0, 0);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, thread_args.ret);
+	EXPECT_EQ(1, wait_args.index);
+
+	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 1000);
+	ret = pthread_create(&thread, NULL, wait_thread, &thread_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(ETIMEDOUT, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_PULSE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+	check_event_state(fd, event_args.event, 0, 0);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, thread_args.ret);
+	EXPECT_EQ(1, wait_args.index);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
+	EXPECT_EQ(0, ret);
+
+	event_args.manual = true;
+	event_args.signaled = false;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	objs[1] = event_args.event;
+	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 1000);
+	ret = pthread_create(&thread, NULL, wait_thread, &thread_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(ETIMEDOUT, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+	check_event_state(fd, event_args.event, 1, 1);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, thread_args.ret);
+	EXPECT_EQ(1, wait_args.index);
+
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, event_args.signaled);
+
+	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 1000);
+	ret = pthread_create(&thread, NULL, wait_thread, &thread_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(ETIMEDOUT, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_PULSE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, event_args.signaled);
+	check_event_state(fd, event_args.event, 0, 1);
+
+	ret = wait_for_thread(thread, 100);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, thread_args.ret);
+	EXPECT_EQ(1, wait_args.index);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
+	EXPECT_EQ(0, ret);
+
 	/* delete an object while it's being waited on */
 
 	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 200);
 	wait_args.owner = 123;
+	objs[1] = mutex_args.mutex;
 	ret = pthread_create(&thread, NULL, wait_thread, &thread_args);
 	EXPECT_EQ(0, ret);
 
@@ -943,11 +1053,13 @@ TEST(wake_any)
 
 TEST(wake_all)
 {
+	struct winesync_event_args manual_event_args = {0};
+	struct winesync_event_args auto_event_args = {0};
 	struct winesync_mutex_args mutex_args = {0};
 	struct winesync_wait_args wait_args = {0};
 	struct winesync_sem_args sem_args = {0};
 	struct wait_args thread_args;
-	__u32 objs[2], count, index;
+	__u32 objs[4], count, index;
 	struct timespec timeout;
 	pthread_t thread;
 	int fd, ret;
@@ -969,13 +1081,25 @@ TEST(wake_all)
 	EXPECT_EQ(0, ret);
 	EXPECT_NE(0xdeadbeef, mutex_args.mutex);
 
+	manual_event_args.manual = true;
+	manual_event_args.signaled = true;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &manual_event_args);
+	EXPECT_EQ(0, ret);
+
+	auto_event_args.manual = false;
+	auto_event_args.signaled = true;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &auto_event_args);
+	EXPECT_EQ(0, ret);
+
 	objs[0] = sem_args.sem;
 	objs[1] = mutex_args.mutex;
+	objs[2] = manual_event_args.event;
+	objs[3] = auto_event_args.event;
 
 	get_abs_timeout(&timeout, CLOCK_MONOTONIC, 1000);
 	wait_args.timeout = (uintptr_t)&timeout;
 	wait_args.objs = (uintptr_t)objs;
-	wait_args.count = 2;
+	wait_args.count = 4;
 	wait_args.owner = 456;
 	thread_args.fd = fd;
 	thread_args.args = &wait_args;
@@ -1009,12 +1133,32 @@ TEST(wake_all)
 
 	check_mutex_state(fd, mutex_args.mutex, 0, 0);
 
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &manual_event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, manual_event_args.signaled);
+
 	sem_args.count = 2;
 	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
 	EXPECT_EQ(0, ret);
 	EXPECT_EQ(0, sem_args.count);
+	check_sem_state(fd, sem_args.sem, 2, 3);
+
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &auto_event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, auto_event_args.signaled);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &manual_event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, manual_event_args.signaled);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &auto_event_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, auto_event_args.signaled);
+
 	check_sem_state(fd, sem_args.sem, 1, 3);
 	check_mutex_state(fd, mutex_args.mutex, 1, 456);
+	check_event_state(fd, manual_event_args.event, 1, 1);
+	check_event_state(fd, auto_event_args.event, 0, 0);
 
 	ret = wait_for_thread(thread, 100);
 	EXPECT_EQ(0, ret);
@@ -1033,6 +1177,10 @@ TEST(wake_all)
 	ret = ioctl(fd, WINESYNC_IOC_DELETE, &sem_args.sem);
 	EXPECT_EQ(0, ret);
 	ret = ioctl(fd, WINESYNC_IOC_DELETE, &mutex_args.mutex);
+	EXPECT_EQ(0, ret);
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &manual_event_args.event);
+	EXPECT_EQ(0, ret);
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &auto_event_args.event);
 	EXPECT_EQ(0, ret);
 
 	ret = wait_for_thread(thread, 200);
