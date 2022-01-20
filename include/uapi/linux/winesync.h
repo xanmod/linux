@@ -22,6 +22,12 @@ struct winesync_mutex_args {
 	__u32 count;
 };
 
+struct winesync_event_args {
+	__u32 event;
+	__u32 manual;
+	__u32 signaled;
+};
+
 struct winesync_wait_args {
 	__u64 timeout;
 	__u64 objs;
@@ -51,5 +57,7 @@ struct winesync_wait_args {
 					      struct winesync_sem_args)
 #define WINESYNC_IOC_READ_MUTEX		_IOWR(WINESYNC_IOC_BASE, 9, \
 					      struct winesync_mutex_args)
+#define WINESYNC_IOC_CREATE_EVENT	_IOWR(WINESYNC_IOC_BASE, 10, \
+					      struct winesync_event_args)
 
 #endif

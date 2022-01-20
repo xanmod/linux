@@ -17,6 +17,7 @@
 enum winesync_type {
 	WINESYNC_TYPE_SEM,
 	WINESYNC_TYPE_MUTEX,
+	WINESYNC_TYPE_EVENT,
 };
 
 struct winesync_obj {
@@ -66,6 +67,10 @@ struct winesync_obj {
 			__u32 owner;
 			bool ownerdead;
 		} mutex;
+		struct {
+			bool manual;
+			bool signaled;
+		} event;
 	} u;
 };
 
@@ -199,6 +204,8 @@ static bool is_signaled(struct winesync_obj *obj, __u32 owner)
 		if (obj->u.mutex.owner && obj->u.mutex.owner != owner)
 			return false;
 		return obj->u.mutex.count < UINT_MAX;
+	case WINESYNC_TYPE_EVENT:
+		return obj->u.event.signaled;
 	}
 
 	WARN(1, "bad object type %#x\n", obj->type);
@@ -247,6 +254,10 @@ static void try_wake_all(struct winesync_device *dev, struct winesync_q *q,
 				obj->u.mutex.ownerdead = false;
 				obj->u.mutex.count++;
 				obj->u.mutex.owner = q->owner;
+				break;
+			case WINESYNC_TYPE_EVENT:
+				if (!obj->u.event.manual)
+					obj->u.event.signaled = false;
 				break;
 			}
 		}
@@ -315,6 +326,26 @@ static void try_wake_any_mutex(struct winesync_obj *mutex)
 	}
 }
 
+static void try_wake_any_event(struct winesync_obj *event)
+{
+	struct winesync_q_entry *entry;
+
+	lockdep_assert_held(&event->lock);
+
+	list_for_each_entry(entry, &event->any_waiters, node) {
+		struct winesync_q *q = entry->q;
+
+		if (!event->u.event.signaled)
+			break;
+
+		if (atomic_cmpxchg(&q->signaled, -1, entry->index) == -1) {
+			if (!event->u.event.manual)
+				event->u.event.signaled = false;
+			wake_up_process(q->task);
+		}
+	}
+}
+
 static int winesync_create_sem(struct winesync_device *dev, void __user *argp)
 {
 	struct winesync_sem_args __user *user_args = argp;
@@ -377,6 +408,35 @@ static int winesync_create_mutex(struct winesync_device *dev, void __user *argp)
 	}
 
 	return put_user(id, &user_args->mutex);
+}
+
+static int winesync_create_event(struct winesync_device *dev, void __user *argp)
+{
+	struct winesync_event_args __user *user_args = argp;
+	struct winesync_event_args args;
+	struct winesync_obj *event;
+	__u32 id;
+	int ret;
+
+	if (copy_from_user(&args, argp, sizeof(args)))
+		return -EFAULT;
+
+	event = kzalloc(sizeof(*event), GFP_KERNEL);
+	if (!event)
+		return -ENOMEM;
+
+	init_obj(event);
+	event->type = WINESYNC_TYPE_EVENT;
+	event->u.event.manual = args.manual;
+	event->u.event.signaled = args.signaled;
+
+	ret = xa_alloc(&dev->objects, &id, event, xa_limit_32b, GFP_KERNEL);
+	if (ret < 0) {
+		kfree(event);
+		return ret;
+	}
+
+	return put_user(id, &user_args->event);
 }
 
 static int winesync_delete(struct winesync_device *dev, void __user *argp)
@@ -760,6 +820,9 @@ static void try_wake_any_obj(struct winesync_obj *obj)
 	case WINESYNC_TYPE_MUTEX:
 		try_wake_any_mutex(obj);
 		break;
+	case WINESYNC_TYPE_EVENT:
+		try_wake_any_event(obj);
+		break;
 	}
 }
 
@@ -925,6 +988,8 @@ static long winesync_char_ioctl(struct file *file, unsigned int cmd,
 	void __user *argp = (void __user *)parm;
 
 	switch (cmd) {
+	case WINESYNC_IOC_CREATE_EVENT:
+		return winesync_create_event(dev, argp);
 	case WINESYNC_IOC_CREATE_MUTEX:
 		return winesync_create_mutex(dev, argp);
 	case WINESYNC_IOC_CREATE_SEM:
