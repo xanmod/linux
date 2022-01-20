@@ -712,6 +712,7 @@ TEST(test_wait_all)
 
 TEST(invalid_objects)
 {
+	struct winesync_event_args event_args = {0};
 	struct winesync_mutex_args mutex_args = {0};
 	struct winesync_wait_args wait_args = {0};
 	struct winesync_sem_args sem_args = {0};
@@ -734,6 +735,22 @@ TEST(invalid_objects)
 	EXPECT_EQ(EINVAL, errno);
 
 	ret = ioctl(fd, WINESYNC_IOC_READ_MUTEX, &mutex_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &event_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_PULSE_EVENT, &event_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_READ_EVENT, &event_args);
 	EXPECT_EQ(-1, ret);
 	EXPECT_EQ(EINVAL, errno);
 
@@ -760,6 +777,23 @@ TEST(invalid_objects)
 	EXPECT_EQ(EINVAL, errno);
 
 	ret = ioctl(fd, WINESYNC_IOC_READ_MUTEX, &mutex_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	event_args.event = sem_args.sem;
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &event_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_PULSE_EVENT, &event_args);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(EINVAL, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_READ_EVENT, &event_args);
 	EXPECT_EQ(-1, ret);
 	EXPECT_EQ(EINVAL, errno);
 
