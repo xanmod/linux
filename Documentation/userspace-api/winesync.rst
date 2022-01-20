@@ -18,8 +18,8 @@ interfaces such as futex(2) and poll(2).
 Synchronization primitives
 ==========================
 
-The winesync driver exposes two types of synchronization primitives,
-semaphores and mutexes.
+The winesync driver exposes three types of synchronization primitives:
+semaphores, mutexes, and events.
 
 A semaphore holds a single volatile 32-bit counter, and a static
 32-bit integer denoting the maximum value. It is considered signaled
@@ -44,6 +44,12 @@ owner identifier is not interpreted by the winesync driver at all. The
 intended use is to store a thread identifier; however, the winesync
 driver does not actually validate that a calling thread provides
 consistent or unique identifiers.
+
+An event holds a volatile boolean state denoting whether it is
+signaled or not. There are two types of events, auto-reset and
+manual-reset. An auto-reset event is designaled when a wait is
+satisfied; a manual-reset event is not. The event type is specified
+when the event is created.
 
 Unless specified otherwise, all operations on an object are atomic and
 totally ordered with respect to other operations on the same object.
@@ -76,6 +82,12 @@ structures used in ioctl calls::
 	__u32 mutex;
 	__u32 owner;
 	__u32 count;
+   };
+
+   struct winesync_event_args {
+	__u32 event;
+	__u32 signaled;
+	__u32 manual;
    };
 
    struct winesync_wait_args {
@@ -124,6 +136,22 @@ The ioctls are as follows:
 
   If ``owner`` is nonzero and ``count`` is zero, or if ``owner`` is
   zero and ``count`` is nonzero, the function fails with ``EINVAL``.
+
+.. c:macro:: WINESYNC_IOC_CREATE_EVENT
+
+  Create an event object. Takes a pointer to struct
+  :c:type:`winesync_event_args`, which is used as follows:
+
+  .. list-table::
+
+     * - ``event``
+       - On output, contains the identifier of the created event.
+     * - ``signaled``
+       - If nonzero, the event is initially signaled, otherwise
+         nonsignaled.
+     * - ``manual``
+       - If nonzero, the event is a manual-reset event, otherwise
+         auto-reset.
 
 .. c:macro:: WINESYNC_IOC_DELETE
 
@@ -178,6 +206,60 @@ The ioctls are as follows:
   unowned and signaled, and eligible threads waiting on it will be
   woken as appropriate.
 
+.. c:macro:: WINESYNC_IOC_SET_EVENT
+
+  Signal an event object. Takes a pointer to struct
+  :c:type:`winesync_event_args`, which is used as follows:
+
+  .. list-table::
+
+     * - ``event``
+       - Event object to set.
+     * - ``signaled``
+       - On output, contains the previous state of the event.
+     * - ``manual``
+       - Unused.
+
+  Eligible threads will be woken, and auto-reset events will be
+  designaled appropriately.
+
+.. c:macro:: WINESYNC_IOC_RESET_EVENT
+
+  Designal an event object. Takes a pointer to struct
+  :c:type:`winesync_event_args`, which is used as follows:
+
+  .. list-table::
+
+     * - ``event``
+       - Event object to reset.
+     * - ``signaled``
+       - On output, contains the previous state of the event.
+     * - ``manual``
+       - Unused.
+
+.. c:macro:: WINESYNC_IOC_PULSE_EVENT
+
+  Wake threads waiting on an event object without leaving it in a
+  signaled state. Takes a pointer to struct
+  :c:type:`winesync_event_args`, which is used as follows:
+
+  .. list-table::
+
+     * - ``event``
+       - Event object to pulse.
+     * - ``signaled``
+       - On output, contains the previous state of the event.
+     * - ``manual``
+       - Unused.
+
+  A pulse operation can be thought of as a set followed by a reset,
+  performed as a single atomic operation. If two threads are waiting
+  on an auto-reset event which is pulsed, only one will be woken. If
+  two threads are waiting a manual-reset event which is pulsed, both
+  will be woken. However, in both cases, the event will be unsignaled
+  afterwards, and a simultaneous read operation will always report the
+  event as unsignaled.
+
 .. c:macro:: WINESYNC_IOC_READ_SEM
 
   Read the current state of a semaphore object. Takes a pointer to
@@ -210,6 +292,21 @@ The ioctls are as follows:
   If the mutex is marked as inconsistent, the function fails with
   ``EOWNERDEAD``. In this case, ``count`` and ``owner`` are set to
   zero.
+
+.. c:macro:: WINESYNC_IOC_READ_EVENT
+
+  Read the current state of an event object. Takes a pointer to struct
+  :c:type:`winesync_event_args`, which is used as follows:
+
+  .. list-table::
+
+     * - ``event``
+       - Event object.
+     * - ``signaled``
+       - On output, contains the current state of the event.
+     * - ``manual``
+       - On output, contains 1 if the event is a manual-reset event,
+         and 0 otherwise.
 
 .. c:macro:: WINESYNC_IOC_KILL_OWNER
 
@@ -272,7 +369,8 @@ The ioctls are as follows:
   considered to be signaled if it is unowned or if its owner matches
   the ``owner`` argument, and is acquired by incrementing its
   recursion count by one and setting its owner to the ``owner``
-  argument.
+  argument. An auto-reset event is acquired by designaling it; a
+  manual-reset event is not affected by acquisition.
 
   Acquisition is atomic and totally ordered with respect to other
   operations on the same object. If two wait operations (with
