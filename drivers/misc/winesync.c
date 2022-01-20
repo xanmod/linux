@@ -704,7 +704,8 @@ static int winesync_kill_owner(struct winesync_device *dev, void __user *argp)
 	return 0;
 }
 
-static int winesync_set_event(struct winesync_device *dev, void __user *argp)
+static int winesync_set_event(struct winesync_device *dev, void __user *argp,
+			      bool pulse)
 {
 	struct winesync_event_args __user *user_args = argp;
 	struct winesync_event_args args;
@@ -726,6 +727,8 @@ static int winesync_set_event(struct winesync_device *dev, void __user *argp)
 		event->u.event.signaled = true;
 		try_wake_all_obj(dev, event);
 		try_wake_any_event(event);
+		if (pulse)
+			event->u.event.signaled = false;
 
 		spin_unlock(&event->lock);
 		spin_unlock(&dev->wait_all_lock);
@@ -735,6 +738,8 @@ static int winesync_set_event(struct winesync_device *dev, void __user *argp)
 		prev_state = event->u.event.signaled;
 		event->u.event.signaled = true;
 		try_wake_any_event(event);
+		if (pulse)
+			event->u.event.signaled = false;
 
 		spin_unlock(&event->lock);
 	}
@@ -1070,6 +1075,8 @@ static long winesync_char_ioctl(struct file *file, unsigned int cmd,
 		return winesync_delete(dev, argp);
 	case WINESYNC_IOC_KILL_OWNER:
 		return winesync_kill_owner(dev, argp);
+	case WINESYNC_IOC_PULSE_EVENT:
+		return winesync_set_event(dev, argp, true);
 	case WINESYNC_IOC_PUT_MUTEX:
 		return winesync_put_mutex(dev, argp);
 	case WINESYNC_IOC_PUT_SEM:
@@ -1081,7 +1088,7 @@ static long winesync_char_ioctl(struct file *file, unsigned int cmd,
 	case WINESYNC_IOC_RESET_EVENT:
 		return winesync_reset_event(dev, argp);
 	case WINESYNC_IOC_SET_EVENT:
-		return winesync_set_event(dev, argp);
+		return winesync_set_event(dev, argp, false);
 	case WINESYNC_IOC_WAIT_ALL:
 		return winesync_wait_all(dev, argp);
 	case WINESYNC_IOC_WAIT_ANY:
