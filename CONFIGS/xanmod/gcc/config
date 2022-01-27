@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.15.16 Kernel Configuration
+# Linux/x86 5.15.17 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-11 (Debian 11.2.0-12) 11.2.0"
 CONFIG_CC_IS_GCC=y
@@ -409,8 +409,8 @@ CONFIG_ACRN_GUEST=y
 # CONFIG_MSAPPHIRERAPIDS is not set
 # CONFIG_MROCKETLAKE is not set
 # CONFIG_MALDERLAKE is not set
-CONFIG_GENERIC_CPU=y
-# CONFIG_GENERIC_CPU2 is not set
+# CONFIG_GENERIC_CPU is not set
+CONFIG_GENERIC_CPU2=y
 # CONFIG_GENERIC_CPU3 is not set
 # CONFIG_GENERIC_CPU4 is not set
 # CONFIG_MNATIVE_INTEL is not set
