@@ -44,6 +44,7 @@
 #include <linux/irq_work.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#include <linux/clocksource.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
@@ -2060,19 +2061,28 @@ static int console_trylock_spinning(void)
  * dropped, a dropped message will be written out first.
  */
 static void call_console_driver(struct console *con, const char *text, size_t len,
-				char *dropped_text)
+				char *dropped_text, bool atomic_printing)
 {
+	unsigned long dropped = 0;
 	size_t dropped_len;
 
-	if (con->dropped && dropped_text) {
+	if (dropped_text)
+		dropped = atomic_long_xchg_relaxed(&con->dropped, 0);
+
+	if (dropped) {
 		dropped_len = snprintf(dropped_text, DROPPED_TEXT_MAX,
 				       "** %lu printk messages dropped **\n",
-				       con->dropped);
-		con->dropped = 0;
-		con->write(con, dropped_text, dropped_len);
+				       dropped);
+		if (atomic_printing)
+			con->write_atomic(con, dropped_text, dropped_len);
+		else
+			con->write(con, dropped_text, dropped_len);
 	}
 
-	con->write(con, text, len);
+	if (atomic_printing)
+		con->write_atomic(con, text, len);
+	else
+		con->write(con, text, len);
 }
 
 /*
@@ -2426,6 +2436,76 @@ asmlinkage __visible int _printk(const char *fmt, ...)
 }
 EXPORT_SYMBOL(_printk);
 
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+static void __free_atomic_data(struct console_atomic_data *d)
+{
+	kfree(d->text);
+	kfree(d->ext_text);
+	kfree(d->dropped_text);
+}
+
+static void free_atomic_data(struct console_atomic_data *d)
+{
+	int count = 1;
+	int i;
+
+	if (!d)
+		return;
+
+#ifdef CONFIG_HAVE_NMI
+	count = 2;
+#endif
+
+	for (i = 0; i < count; i++)
+		__free_atomic_data(&d[i]);
+	kfree(d);
+}
+
+static int __alloc_atomic_data(struct console_atomic_data *d, short flags)
+{
+	d->text = kmalloc(CONSOLE_LOG_MAX, GFP_KERNEL);
+	if (!d->text)
+		return -1;
+
+	if (flags & CON_EXTENDED) {
+		d->ext_text = kmalloc(CONSOLE_EXT_LOG_MAX, GFP_KERNEL);
+		if (!d->ext_text)
+			return -1;
+	} else {
+		d->dropped_text = kmalloc(DROPPED_TEXT_MAX, GFP_KERNEL);
+		if (!d->dropped_text)
+			return -1;
+	}
+
+	return 0;
+}
+
+static struct console_atomic_data *alloc_atomic_data(short flags)
+{
+	struct console_atomic_data *d;
+	int count = 1;
+	int i;
+
+#ifdef CONFIG_HAVE_NMI
+	count = 2;
+#endif
+
+	d = kzalloc(sizeof(*d) * count, GFP_KERNEL);
+	if (!d)
+		goto err_out;
+
+	for (i = 0; i < count; i++) {
+		if (__alloc_atomic_data(&d[i], flags) != 0)
+			goto err_out;
+	}
+
+	return d;
+err_out:
+	free_atomic_data(d);
+	return NULL;
+}
+#endif /* CONFIG_HAVE_ATOMIC_CONSOLE */
+
 static bool pr_flush(int timeout_ms, bool reset_on_progress);
 static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progress);
 
@@ -2440,6 +2520,8 @@ static void printk_start_kthread(struct console *con);
 #define prb_read_valid(rb, seq, r)	false
 #define prb_first_valid_seq(rb)		0
 #define prb_next_seq(rb)		0
+
+#define free_atomic_data(d)
 
 static u64 syslog_seq;
 
@@ -2459,7 +2541,7 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 static void console_lock_spinning_enable(void) { }
 static int console_lock_spinning_disable_and_check(void) { return 0; }
 static void call_console_driver(struct console *con, const char *text, size_t len,
-				char *dropped_text)
+				char *dropped_text, bool atomic_printing)
 {
 }
 static bool suppress_message_printing(int level) { return false; }
@@ -2802,10 +2884,20 @@ static inline bool __console_is_usable(short flags)
  *
  * Requires holding the console_lock.
  */
-static inline bool console_is_usable(struct console *con)
+static inline bool console_is_usable(struct console *con, bool atomic_printing)
 {
-	if (!con->write)
+	if (atomic_printing) {
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+		if (!con->write_atomic)
+			return false;
+		if (!con->atomic_data)
+			return false;
+#else
 		return false;
+#endif
+	} else if (!con->write) {
+		return false;
+	}
 
 	return __console_is_usable(con->flags);
 }
@@ -2830,6 +2922,66 @@ static void __console_unlock(void)
 	up_console_sem();
 }
 
+static u64 read_console_seq(struct console *con)
+{
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	unsigned long flags;
+	u64 seq2;
+	u64 seq;
+
+	if (!con->atomic_data)
+		return con->seq;
+
+	printk_cpu_sync_get_irqsave(flags);
+
+	seq = con->seq;
+	seq2 = con->atomic_data[0].seq;
+	if (seq2 > seq)
+		seq = seq2;
+#ifdef CONFIG_HAVE_NMI
+	seq2 = con->atomic_data[1].seq;
+	if (seq2 > seq)
+		seq = seq2;
+#endif
+
+	printk_cpu_sync_put_irqrestore(flags);
+
+	return seq;
+#else /* CONFIG_HAVE_ATOMIC_CONSOLE */
+	return con->seq;
+#endif
+}
+
+static void write_console_seq(struct console *con, u64 val, bool atomic_printing)
+{
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	unsigned long flags;
+	u64 *seq;
+
+	if (!con->atomic_data) {
+		con->seq = val;
+		return;
+	}
+
+	printk_cpu_sync_get_irqsave(flags);
+
+	if (atomic_printing) {
+		seq = &con->atomic_data[0].seq;
+#ifdef CONFIG_HAVE_NMI
+		if (in_nmi())
+			seq = &con->atomic_data[1].seq;
+#endif
+	} else {
+		seq = &con->seq;
+	}
+	*seq = val;
+
+	printk_cpu_sync_put_irqrestore(flags);
+#else /* CONFIG_HAVE_ATOMIC_CONSOLE */
+	con->seq = val;
+#endif
+}
+
 /*
  * Print one record for the given console. The record printed is whatever
  * record is the next available record for the given console.
@@ -2841,6 +2993,8 @@ static void __console_unlock(void)
  *
  * If dropped messages should be printed, @dropped_text is a buffer of size
  * DROPPED_TEXT_MAX. Otherwise @dropped_text must be NULL.
+ *
+ * @atomic_printing specifies if atomic printing should be used.
  *
  * @handover will be set to true if a printk waiter has taken over the
  * console_lock, in which case the caller is no longer holding the
@@ -2854,7 +3008,8 @@ static void __console_unlock(void)
  * Requires con->lock otherwise.
  */
 static bool __console_emit_next_record(struct console *con, char *text, char *ext_text,
-				       char *dropped_text, bool *handover)
+				       char *dropped_text, bool atomic_printing,
+				       bool *handover)
 {
 	static atomic_t panic_console_dropped = ATOMIC_INIT(0);
 	struct printk_info info;
@@ -2862,18 +3017,22 @@ static bool __console_emit_next_record(struct console *con, char *text, char *ex
 	unsigned long flags;
 	char *write_text;
 	size_t len;
+	u64 seq;
 
 	prb_rec_init_rd(&r, &info, text, CONSOLE_LOG_MAX);
 
 	if (handover)
 		*handover = false;
 
-	if (!prb_read_valid(prb, con->seq, &r))
+	seq = read_console_seq(con);
+
+	if (!prb_read_valid(prb, seq, &r))
 		return false;
 
-	if (con->seq != r.info->seq) {
-		con->dropped += r.info->seq - con->seq;
-		con->seq = r.info->seq;
+	if (seq != r.info->seq) {
+		atomic_long_add((unsigned long)(r.info->seq - seq), &con->dropped);
+		write_console_seq(con, r.info->seq, atomic_printing);
+		seq = r.info->seq;
 		if (panic_in_progress() &&
 		    atomic_fetch_inc_relaxed(&panic_console_dropped) > 10) {
 			suppress_panic_printk = 1;
@@ -2883,7 +3042,7 @@ static bool __console_emit_next_record(struct console *con, char *text, char *ex
 
 	/* Skip record that has level above the console loglevel. */
 	if (suppress_message_printing(r.info->level)) {
-		con->seq++;
+		write_console_seq(con, seq + 1, atomic_printing);
 		goto skip;
 	}
 
@@ -2915,9 +3074,9 @@ static bool __console_emit_next_record(struct console *con, char *text, char *ex
 		stop_critical_timings();
 	}
 
-	call_console_driver(con, write_text, len, dropped_text);
+	call_console_driver(con, write_text, len, dropped_text, atomic_printing);
 
-	con->seq++;
+	write_console_seq(con, seq + 1, atomic_printing);
 
 	if (handover) {
 		start_critical_timings();
@@ -2949,7 +3108,7 @@ static bool console_emit_next_record_transferable(struct console *con, char *tex
 		handover = NULL;
 	}
 
-	return __console_emit_next_record(con, text, ext_text, dropped_text, handover);
+	return __console_emit_next_record(con, text, ext_text, dropped_text, false, handover);
 }
 
 /*
@@ -2997,7 +3156,7 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 		for_each_console(con) {
 			bool progress;
 
-			if (!console_is_usable(con))
+			if (!console_is_usable(con, false))
 				continue;
 			any_usable = true;
 
@@ -3031,6 +3190,68 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 
 	return any_usable;
 }
+
+#if defined(CONFIG_HAVE_ATOMIC_CONSOLE) && defined(CONFIG_PRINTK)
+static bool console_emit_next_record(struct console *con, char *text, char *ext_text,
+				     char *dropped_text, bool atomic_printing);
+
+static void atomic_console_flush_all(void)
+{
+	unsigned long flags;
+	struct console *con;
+	bool any_progress;
+	int index = 0;
+
+	if (console_suspended)
+		return;
+
+#ifdef CONFIG_HAVE_NMI
+	if (in_nmi())
+		index = 1;
+#endif
+
+	printk_cpu_sync_get_irqsave(flags);
+
+	do {
+		any_progress = false;
+
+		for_each_console(con) {
+			bool progress;
+
+			if (!console_is_usable(con, true))
+				continue;
+
+			if (con->flags & CON_EXTENDED) {
+				/* Extended consoles do not print "dropped messages". */
+				progress = console_emit_next_record(con,
+							&con->atomic_data->text[index],
+							&con->atomic_data->ext_text[index],
+							NULL,
+							true);
+			} else {
+				progress = console_emit_next_record(con,
+							&con->atomic_data->text[index],
+							NULL,
+							&con->atomic_data->dropped_text[index],
+							true);
+			}
+
+			if (!progress)
+				continue;
+			any_progress = true;
+
+			touch_softlockup_watchdog_sync();
+			clocksource_touch_watchdog();
+			rcu_cpu_stall_reset();
+			touch_nmi_watchdog();
+		}
+	} while (any_progress);
+
+	printk_cpu_sync_put_irqrestore(flags);
+}
+#else /* CONFIG_HAVE_ATOMIC_CONSOLE && CONFIG_PRINTK */
+#define atomic_console_flush_all()
+#endif
 
 /**
  * console_unlock - unlock the console system
@@ -3147,6 +3368,11 @@ void console_unblank(void)
  */
 void console_flush_on_panic(enum con_flush_mode mode)
 {
+	if (mode == CONSOLE_ATOMIC_FLUSH_PENDING) {
+		atomic_console_flush_all();
+		return;
+	}
+
 	/*
 	 * If someone else is holding the console lock, trylock will fail
 	 * and may_schedule may be set.  Ignore and proceed to unlock so
@@ -3163,7 +3389,7 @@ void console_flush_on_panic(enum con_flush_mode mode)
 
 		seq = prb_first_valid_seq(prb);
 		for_each_console(c)
-			c->seq = seq;
+			write_console_seq(c, seq, false);
 	}
 	console_unlock();
 }
@@ -3403,19 +3629,22 @@ void register_console(struct console *newcon)
 		console_drivers->next = newcon;
 	}
 
-	newcon->dropped = 0;
+	atomic_long_set(&newcon->dropped, 0);
 	newcon->thread = NULL;
 	newcon->blocked = true;
 	mutex_init(&newcon->lock);
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	newcon->atomic_data = NULL;
+#endif
 
 	if (newcon->flags & CON_PRINTBUFFER) {
 		/* Get a consistent copy of @syslog_seq. */
 		mutex_lock(&syslog_lock);
-		newcon->seq = syslog_seq;
+		write_console_seq(newcon, syslog_seq, false);
 		mutex_unlock(&syslog_lock);
 	} else {
 		/* Begin with next message. */
-		newcon->seq = prb_next_seq(prb);
+		write_console_seq(newcon, prb_next_seq(prb), false);
 	}
 
 	if (printk_kthreads_available)
@@ -3497,6 +3726,10 @@ int unregister_console(struct console *console)
 		kthread_stop(thd);
 
 	console_sysfs_notify();
+
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	free_atomic_data(console->atomic_data);
+#endif
 
 	if (console->exit)
 		res = console->exit(console);
@@ -3628,7 +3861,7 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 		for_each_console(c) {
 			if (con && con != c)
 				continue;
-			if (!console_is_usable(c))
+			if (!console_is_usable(c, false))
 				continue;
 			printk_seq = c->seq;
 			if (printk_seq < seq)
@@ -3717,9 +3950,10 @@ static void printk_fallback_preferred_direct(void)
  * See __console_emit_next_record() for argument and return details.
  */
 static bool console_emit_next_record(struct console *con, char *text, char *ext_text,
-				     char *dropped_text)
+				     char *dropped_text, bool atomic_printing)
 {
-	return __console_emit_next_record(con, text, ext_text, dropped_text, NULL);
+	return __console_emit_next_record(con, text, ext_text, dropped_text,
+					  atomic_printing, NULL);
 }
 
 static bool printer_should_wake(struct console *con, u64 seq)
@@ -3759,6 +3993,11 @@ static int printk_kthread_func(void *data)
 	u64 seq = 0;
 	char *text;
 	int error;
+
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	if (con->write_atomic)
+		con->atomic_data = alloc_atomic_data(con->flags);
+#endif
 
 	text = kmalloc(CONSOLE_LOG_MAX, GFP_KERNEL);
 	if (!text) {
@@ -3837,7 +4076,7 @@ static int printk_kthread_func(void *data)
 		 * which can conditionally invoke cond_resched().
 		 */
 		console_may_schedule = 0;
-		console_emit_next_record(con, text, ext_text, dropped_text);
+		console_emit_next_record(con, text, ext_text, dropped_text, false);
 
 		seq = con->seq;
 

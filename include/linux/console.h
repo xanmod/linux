@@ -138,9 +138,19 @@ static inline int con_debug_leave(void)
 #define CON_BRL		(32) /* Used for a braille device */
 #define CON_EXTENDED	(64) /* Use the extended output format a la /dev/kmsg */
 
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+struct console_atomic_data {
+	u64	seq;
+	char	*text;
+	char	*ext_text;
+	char	*dropped_text;
+};
+#endif
+
 struct console {
 	char	name[16];
 	void	(*write)(struct console *, const char *, unsigned);
+	void	(*write_atomic)(struct console *, const char *, unsigned);
 	int	(*read)(struct console *, char *, unsigned);
 	struct tty_driver *(*device)(struct console *, int *);
 	void	(*unblank)(void);
@@ -153,7 +163,10 @@ struct console {
 	uint	ispeed;
 	uint	ospeed;
 	u64	seq;
-	unsigned long dropped;
+	atomic_long_t dropped;
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	struct console_atomic_data *atomic_data;
+#endif
 	struct task_struct *thread;
 	bool	blocked;
 
@@ -184,6 +197,7 @@ extern int console_set_on_cmdline;
 extern struct console *early_console;
 
 enum con_flush_mode {
+	CONSOLE_ATOMIC_FLUSH_PENDING,
 	CONSOLE_FLUSH_PENDING,
 	CONSOLE_REPLAY_ALL,
 };
