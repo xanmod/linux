@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.16.10 Kernel Configuration
+# Linux/x86 5.16.11 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="Debian clang version 12.0.1-16"
 CONFIG_GCC_VERSION=0
@@ -3868,7 +3868,6 @@ CONFIG_IWLWIFI_LEDS=y
 CONFIG_IWLDVM=m
 CONFIG_IWLMVM=m
 CONFIG_IWLWIFI_OPMODE_MODULAR=y
-# CONFIG_IWLWIFI_BCAST_FILTERING is not set
 
 #
 # Debugging Options
