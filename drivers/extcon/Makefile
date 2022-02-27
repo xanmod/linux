@@ -26,3 +26,4 @@ obj-$(CONFIG_EXTCON_USB_GPIO)	+= extcon-usb-gpio.o
 obj-$(CONFIG_EXTCON_USBC_CROS_EC) += extcon-usbc-cros-ec.o
 obj-$(CONFIG_EXTCON_USBC_TUSB320) += extcon-usbc-tusb320.o
 obj-$(CONFIG_EXTCON_RTK_TYPE_C) += extcon-rtk-type-c.o
+obj-$(CONFIG_EXTCON_STEAMDECK)  += extcon-steamdeck.o

@@ -203,4 +203,11 @@ config EXTCON_RTK_TYPE_C
 	  The DHC (Digital Home Hub) RTD series SoC contains a type c module.
 	  This driver will detect the status of the type-c port.
 
+config EXTCON_STEAMDECK
+	tristate "Steam Deck extcon support"
+	depends on MFD_STEAMDECK
+	help
+	  Say Y here to enable support of USB Type C cable detection extcon
+	  support on Steam Deck devices
+
 endif
