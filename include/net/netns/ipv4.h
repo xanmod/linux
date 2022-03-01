@@ -223,6 +223,7 @@ struct netns_ipv4 {
 
 	u8 sysctl_fib_notify_on_flag_change;
 	u8 sysctl_tcp_syn_linear_timeouts;
+	unsigned int sysctl_tcp_collapse_max_bytes;
 
 #ifdef CONFIG_NET_L3_MASTER_DEV
 	u8 sysctl_udp_l3mdev_accept;

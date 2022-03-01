@@ -3505,6 +3505,7 @@ static int __net_init tcp_sk_init(struct net *net)
 
 	net->ipv4.sysctl_tcp_syn_linear_timeouts = 4;
 	net->ipv4.sysctl_tcp_shrink_window = 0;
+	net->ipv4.sysctl_tcp_collapse_max_bytes = 0;
 
 	net->ipv4.sysctl_tcp_pingpong_thresh = 1;
 	net->ipv4.sysctl_tcp_rto_min_us = jiffies_to_usecs(TCP_RTO_MIN);
