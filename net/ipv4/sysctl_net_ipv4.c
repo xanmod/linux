@@ -1427,6 +1427,13 @@ static struct ctl_table ipv4_net_table[] = {
 		.mode           = 0644,
 		.proc_handler   = proc_dou8vec_minmax,
 	},
+	{
+		.procname	= "tcp_collapse_max_bytes",
+		.data		= &init_net.ipv4.sysctl_tcp_collapse_max_bytes,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
 	{ }
 };
 
