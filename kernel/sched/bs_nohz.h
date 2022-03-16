@@ -701,7 +701,6 @@ static void nohz_try_pull_from_candidate(void)
 {
 	int cpu;
 	struct rq *rq;
-	struct cfs_rq *cfs_rq;
 #ifdef CONFIG_NO_HZ_FULL
 	struct rq_flags rf;
 #endif
