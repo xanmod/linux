@@ -201,7 +201,7 @@ EXPORT_SYMBOL(add_disk_randomness);
 #endif
 
 #ifndef CONFIG_LRNG_IRQ
-void add_interrupt_randomness(int irq, int irq_flg) { }
+void add_interrupt_randomness(int irq) { }
 EXPORT_SYMBOL(add_interrupt_randomness);
 #endif
 
