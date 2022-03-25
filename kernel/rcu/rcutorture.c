@@ -3282,7 +3282,7 @@ rcu_torture_init(void)
 				t = per_cpu(ksoftirqd, cpu);
 				WARN_ON_ONCE(!t);
 				sp.sched_priority = 2;
-				sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+				sched_setscheduler_nocheck(t, SCHED_RR, &sp);
 			}
 		}
 	}
