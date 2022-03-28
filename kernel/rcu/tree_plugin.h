@@ -554,16 +554,16 @@ rcu_preempt_deferred_qs_irqrestore(struct task_struct *t, unsigned long flags)
 			raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
 		}
 
-		/* Unboost if we were boosted. */
-		if (IS_ENABLED(CONFIG_RCU_BOOST) && drop_boost_mutex)
-			rt_mutex_futex_unlock(&rnp->boost_mtx.rtmutex);
-
 		/*
 		 * If this was the last task on the expedited lists,
 		 * then we need to report up the rcu_node hierarchy.
 		 */
 		if (!empty_exp && empty_exp_now)
 			rcu_report_exp_rnp(rnp, true);
+
+		/* Unboost if we were boosted. */
+		if (IS_ENABLED(CONFIG_RCU_BOOST) && drop_boost_mutex)
+			rt_mutex_futex_unlock(&rnp->boost_mtx.rtmutex);
 	} else {
 		local_irq_restore(flags);
 	}
@@ -990,7 +990,7 @@ static void rcu_cpu_kthread_setup(unsigned int cpu)
 	struct sched_param sp;
 
 	sp.sched_priority = kthread_prio;
-	sched_setscheduler_nocheck(current, SCHED_FIFO, &sp);
+	sched_setscheduler_nocheck(current, SCHED_RR, &sp);
 #endif /* #ifdef CONFIG_RCU_BOOST */
 }
 
@@ -1177,7 +1177,7 @@ static void rcu_spawn_one_boost_kthread(struct rcu_node *rnp)
 	rnp->boost_kthread_task = t;
 	raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
 	sp.sched_priority = kthread_prio;
-	sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+	sched_setscheduler_nocheck(t, SCHED_RR, &sp);
 	wake_up_process(t); /* get to TASK_INTERRUPTIBLE quickly. */
 }
 
