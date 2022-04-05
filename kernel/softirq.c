@@ -621,12 +621,7 @@ static inline void tick_irq_exit(void)
 
 #ifdef CONFIG_PREEMPT_RT
 DEFINE_PER_CPU(struct task_struct *, timersd);
-static DEFINE_PER_CPU(unsigned long, pending_timer_softirq);
-
-static unsigned int local_pending_timers(void)
-{
-        return __this_cpu_read(pending_timer_softirq);
-}
+DEFINE_PER_CPU(unsigned long, pending_timer_softirq);
 
 static void wake_timersd(void)
 {
