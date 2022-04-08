@@ -701,13 +701,10 @@ void swiotlb_tbl_unmap_single(struct device *dev, phys_addr_t tlb_addr,
 void swiotlb_sync_single_for_device(struct device *dev, phys_addr_t tlb_addr,
 		size_t size, enum dma_data_direction dir)
 {
-	/*
-	 * Unconditional bounce is necessary to avoid corruption on
-	 * sync_*_for_cpu or dma_ummap_* when the device didn't overwrite
-	 * the whole lengt of the bounce buffer.
-	 */
-	swiotlb_bounce(dev, tlb_addr, size, DMA_TO_DEVICE);
-	BUG_ON(!valid_dma_direction(dir));
+	if (dir == DMA_TO_DEVICE || dir == DMA_BIDIRECTIONAL)
+		swiotlb_bounce(dev, tlb_addr, size, DMA_TO_DEVICE);
+	else
+		BUG_ON(dir != DMA_FROM_DEVICE);
 }
 
 void swiotlb_sync_single_for_cpu(struct device *dev, phys_addr_t tlb_addr,
