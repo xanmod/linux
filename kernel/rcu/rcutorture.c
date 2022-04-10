@@ -888,7 +888,7 @@ static int rcu_torture_boost(void *arg)
 	VERBOSE_TOROUT_STRING("rcu_torture_boost started");
 
 	/* Set real-time priority. */
-	sched_set_fifo_low(current);
+	sched_set_rr_low(current);
 
 	init_rcu_head_on_stack(&rbi.rcu);
 	/* Each pass through the following loop does one boost-test cycle. */
