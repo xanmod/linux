@@ -34,7 +34,7 @@ struct winesync_wait_args {
 	__u32 count;
 	__u32 owner;
 	__u32 index;
-	__u32 pad;
+	__u32 alert;
 };
 
 #define WINESYNC_IOC_BASE 0xf7
