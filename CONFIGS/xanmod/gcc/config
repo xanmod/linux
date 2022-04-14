@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.10.110 Kernel Configuration
+# Linux/x86 5.10.111 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-11 (Debian 11.2.0-12) 11.2.0"
 CONFIG_CC_IS_GCC=y
@@ -8342,6 +8342,7 @@ CONFIG_VHOST_VDPA=m
 #
 CONFIG_HYPERV=m
 CONFIG_HYPERV_TIMER=y
+CONFIG_HYPERV_UTILS=m
 CONFIG_HYPERV_BALLOON=m
 # end of Microsoft Hyper-V guest support
 
