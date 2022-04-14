@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.15.33 Kernel Configuration
+# Linux/x86 5.15.34 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="Debian clang version 12.0.1-16"
 CONFIG_GCC_VERSION=0
@@ -714,7 +714,6 @@ CONFIG_AMD_NB=y
 # Binary Emulations
 #
 CONFIG_IA32_EMULATION=y
-CONFIG_X86_X32=y
 CONFIG_COMPAT_32=y
 CONFIG_COMPAT=y
 CONFIG_COMPAT_FOR_U64_ALIGNMENT=y
