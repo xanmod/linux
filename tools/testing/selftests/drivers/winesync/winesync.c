@@ -110,7 +110,7 @@ static int read_event_state(int fd, __u32 event, __u32 *signaled, __u32 *manual)
 	})
 
 static int wait_objs(int fd, unsigned long request, __u32 count,
-		     const __u32 *objs, __u32 owner, __u32 *index)
+		     const __u32 *objs, __u32 owner, __u32 alert, __u32 *index)
 {
 	struct winesync_wait_args args = {0};
 	struct timespec timeout;
@@ -123,6 +123,7 @@ static int wait_objs(int fd, unsigned long request, __u32 count,
 	args.objs = (uintptr_t)objs;
 	args.owner = owner;
 	args.index = 0xdeadbeef;
+	args.alert = alert;
 	ret = ioctl(fd, request, &args);
 	*index = args.index;
 	return ret;
@@ -131,13 +132,29 @@ static int wait_objs(int fd, unsigned long request, __u32 count,
 static int wait_any(int fd, __u32 count, const __u32 *objs,
 		    __u32 owner, __u32 *index)
 {
-	return wait_objs(fd, WINESYNC_IOC_WAIT_ANY, count, objs, owner, index);
+	return wait_objs(fd, WINESYNC_IOC_WAIT_ANY,
+			 count, objs, owner, 0, index);
 }
 
 static int wait_all(int fd, __u32 count, const __u32 *objs,
 		    __u32 owner, __u32 *index)
 {
-	return wait_objs(fd, WINESYNC_IOC_WAIT_ALL, count, objs, owner, index);
+	return wait_objs(fd, WINESYNC_IOC_WAIT_ALL,
+			 count, objs, owner, 0, index);
+}
+
+static int wait_any_alert(int fd, __u32 count, const __u32 *objs,
+			  __u32 owner, __u32 alert, __u32 *index)
+{
+	return wait_objs(fd, WINESYNC_IOC_WAIT_ANY,
+			 count, objs, owner, alert, index);
+}
+
+static int wait_all_alert(int fd, __u32 count, const __u32 *objs,
+			  __u32 owner, __u32 alert, __u32 *index)
+{
+	return wait_objs(fd, WINESYNC_IOC_WAIT_ALL,
+			 count, objs, owner, alert, index);
 }
 
 TEST(semaphore_state)
@@ -1221,6 +1238,174 @@ TEST(wake_all)
 	EXPECT_EQ(0, ret);
 	EXPECT_EQ(-1, thread_args.ret);
 	EXPECT_EQ(ETIMEDOUT, thread_args.err);
+
+	close(fd);
+}
+
+TEST(alert_any)
+{
+	struct winesync_event_args event_args = {0};
+	struct winesync_sem_args sem_args = {0};
+	__u32 objs[2], index;
+	int fd, ret;
+
+	fd = open("/dev/winesync", O_CLOEXEC | O_RDONLY);
+	ASSERT_LE(0, fd);
+
+	sem_args.count = 0;
+	sem_args.max = 2;
+	sem_args.sem = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, sem_args.sem);
+	objs[0] = sem_args.sem;
+
+	sem_args.count = 1;
+	sem_args.max = 2;
+	sem_args.sem = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, sem_args.sem);
+	objs[1] = sem_args.sem;
+
+	event_args.manual = true;
+	event_args.signaled = true;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_any_alert(fd, 0, NULL, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+
+	ret = ioctl(fd, WINESYNC_IOC_RESET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_any_alert(fd, 0, NULL, 123, event_args.event, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(ETIMEDOUT, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_SET_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_any_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(1, index);
+
+	ret = wait_any_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(2, index);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
+	EXPECT_EQ(0, ret);
+
+	/* test with an auto-reset event */
+
+	event_args.manual = false;
+	event_args.signaled = true;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	sem_args.sem = objs[0];
+	sem_args.count = 1;
+	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_any_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+
+	ret = wait_any_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(2, index);
+
+	ret = wait_any_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(ETIMEDOUT, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
+	EXPECT_EQ(0, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &objs[0]);
+	EXPECT_EQ(0, ret);
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &objs[1]);
+	EXPECT_EQ(0, ret);
+
+	close(fd);
+}
+
+TEST(alert_all)
+{
+	struct winesync_event_args event_args = {0};
+	struct winesync_sem_args sem_args = {0};
+	__u32 objs[2], index;
+	int fd, ret;
+
+	fd = open("/dev/winesync", O_CLOEXEC | O_RDONLY);
+	ASSERT_LE(0, fd);
+
+	sem_args.count = 2;
+	sem_args.max = 2;
+	sem_args.sem = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, sem_args.sem);
+	objs[0] = sem_args.sem;
+
+	sem_args.count = 1;
+	sem_args.max = 2;
+	sem_args.sem = 0xdeadbeef;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+	EXPECT_NE(0xdeadbeef, sem_args.sem);
+	objs[1] = sem_args.sem;
+
+	event_args.manual = true;
+	event_args.signaled = true;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_all_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+
+	ret = wait_all_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(2, index);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
+	EXPECT_EQ(0, ret);
+
+	/* test with an auto-reset event */
+
+	event_args.manual = false;
+	event_args.signaled = true;
+	ret = ioctl(fd, WINESYNC_IOC_CREATE_EVENT, &event_args);
+	EXPECT_EQ(0, ret);
+
+	sem_args.sem = objs[1];
+	sem_args.count = 2;
+	ret = ioctl(fd, WINESYNC_IOC_PUT_SEM, &sem_args);
+	EXPECT_EQ(0, ret);
+
+	ret = wait_all_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(0, index);
+
+	ret = wait_all_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(0, ret);
+	EXPECT_EQ(2, index);
+
+	ret = wait_all_alert(fd, 2, objs, 123, event_args.event, &index);
+	EXPECT_EQ(-1, ret);
+	EXPECT_EQ(ETIMEDOUT, errno);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &event_args.event);
+	EXPECT_EQ(0, ret);
+
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &objs[0]);
+	EXPECT_EQ(0, ret);
+	ret = ioctl(fd, WINESYNC_IOC_DELETE, &objs[1]);
+	EXPECT_EQ(0, ret);
 
 	close(fd);
 }
