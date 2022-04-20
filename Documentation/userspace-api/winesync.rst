@@ -354,9 +354,13 @@ The ioctls are as follows:
          ``EINVAL``.
      * - ``index``
        - On success, contains the index (into ``objs``) of the object
-         which was signaled.
-     * - ``pad``
-       - This field is not used and must be set to zero.
+         which was signaled. If ``alert`` was signaled instead,
+         this contains ``count``.
+     * - ``alert``
+       - Optional event object identifier. If nonzero, this specifies
+         an "alert" event object which, if signaled, will terminate
+         the wait. If nonzero, the identifier must point to a valid
+         event.
 
   This function attempts to acquire one of the given objects. If
   unable to do so, it sleeps until an object becomes signaled,
@@ -385,9 +389,19 @@ The ioctls are as follows:
   the given owner (with a recursion count of 1) and as no longer
   inconsistent, and ``index`` is still set to the index of the mutex.
 
-  It is valid to pass the same object more than once. If a wakeup
-  occurs due to that object being signaled, ``index`` is set to the
-  lowest index corresponding to that object.
+  The ``alert`` argument is an "extra" event which can terminate the
+  wait, independently of all other objects. If members of ``objs`` and
+  ``alert`` are both simultaneously signaled, a member of ``objs``
+  will always be given priority and acquired first. Aside from this,
+  for "any" waits, there is no difference between passing an event as
+  this parameter, and passing it as an additional object at the end of
+  the ``objs`` array. For "all" waits, there is an additional
+  difference, as described below.
+
+  It is valid to pass the same object more than once, including by
+  passing the same event in the ``objs`` array and in ``alert``. If a
+  wakeup occurs due to that object being signaled, ``index`` is set to
+  the lowest index corresponding to that object.
 
   The function may fail with ``EINTR`` if a signal is received.
 
@@ -396,7 +410,7 @@ The ioctls are as follows:
   Poll on a list of objects, atomically acquiring all of them. Takes a
   pointer to struct :c:type:`winesync_wait_args`, which is used
   identically to ``WINESYNC_IOC_WAIT_ANY``, except that ``index`` is
-  always filled with zero on success.
+  always filled with zero on success if not woken via alert.
 
   This function attempts to simultaneously acquire all of the given
   objects. If unable to do so, it sleeps until all objects become
@@ -417,6 +431,14 @@ The ioctls are as follows:
   objects are specified, there is no way to know which were marked as
   inconsistent.
 
+  As with "any" waits, the ``alert`` argument is an "extra" event
+  which can terminate the wait. Critically, however, an "all" wait
+  will succeed if all members in ``objs`` are signaled, *or* if
+  ``alert`` is signaled. In the latter case ``index`` will be set to
+  ``count``. As with "any" waits, if both conditions are filled, the
+  former takes priority, and objects in ``objs`` will be acquired.
+
   Unlike ``WINESYNC_IOC_WAIT_ANY``, it is not valid to pass the same
-  object more than once. If this is attempted, the function fails with
-  ``EINVAL``.
+  object more than once, nor is it valid to pass the same object in
+  ``objs`` and in ``alert`` If this is attempted, the function fails
+  with ``EINVAL``.
