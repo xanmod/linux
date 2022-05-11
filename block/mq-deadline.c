@@ -4,6 +4,9 @@
  *  for the blk-mq scheduling framework
  *
  *  Copyright (C) 2016 Jens Axboe <axboe@kernel.dk>
+ *
+ *  Tunes for responsiveness by Alexandre Frade
+ *  (C) 2022 Alexandre Frade <kernel@xanmod.org>
  */
 #include <linux/kernel.h>
 #include <linux/fs.h>
@@ -28,13 +31,13 @@
  * See Documentation/block/deadline-iosched.rst
  */
 static const int read_expire = HZ / 2;  /* max time before a read is submitted. */
-static const int write_expire = 5 * HZ; /* ditto for writes, these limits are SOFT! */
+static const int write_expire = HZ;     /* ditto for writes, these limits are SOFT! */
 /*
  * Time after which to dispatch lower priority requests even if higher
  * priority requests are pending.
  */
 static const int prio_aging_expire = 10 * HZ;
-static const int writes_starved = 2;    /* max times reads can starve a write */
+static const int writes_starved = 1;    /* max times reads can starve a write */
 static const int fifo_batch = 16;       /* # of sequential requests treated as one
 				     by the above parameters. For throughput. */
 
