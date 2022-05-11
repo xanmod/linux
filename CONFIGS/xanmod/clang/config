@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.15.36 Kernel Configuration
+# Linux/x86 5.15.38 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="Debian clang version 12.0.1-16"
 CONFIG_GCC_VERSION=0
@@ -2597,6 +2597,7 @@ CONFIG_PNPACPI=y
 CONFIG_BLK_DEV=y
 CONFIG_BLK_DEV_NULL_BLK=m
 CONFIG_BLK_DEV_FD=m
+# CONFIG_BLK_DEV_FD_RAWCMD is not set
 CONFIG_CDROM=y
 CONFIG_PARIDE=m
 
