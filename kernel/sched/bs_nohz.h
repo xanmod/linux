@@ -703,6 +703,7 @@ static void nohz_try_pull_from_candidate(void)
 	struct rq *rq;
 #ifdef CONFIG_NO_HZ_FULL
 	struct rq_flags rf;
+	struct cfs_rq *cfs_rq;
 #endif
 
 	/* first, push to grq*/
