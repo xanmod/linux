@@ -92,7 +92,6 @@ scm_version()
 		# If only the short version is requested, don't bother
 		# running further git commands
 		if $short; then
-			echo "+"
 			return
 		fi
 		# If we are past the tagged commit, we pretty print it.
