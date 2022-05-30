@@ -133,7 +133,7 @@ struct rand_data {
 #define JENT_ENTROPY_SAFETY_FACTOR	64
 
 #include <linux/fips.h>
-#include <crypto/internal/jitterentropy.h>
+#include "jitterentropy.h"
 
 /***************************************************************************
  * Adaptive Proportion Test
