@@ -190,18 +190,12 @@ irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc, unsigned int *flags
 
 irqreturn_t handle_irq_event_percpu(struct irq_desc *desc)
 {
-	struct pt_regs *regs = get_irq_regs();
-	u64 ip = regs ? instruction_pointer(regs) : 0;
-	unsigned int flags = 0;
 	irqreturn_t retval;
+	unsigned int flags = 0;
 
 	retval = __handle_irq_event_percpu(desc, &flags);
 
-#ifdef CONFIG_PREEMPT_RT
-	desc->random_ip = ip;
-#else
-	add_interrupt_randomness(desc->irq_data.irq, flags, ip);
-#endif
+	add_interrupt_randomness(desc->irq_data.irq);
 
 	if (!irq_settings_no_debug(desc))
 		note_interrupt(desc, retval);
