@@ -10837,13 +10837,6 @@ F:	Documentation/litmus-tests/
 F:	Documentation/memory-barriers.txt
 F:	tools/memory-model/
 
-LINUX RANDOM NUMBER GENERATOR (LRNG) DRIVER
-M:	Stephan Mueller <smueller@chronox.de>
-S:	Maintained
-W:	https://www.chronox.de/lrng.html
-F:	drivers/char/lrng/*
-F:	include/linux/lrng.h
-
 LIS3LV02D ACCELEROMETER DRIVER
 M:	Eric Piel <eric.piel@tremplin-utc.net>
 S:	Maintained
@@ -15734,6 +15727,8 @@ F:	arch/mips/generic/board-ranchu.c
 
 RANDOM NUMBER DRIVER
 M:	"Theodore Ts'o" <tytso@mit.edu>
+M:	Jason A. Donenfeld <Jason@zx2c4.com>
+T:	git https://git.kernel.org/pub/scm/linux/kernel/git/crng/random.git
 S:	Maintained
 F:	drivers/char/random.c
 
