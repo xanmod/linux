@@ -1309,6 +1309,18 @@ config SCHED_AUTOGROUP
 	  desktop applications.  Task group autogeneration is currently based
 	  upon task session.
 
+config SCHED_AUTOGROUP_DEFAULT_ENABLED
+	bool "Enable automatic process group scheduling feature"
+	default y
+	depends on SCHED_AUTOGROUP
+	help
+	  If set, automatic process group scheduling will be enabled per
+	  default but can be disabled through passing autogroup=0 on the
+	  kernel commandline during boot or a value of 0 via the file
+	  proc/sys/kernel/sched_autogroup_enabled.
+
+	  If unsure say Y.
+
 config RELAY
 	bool "Kernel->user space relay support (formerly relayfs)"
 	select IRQ_WORK
