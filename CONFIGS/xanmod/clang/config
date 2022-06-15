@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.15.45 Kernel Configuration
+# Linux/x86 5.15.47 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="Debian clang version 12.0.1-16"
 CONFIG_GCC_VERSION=0
@@ -10493,7 +10493,6 @@ CONFIG_INTEGRITY_AUDIT=y
 CONFIG_IMA=y
 CONFIG_IMA_MEASURE_PCR_IDX=10
 CONFIG_IMA_LSM_RULES=y
-# CONFIG_IMA_TEMPLATE is not set
 CONFIG_IMA_NG_TEMPLATE=y
 # CONFIG_IMA_SIG_TEMPLATE is not set
 CONFIG_IMA_DEFAULT_TEMPLATE="ima-ng"
