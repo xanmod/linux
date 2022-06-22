@@ -3245,6 +3245,76 @@ out:
 }
 #endif /* CONFIG_NUMA_BALANCING */
 
+#ifdef CONFIG_PREEMPT_RT
+
+/*
+ * Consider:
+ *
+ *  set_special_state(X);
+ *
+ *  do_things()
+ *    // Somewhere in there is an rtlock that can be contended:
+ *    current_save_and_set_rtlock_wait_state();
+ *    [...]
+ *    schedule_rtlock(); (A)
+ *    [...]
+ *    current_restore_rtlock_saved_state();
+ *
+ *  schedule(); (B)
+ *
+ * If p->saved_state is anything else than TASK_RUNNING, then p blocked on an
+ * rtlock (A) *before* voluntarily calling into schedule() (B) after setting its
+ * state to X. For things like ptrace (X=TASK_TRACED), the task could have more
+ * work to do upon acquiring the lock in do_things() before whoever called
+ * wait_task_inactive() should return. IOW, we have to wait for:
+ *
+ *   p.saved_state = TASK_RUNNING
+ *   p.__state     = X
+ *
+ * which implies the task isn't blocked on an RT lock and got to schedule() (B).
+ *
+ * Also see comments in ttwu_state_match().
+ */
+
+static __always_inline bool state_mismatch(struct task_struct *p, unsigned int match_state)
+{
+	unsigned long flags;
+	bool mismatch;
+
+	raw_spin_lock_irqsave(&p->pi_lock, flags);
+	if (READ_ONCE(p->__state) & match_state)
+		mismatch = false;
+	else if (READ_ONCE(p->saved_state) & match_state)
+		mismatch = false;
+	else
+		mismatch = true;
+
+	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+	return mismatch;
+}
+static __always_inline bool state_match(struct task_struct *p, unsigned int match_state,
+					bool *wait)
+{
+	if (READ_ONCE(p->__state) & match_state)
+		return true;
+	if (READ_ONCE(p->saved_state) & match_state) {
+		*wait = true;
+		return true;
+	}
+	return false;
+}
+#else
+static __always_inline bool state_mismatch(struct task_struct *p, unsigned int match_state)
+{
+	return !(READ_ONCE(p->__state) & match_state);
+}
+static __always_inline bool state_match(struct task_struct *p, unsigned int match_state,
+					bool *wait)
+{
+	return (READ_ONCE(p->__state) & match_state);
+}
+#endif
+
 /*
  * wait_task_inactive - wait for a thread to unschedule.
  *
@@ -3263,7 +3333,7 @@ out:
  */
 unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state)
 {
-	int running, queued;
+	bool running, wait;
 	struct rq_flags rf;
 	unsigned long ncsw;
 	struct rq *rq;
@@ -3289,7 +3359,7 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		 * is actually now running somewhere else!
 		 */
 		while (task_on_cpu(rq, p)) {
-			if (!(READ_ONCE(p->__state) & match_state))
+			if (state_mismatch(p, match_state))
 				return 0;
 			cpu_relax();
 		}
@@ -3302,9 +3372,10 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		rq = task_rq_lock(p, &rf);
 		trace_sched_wait_task(p);
 		running = task_on_cpu(rq, p);
-		queued = task_on_rq_queued(p);
+		wait = task_on_rq_queued(p);
 		ncsw = 0;
-		if (READ_ONCE(p->__state) & match_state)
+
+		if (state_match(p, match_state, &wait))
 			ncsw = p->nvcsw | LONG_MIN; /* sets MSB */
 		task_rq_unlock(rq, p, &rf);
 
@@ -3334,7 +3405,7 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		 * running right now), it's preempted, and we should
 		 * yield - it could be a while.
 		 */
-		if (unlikely(queued)) {
+		if (unlikely(wait)) {
 			ktime_t to = NSEC_PER_SEC / HZ;
 
 			set_current_state(TASK_UNINTERRUPTIBLE);
