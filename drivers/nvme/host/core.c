@@ -3690,6 +3690,7 @@ static struct nvme_ns_head *nvme_alloc_ns_head(struct nvme_ctrl *ctrl,
 	if (ret) {
 		dev_err(ctrl->device,
 			"duplicate IDs for nsid %d\n", nsid);
+		nvme_print_device_info(ctrl);
 		goto out_cleanup_srcu;
 	}
 
