@@ -36,10 +36,13 @@ static struct workqueue_struct *cryptd_wq;
 struct cryptd_cpu_queue {
 	struct crypto_queue queue;
 	struct work_struct work;
-	spinlock_t qlock;
 };
 
 struct cryptd_queue {
+	/*
+	 * Protected by disabling BH to allow enqueueing from softinterrupt and
+	 * dequeuing from kworker (cryptd_queue_worker()).
+	 */
 	struct cryptd_cpu_queue __percpu *cpu_queue;
 };
 
@@ -106,7 +109,6 @@ static int cryptd_init_queue(struct cryptd_queue *queue,
 		cpu_queue = per_cpu_ptr(queue->cpu_queue, cpu);
 		crypto_init_queue(&cpu_queue->queue, max_cpu_qlen);
 		INIT_WORK(&cpu_queue->work, cryptd_queue_worker);
-		spin_lock_init(&cpu_queue->qlock);
 	}
 	pr_info("cryptd: max_cpu_qlen set to %d\n", max_cpu_qlen);
 	return 0;
@@ -127,30 +129,28 @@ static void cryptd_fini_queue(struct cryptd_queue *queue)
 static int cryptd_enqueue_request(struct cryptd_queue *queue,
 				  struct crypto_async_request *request)
 {
-	int cpu, err;
+	int err;
 	struct cryptd_cpu_queue *cpu_queue;
 	refcount_t *refcnt;
 
-	cpu_queue = raw_cpu_ptr(queue->cpu_queue);
-	spin_lock_bh(&cpu_queue->qlock);
-	cpu = smp_processor_id();
-
+	local_bh_disable();
+	cpu_queue = this_cpu_ptr(queue->cpu_queue);
 	err = crypto_enqueue_request(&cpu_queue->queue, request);
 
 	refcnt = crypto_tfm_ctx(request->tfm);
 
 	if (err == -ENOSPC)
-		goto out_put_cpu;
+		goto out;
 
-	queue_work_on(cpu, cryptd_wq, &cpu_queue->work);
+	queue_work_on(smp_processor_id(), cryptd_wq, &cpu_queue->work);
 
 	if (!refcount_read(refcnt))
-		goto out_put_cpu;
+		goto out;
 
 	refcount_inc(refcnt);
 
-out_put_cpu:
-	spin_unlock_bh(&cpu_queue->qlock);
+out:
+	local_bh_enable();
 
 	return err;
 }
@@ -167,10 +167,10 @@ static void cryptd_queue_worker(struct work_struct *work)
 	/*
 	 * Only handle one request at a time to avoid hogging crypto workqueue.
 	 */
-	spin_lock_bh(&cpu_queue->qlock);
+	local_bh_disable();
 	backlog = crypto_get_backlog(&cpu_queue->queue);
 	req = crypto_dequeue_request(&cpu_queue->queue);
-	spin_unlock_bh(&cpu_queue->qlock);
+	local_bh_enable();
 
 	if (!req)
 		return;
