@@ -36,7 +36,6 @@ static struct workqueue_struct *cryptd_wq;
 struct cryptd_cpu_queue {
 	struct crypto_queue queue;
 	struct work_struct work;
-	spinlock_t qlock;
 };
 
 struct cryptd_queue {
@@ -110,7 +109,6 @@ static int cryptd_init_queue(struct cryptd_queue *queue,
 		cpu_queue = per_cpu_ptr(queue->cpu_queue, cpu);
 		crypto_init_queue(&cpu_queue->queue, max_cpu_qlen);
 		INIT_WORK(&cpu_queue->work, cryptd_queue_worker);
-		spin_lock_init(&cpu_queue->qlock);
 	}
 	pr_info("cryptd: max_cpu_qlen set to %d\n", max_cpu_qlen);
 	return 0;
