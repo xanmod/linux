@@ -20,6 +20,12 @@ u8 purgatory_sha256_digest[SHA256_DIGEST_SIZE] __section(".kexec-purgatory");
 
 struct kexec_sha_region purgatory_sha_regions[KEXEC_SEGMENT_MAX] __section(".kexec-purgatory");
 
+#ifdef CONFIG_KEXEC_PURGATORY_SKIP_SIG
+static int verify_sha256_digest(void)
+{
+	return 0;
+}
+#else
 static int verify_sha256_digest(void)
 {
 	struct kexec_sha_region *ptr, *end;
@@ -39,6 +45,7 @@ static int verify_sha256_digest(void)
 
 	return 0;
 }
+#endif
 
 void purgatory(void)
 {

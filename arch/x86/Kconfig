@@ -2053,6 +2053,15 @@ config KEXEC_BZIMAGE_VERIFY_SIG
 	help
 	  Enable bzImage signature verification support.
 
+config KEXEC_PURGATORY_SKIP_SIG
+	bool "skip kexec purgatory signature verification"
+	depends on ARCH_HAS_KEXEC_PURGATORY
+	help
+	  this options makes the kexec purgatory do  not signature verification
+	  which would get hundreds of milliseconds saved during kexec boot. If we can
+	  confirm that the data of each segment loaded by kexec will not change we may
+	  enable this option
+
 config CRASH_DUMP
 	bool "kernel crash dumps"
 	depends on X86_64 || (X86_32 && HIGHMEM)
