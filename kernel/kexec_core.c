@@ -230,13 +230,13 @@ int sanity_check_segment_list(struct kimage *image)
 	 * Verify we have good destination addresses.  Normally
 	 * the caller is responsible for making certain we don't
 	 * attempt to load the new image into invalid or reserved
-	 * areas of RAM.  But crash kernels are preloaded into a
+	 * areas of RAM.  But crash kernels (or we specify to load
+	 * the new image into reserved areas) are preloaded into a
 	 * reserved area of ram.  We must ensure the addresses
 	 * are in the reserved area otherwise preloading the
 	 * kernel could corrupt things.
 	 */
-
-	if (image->type == KEXEC_TYPE_CRASH) {
+	if (image->type == KEXEC_TYPE_CRASH || image->type == KEXEC_TYPE_RESERVED_MEM) {
 		for (i = 0; i < nr_segments; i++) {
 			unsigned long mstart, mend;
 
@@ -414,7 +414,7 @@ static struct page *kimage_alloc_normal_control_pages(struct kimage *image,
 	return pages;
 }
 
-static struct page *kimage_alloc_crash_control_pages(struct kimage *image,
+static struct page *kimage_alloc_reserverd_control_pages(struct kimage *image,
 						      unsigned int order)
 {
 	/* Control pages are special, they are the intermediaries
@@ -491,7 +491,8 @@ struct page *kimage_alloc_control_pages(struct kimage *image,
 		pages = kimage_alloc_normal_control_pages(image, order);
 		break;
 	case KEXEC_TYPE_CRASH:
-		pages = kimage_alloc_crash_control_pages(image, order);
+	case KEXEC_TYPE_RESERVED_MEM:
+		pages = kimage_alloc_reserverd_control_pages(image, order);
 		break;
 	}
 
@@ -846,7 +847,7 @@ out:
 	return result;
 }
 
-static int kimage_load_crash_segment(struct kimage *image,
+static int kimage_load_reserved_segment(struct kimage *image,
 					struct kexec_segment *segment)
 {
 	/* For crash dumps kernels we simply copy the data from
@@ -924,7 +925,8 @@ int kimage_load_segment(struct kimage *image,
 		result = kimage_load_normal_segment(image, segment);
 		break;
 	case KEXEC_TYPE_CRASH:
-		result = kimage_load_crash_segment(image, segment);
+	case KEXEC_TYPE_RESERVED_MEM:
+		result = kimage_load_reserved_segment(image, segment);
 		break;
 	}
 

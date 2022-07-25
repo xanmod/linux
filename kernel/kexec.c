@@ -27,8 +27,14 @@ static int kimage_alloc_init(struct kimage **rimage, unsigned long entry,
 	int ret;
 	struct kimage *image;
 	bool kexec_on_panic = flags & KEXEC_ON_CRASH;
+	bool kexec_on_reserved = flags & KEXEC_RESERVED_MEM;
 
-	if (kexec_on_panic) {
+	if (kexec_on_panic && kexec_on_reserved) {
+		pr_err("both kexec_on_panic and kexec_on_reserved is true, they can not coexist");
+		return -EINVAL;
+	}
+
+	if (kexec_on_panic || kexec_on_reserved) {
 		/* Verify we have a valid entry point */
 		if ((entry < phys_to_boot_phys(crashk_res.start)) ||
 		    (entry > phys_to_boot_phys(crashk_res.end)))
@@ -48,6 +54,12 @@ static int kimage_alloc_init(struct kimage **rimage, unsigned long entry,
 		/* Enable special crash kernel control page alloc policy. */
 		image->control_page = crashk_res.start;
 		image->type = KEXEC_TYPE_CRASH;
+	}
+
+	if (kexec_on_reserved) {
+		/* Enable special reserved kernel control page alloc policy. */
+		image->control_page = crashk_res.start;
+		image->type = KEXEC_TYPE_RESERVED_MEM;
 	}
 
 	ret = sanity_check_segment_list(image);
@@ -108,6 +120,11 @@ static int do_kexec_load(unsigned long entry, unsigned long nr_segments,
 			arch_kexec_unprotect_crashkres();
 	} else {
 		dest_image = &kexec_image;
+	}
+
+	if (flags & KEXEC_RESERVED_MEM) {
+		if (kexec_crash_image)
+			arch_kexec_unprotect_crashkres();
 	}
 
 	if (nr_segments == 0) {

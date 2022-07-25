@@ -277,7 +277,7 @@ kimage_file_alloc_init(struct kimage **rimage, int kernel_fd,
 	int ret;
 	struct kimage *image;
 	bool kexec_on_panic = flags & KEXEC_FILE_ON_CRASH;
-
+	bool kexec_on_reserved = flags & KEXEC_FILE_RESERVED_MEM;
 	image = do_kimage_alloc_init();
 	if (!image)
 		return -ENOMEM;
@@ -288,6 +288,12 @@ kimage_file_alloc_init(struct kimage **rimage, int kernel_fd,
 		/* Enable special crash kernel control page alloc policy. */
 		image->control_page = crashk_res.start;
 		image->type = KEXEC_TYPE_CRASH;
+	}
+
+	if (kexec_on_reserved) {
+		/* Enable special crash kernel control page alloc policy. */
+		image->control_page = crashk_res.start;
+		image->type = KEXEC_TYPE_RESERVED_MEM;
 	}
 
 	ret = kimage_file_prepare_segments(image, kernel_fd, initrd_fd,
@@ -346,9 +352,19 @@ SYSCALL_DEFINE5(kexec_file_load, int, kernel_fd, int, initrd_fd,
 	if (!mutex_trylock(&kexec_mutex))
 		return -EBUSY;
 
+	if ((flags & KEXEC_FILE_ON_CRASH) && (flags & KEXEC_FILE_RESERVED_MEM)) {
+		pr_err("both kexec_on_panic and kexec_on_reserved is true, they can not coexist");
+		return -EINVAL;
+	}
+
 	dest_image = &kexec_image;
 	if (flags & KEXEC_FILE_ON_CRASH) {
 		dest_image = &kexec_crash_image;
+		if (kexec_crash_image)
+			arch_kexec_unprotect_crashkres();
+	}
+
+	if (flags & KEXEC_FILE_RESERVED_MEM) {
 		if (kexec_crash_image)
 			arch_kexec_unprotect_crashkres();
 	}
@@ -588,7 +604,7 @@ static int kexec_walk_memblock(struct kexec_buf *kbuf,
 static int kexec_walk_resources(struct kexec_buf *kbuf,
 				int (*func)(struct resource *, void *))
 {
-	if (kbuf->image->type == KEXEC_TYPE_CRASH)
+	if (kbuf->image->type == KEXEC_TYPE_CRASH || kbuf->image->type == KEXEC_TYPE_RESERVED_MEM)
 		return walk_iomem_res_desc(crashk_res.desc,
 					   IORESOURCE_SYSTEM_RAM | IORESOURCE_BUSY,
 					   crashk_res.start, crashk_res.end,
