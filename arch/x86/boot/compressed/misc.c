@@ -181,6 +181,19 @@ void __puthex(unsigned long value)
 	}
 }
 
+#ifdef CONFIG_KERNEL_UNCOMPRESSED
+#include <linux/decompress/mm.h>
+static int __decompress(unsigned char *buf, long len,
+				long (*fill)(void*, unsigned long),
+				long (*flush)(void*, unsigned long),
+				unsigned char *outbuf, long olen,
+				long *pos, void (*error)(char *x))
+{
+	memcpy(outbuf, buf, olen);
+	return 0;
+}
+#endif
+
 #ifdef CONFIG_X86_NEED_RELOCS
 static void handle_relocations(void *output, unsigned long output_len,
 			       unsigned long virt_addr)

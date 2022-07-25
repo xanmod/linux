@@ -438,6 +438,11 @@ quiet_cmd_lz4 = LZ4     $@
 quiet_cmd_lz4_with_size = LZ4     $@
       cmd_lz4_with_size = { cat $(real-prereqs) | $(LZ4) -l -c1 stdin stdout; \
                   $(size_append); } > $@
+# none
+quiet_cmd_none = NONE     $@
+      cmd_none = (cat $(filter-out FORCE,$^) && \
+      $(call size_append, $(filter-out FORCE,$^))) > $@ || \
+      (rm -f $@ ; false)
 
 # U-Boot mkimage
 # ---------------------------------------------------------------------------
