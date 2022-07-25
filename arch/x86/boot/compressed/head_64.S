@@ -398,10 +398,13 @@ SYM_CODE_START(startup_64)
 1:
 
 	/* Target address to relocate to for decompression */
+#ifdef CONFIG_KERNEL_UNCOMPRESSED
+	movq %rbp, %rbx
+#else
 	movl	BP_init_size(%rsi), %ebx
 	subl	$ rva(_end), %ebx
 	addq	%rbp, %rbx
-
+#endif
 	/* Set up the stack */
 	leaq	rva(boot_stack_end)(%rbx), %rsp
 
@@ -522,6 +525,7 @@ trampoline_return:
  * Copy the compressed kernel to the end of our buffer
  * where decompression in place becomes safe.
  */
+#ifndef CONFIG_KERNEL_UNCOMPRESSED
 	pushq	%rsi
 	leaq	(_bss-8)(%rip), %rsi
 	leaq	rva(_bss-8)(%rbx), %rdi
@@ -531,7 +535,7 @@ trampoline_return:
 	rep	movsq
 	cld
 	popq	%rsi
-
+#endif
 	/*
 	 * The GDT may get overwritten either during the copy we just did or
 	 * during extract_kernel below. To avoid any issues, repoint the GDTR
