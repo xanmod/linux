@@ -19,7 +19,6 @@
 #include <linux/atomic.h>
 #include <linux/hyperv.h>
 #include <linux/interrupt.h>
-#include <linux/irq.h>
 
 #include "hv_trace.h"
 
