@@ -5749,6 +5749,12 @@ sub process {
 			}
 		}
 
+# rwlock.h must not be included directly. It will be included via spinlock.h if needed.
+		if ($rawline =~ /\#\s*include.*\<linux\/rwlock\.h/) {
+			ERROR("INCLUDES_BAD_HEADER",
+				"Please don't include rwlock.h directly, use spinlock.h if needed.\n" . $herecurr);
+		}
+
 # warn if <asm/foo.h> is #included and <linux/foo.h> is available and includes
 # itself <asm/foo.h> (uses RAW line)
 		if ($tree && $rawline =~ m{^.\s*\#\s*include\s*\<asm\/(.*)\.h\>}) {
