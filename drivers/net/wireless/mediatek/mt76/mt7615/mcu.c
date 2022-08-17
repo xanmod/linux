@@ -350,10 +350,11 @@ static int mt7615_mcu_fw_pmctrl(struct mt7615_dev *dev)
 	}
 
 	mt7622_trigger_hif_int(dev, false);
-
-	pm->stats.last_doze_event = jiffies;
-	pm->stats.awake_time += pm->stats.last_doze_event -
-				pm->stats.last_wake_event;
+	if (!err) {
+		pm->stats.last_doze_event = jiffies;
+		pm->stats.awake_time += pm->stats.last_doze_event -
+					pm->stats.last_wake_event;
+	}
 out:
 	mutex_unlock(&pm->mutex);
 
@@ -401,6 +402,9 @@ mt7615_mcu_rx_radar_detected(struct mt7615_dev *dev, struct sk_buff *skb)
 
 	if (r->band_idx && dev->mt76.phy2)
 		mphy = dev->mt76.phy2;
+
+	if (mt76_phy_dfs_state(mphy) < MT_DFS_STATE_CAC)
+		return;
 
 	ieee80211_radar_detected(mphy->hw);
 	dev->hw_pattern++;
