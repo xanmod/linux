@@ -100,9 +100,11 @@
  *   except the stat counters. This is a percpu structure manipulated only by
  *   the local cpu, so the lock protects against being preempted or interrupted
  *   by an irq. Fast path operations rely on lockless operations instead.
- *   On PREEMPT_RT, the local lock does not actually disable irqs (and thus
- *   prevent the lockless operations), so fastpath operations also need to take
- *   the lock and are no longer lockless.
+ *
+ *   On PREEMPT_RT, the local lock neither disables interrupts nor preemption
+ *   which means the lockless fastpath cannot be used as it might interfere with
+ *   an in-progress slow path operations. In this case the local lock is always
+ *   taken but it still utilizes the freelist for the common operations.
  *
  *   lockless fastpaths
  *
@@ -163,8 +165,11 @@
  * function call even on !PREEMPT_RT, use inline preempt_disable() there.
  */
 #ifndef CONFIG_PREEMPT_RT
-#define slub_get_cpu_ptr(var)	get_cpu_ptr(var)
-#define slub_put_cpu_ptr(var)	put_cpu_ptr(var)
+#define slub_get_cpu_ptr(var)		get_cpu_ptr(var)
+#define slub_put_cpu_ptr(var)		put_cpu_ptr(var)
+#define use_lockless_fast_path()	(true)
+#define slub_local_irq_save(flags)	local_irq_save(flags)
+#define slub_local_irq_restore(flags)	local_irq_restore(flags)
 #else
 #define slub_get_cpu_ptr(var)		\
 ({					\
@@ -176,6 +181,9 @@ do {					\
 	(void)(var);			\
 	migrate_enable();		\
 } while (0)
+#define use_lockless_fast_path()	(false)
+#define slub_local_irq_save(flags)	do { } while (0)
+#define slub_local_irq_restore(flags)	do { } while (0)
 #endif
 
 #ifdef CONFIG_SLUB_DEBUG
@@ -460,16 +468,14 @@ static __always_inline void __slab_unlock(struct slab *slab)
 
 static __always_inline void slab_lock(struct slab *slab, unsigned long *flags)
 {
-	if (IS_ENABLED(CONFIG_PREEMPT_RT))
-		local_irq_save(*flags);
+	slub_local_irq_save(*flags);
 	__slab_lock(slab);
 }
 
 static __always_inline void slab_unlock(struct slab *slab, unsigned long *flags)
 {
 	__slab_unlock(slab);
-	if (IS_ENABLED(CONFIG_PREEMPT_RT))
-		local_irq_restore(*flags);
+	slub_local_irq_restore(*flags);
 }
 
 /*
@@ -482,7 +488,7 @@ static inline bool __cmpxchg_double_slab(struct kmem_cache *s, struct slab *slab
 		void *freelist_new, unsigned long counters_new,
 		const char *n)
 {
-	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+	if (use_lockless_fast_path())
 		lockdep_assert_irqs_disabled();
 #if defined(CONFIG_HAVE_CMPXCHG_DOUBLE) && \
     defined(CONFIG_HAVE_ALIGNED_STRUCT_PAGE)
@@ -3197,14 +3203,8 @@ redo:
 
 	object = c->freelist;
 	slab = c->slab;
-	/*
-	 * We cannot use the lockless fastpath on PREEMPT_RT because if a
-	 * slowpath has taken the local_lock_irqsave(), it is not protected
-	 * against a fast path operation in an irq handler. So we need to take
-	 * the slow path which uses local_lock. It is still relatively fast if
-	 * there is a suitable cpu freelist.
-	 */
-	if (IS_ENABLED(CONFIG_PREEMPT_RT) ||
+
+	if (!use_lockless_fast_path() ||
 	    unlikely(!object || !slab || !node_match(slab, node))) {
 		object = __slab_alloc(s, gfpflags, node, addr, c);
 	} else {
@@ -3463,6 +3463,7 @@ static __always_inline void do_slab_free(struct kmem_cache *s,
 	void *tail_obj = tail ? : head;
 	struct kmem_cache_cpu *c;
 	unsigned long tid;
+	void **freelist;
 
 redo:
 	/*
@@ -3477,9 +3478,13 @@ redo:
 	/* Same with comment on barrier() in slab_alloc_node() */
 	barrier();
 
-	if (likely(slab == c->slab)) {
-#ifndef CONFIG_PREEMPT_RT
-		void **freelist = READ_ONCE(c->freelist);
+	if (unlikely(slab != c->slab)) {
+		__slab_free(s, slab, head, tail_obj, cnt, addr);
+		return;
+	}
+
+	if (use_lockless_fast_path()) {
+		freelist = READ_ONCE(c->freelist);
 
 		set_freepointer(s, tail_obj, freelist);
 
@@ -3491,16 +3496,8 @@ redo:
 			note_cmpxchg_failure("slab_free", s, tid);
 			goto redo;
 		}
-#else /* CONFIG_PREEMPT_RT */
-		/*
-		 * We cannot use the lockless fastpath on PREEMPT_RT because if
-		 * a slowpath has taken the local_lock_irqsave(), it is not
-		 * protected against a fast path operation in an irq handler. So
-		 * we need to take the local_lock. We shouldn't simply defer to
-		 * __slab_free() as that wouldn't use the cpu freelist at all.
-		 */
-		void **freelist;
-
+	} else {
+		/* Update the free list under the local lock */
 		local_lock(&s->cpu_slab->lock);
 		c = this_cpu_ptr(s->cpu_slab);
 		if (unlikely(slab != c->slab)) {
@@ -3515,11 +3512,8 @@ redo:
 		c->tid = next_tid(tid);
 
 		local_unlock(&s->cpu_slab->lock);
-#endif
-		stat(s, FREE_FASTPATH);
-	} else
-		__slab_free(s, slab, head, tail_obj, cnt, addr);
-
+	}
+	stat(s, FREE_FASTPATH);
 }
 
 static __always_inline void slab_free(struct kmem_cache *s, struct slab *slab,
