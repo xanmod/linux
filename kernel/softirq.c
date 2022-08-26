@@ -637,6 +637,7 @@ static inline void tick_irq_exit(void)
 #endif
 }
 
+#ifdef CONFIG_PREEMPT_RT
 DEFINE_PER_CPU(struct task_struct *, timersd);
 DEFINE_PER_CPU(unsigned long, pending_timer_softirq);
 
@@ -648,6 +649,12 @@ static void wake_timersd(void)
                 wake_up_process(tsk);
 }
 
+#else
+
+static inline void wake_timersd(void) { }
+
+#endif
+
 static inline void __irq_exit_rcu(void)
 {
 #ifndef __ARCH_IRQ_EXIT_IRQS_DISABLED
@@ -657,10 +664,13 @@ static inline void __irq_exit_rcu(void)
 #endif
 	account_hardirq_exit(current);
 	preempt_count_sub(HARDIRQ_OFFSET);
-	if (!in_interrupt() && local_softirq_pending())
-		invoke_softirq();
-	if (IS_ENABLED(CONFIG_PREEMPT_RT) && !in_interrupt() && local_pending_timers())
-		wake_timersd();
+	if (!in_interrupt()) {
+		if (local_softirq_pending())
+			invoke_softirq();
+
+		if (IS_ENABLED(CONFIG_PREEMPT_RT) && local_pending_timers())
+			wake_timersd();
+	}
 
 	tick_irq_exit();
 }
@@ -989,6 +999,7 @@ static struct smp_hotplug_thread softirq_threads = {
 	.thread_comm		= "ksoftirqd/%u",
 };
 
+#ifdef CONFIG_PREEMPT_RT
 static void timersd_setup(unsigned int cpu)
 {
         sched_set_fifo_low(current);
@@ -1014,7 +1025,6 @@ static void run_timersd(unsigned int cpu)
 	ksoftirqd_run_end();
 }
 
-#ifdef CONFIG_PREEMPT_RT
 static void raise_ktimers_thread(unsigned int nr)
 {
 	trace_softirq_raise(nr);
@@ -1035,7 +1045,6 @@ void raise_timer_softirq(void)
 	wake_timersd();
 	local_irq_restore(flags);
 }
-#endif
 
 static struct smp_hotplug_thread timer_threads = {
         .store                  = &timersd,
@@ -1044,15 +1053,16 @@ static struct smp_hotplug_thread timer_threads = {
         .thread_fn              = run_timersd,
         .thread_comm            = "ktimers/%u",
 };
+#endif
 
 static __init int spawn_ksoftirqd(void)
 {
 	cpuhp_setup_state_nocalls(CPUHP_SOFTIRQ_DEAD, "softirq:dead", NULL,
 				  takeover_tasklets);
 	BUG_ON(smpboot_register_percpu_thread(&softirq_threads));
-	if (IS_ENABLED(CONFIG_PREEMPT_RT))
-		BUG_ON(smpboot_register_percpu_thread(&timer_threads));
-
+#ifdef CONFIG_PREEMPT_RT
+	BUG_ON(smpboot_register_percpu_thread(&timer_threads));
+#endif
 	return 0;
 }
 early_initcall(spawn_ksoftirqd);
