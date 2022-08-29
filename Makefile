@@ -987,6 +987,9 @@ ifdef CONFIG_CC_IS_GCC
 KBUILD_CFLAGS += $(call cc-ifversion, -ge, 0901, -Wno-alloc-size-larger-than)
 endif
 
+# disable GCC vectorization on trees
+KBUILD_CFLAGS	+= $(call cc-option, -fno-tree-vectorize)
+
 # disable invalid "can't wrap" optimizations for signed / pointers
 KBUILD_CFLAGS	+= -fno-strict-overflow
 
