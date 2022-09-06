@@ -2058,6 +2058,7 @@ static unsigned int khugepaged_scan_mm_slot(unsigned int pages,
 	__releases(&khugepaged_mm_lock)
 	__acquires(&khugepaged_mm_lock)
 {
+	struct vma_iterator vmi;
 	struct mm_slot *mm_slot;
 	struct mm_struct *mm;
 	struct vm_area_struct *vma;
@@ -2085,11 +2086,13 @@ static unsigned int khugepaged_scan_mm_slot(unsigned int pages,
 	vma = NULL;
 	if (unlikely(!mmap_read_trylock(mm)))
 		goto breakouterloop_mmap_lock;
-	if (likely(!khugepaged_test_exit(mm)))
-		vma = find_vma(mm, khugepaged_scan.address);
 
 	progress++;
-	for (; vma; vma = vma->vm_next) {
+	if (unlikely(khugepaged_test_exit(mm)))
+		goto breakouterloop;
+
+	vma_iter_init(&vmi, mm, khugepaged_scan.address);
+	for_each_vma(vmi, vma) {
 		unsigned long hstart, hend;
 
 		cond_resched();
