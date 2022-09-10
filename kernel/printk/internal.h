@@ -43,6 +43,8 @@ enum printk_info_flags {
 };
 
 extern struct printk_ringbuffer *prb;
+extern bool have_bkl_console;
+extern bool printk_threads_enabled;
 
 extern bool have_boot_console;
 
@@ -80,6 +82,7 @@ bool cons_alloc_percpu_data(struct console *con);
 void cons_kthread_create(struct console *con);
 void cons_wake_threads(void);
 void cons_force_seq(struct console *con, u64 seq);
+void console_bkl_kthread_create(void);
 
 /*
  * Check if the given console is currently capable and allowed to print
@@ -137,6 +140,7 @@ static inline void cons_kthread_wake(struct console *con)
 
 static inline void cons_kthread_wake(struct console *con) { }
 static inline void cons_kthread_create(struct console *con) { }
+#define printk_threads_enabled	(false)
 
 /*
  * In !PRINTK builds we still export console_sem

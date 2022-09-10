@@ -907,7 +907,7 @@ unlock:
 	return true;
 }
 
-static bool printk_threads_enabled __ro_after_init;
+bool printk_threads_enabled __ro_after_init;
 static bool printk_force_atomic __initdata;
 
 /**
@@ -1750,6 +1750,8 @@ static int __init printk_setup_threads(void)
 	printk_threads_enabled = true;
 	for_each_console(con)
 		cons_kthread_create(con);
+	if (have_bkl_console)
+		console_bkl_kthread_create();
 	console_list_unlock();
 	return 0;
 }

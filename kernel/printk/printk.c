@@ -448,7 +448,7 @@ static DEFINE_MUTEX(syslog_lock);
  * Specifies if a BKL console was ever registered. Used to determine if the
  * console lock/unlock dance is needed for console printing.
  */
-static bool have_bkl_console;
+bool have_bkl_console;
 
 /*
  * Specifies if a boot console is registered. Used to determine if NOBKL
@@ -2330,7 +2330,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	cons_atomic_flush(&wctxt, true);
 
 	/* If called from the scheduler, we can not call up(). */
-	if (!in_sched && have_bkl_console) {
+	if (!in_sched && have_bkl_console && !IS_ENABLED(CONFIG_PREEMPT_RT)) {
 		/*
 		 * Try to acquire and then immediately release the console
 		 * semaphore. The release will print out buffers. With the
@@ -2636,6 +2636,9 @@ void resume_console(void)
 			cons_kthread_wake(con);
 	}
 	console_srcu_read_unlock(cookie);
+
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) && have_bkl_console)
+		wake_up_interruptible(&log_wait);
 
 	pr_flush(1000, true);
 }
@@ -3019,19 +3022,7 @@ abandon:
 	return false;
 }
 
-/**
- * console_unlock - unblock the console subsystem from printing
- *
- * Releases the console_lock which the caller holds to block printing of
- * the console subsystem.
- *
- * While the console_lock was held, console output may have been buffered
- * by printk().  If this is the case, console_unlock(); emits
- * the output prior to releasing the lock.
- *
- * console_unlock(); may be called from any context.
- */
-void console_unlock(void)
+static u64 console_flush_and_unlock(void)
 {
 	bool do_cond_resched;
 	bool handover;
@@ -3074,6 +3065,34 @@ void console_unlock(void)
 		 * fails, another context is already handling the printing.
 		 */
 	} while (prb_read_valid(prb, next_seq, NULL) && console_trylock());
+
+	return next_seq;
+}
+
+/**
+ * console_unlock - unblock the console subsystem from printing
+ *
+ * Releases the console_lock which the caller holds to block printing of
+ * the console subsystem.
+ *
+ * While the console_lock was held, console output may have been buffered
+ * by printk().  If this is the case, console_unlock(); emits
+ * the output prior to releasing the lock.
+ *
+ * console_unlock(); may be called from any context.
+ */
+void console_unlock(void)
+{
+	/*
+	 * PREEMPT_RT relies on kthread and atomic consoles for printing.
+	 * It never attempts to print from console_unlock().
+	 */
+	if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
+		__console_unlock();
+		return;
+	}
+
+	console_flush_and_unlock();
 }
 EXPORT_SYMBOL(console_unlock);
 
@@ -3295,10 +3314,98 @@ void console_start(struct console *console)
 
 	if (flags & CON_NO_BKL)
 		cons_kthread_wake(console);
+	else if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		wake_up_interruptible(&log_wait);
 
 	__pr_flush(console, 1000, true);
 }
 EXPORT_SYMBOL(console_start);
+
+static struct task_struct *console_bkl_kthread;
+
+static bool printer_should_wake(u64 seq)
+{
+	bool available = false;
+	struct console *con;
+	int cookie;
+
+	if (kthread_should_stop())
+		return true;
+
+	cookie = console_srcu_read_lock();
+	for_each_console_srcu(con) {
+		short flags = console_srcu_read_flags(con);
+
+		if (flags & CON_NO_BKL)
+			continue;
+		if (!console_is_usable(con, flags))
+			continue;
+		/*
+		 * It is safe to read @seq because only this
+		 * thread context updates @seq.
+		 */
+		if (prb_read_valid(prb, con->seq, NULL)) {
+			available = true;
+			break;
+		}
+	}
+	console_srcu_read_unlock(cookie);
+
+	return available;
+}
+
+static int console_bkl_kthread_func(void *unused)
+{
+	u64 seq = 0;
+	int error;
+
+	for (;;) {
+		error = wait_event_interruptible(log_wait, printer_should_wake(seq));
+
+		if (kthread_should_stop())
+			break;
+
+		if (error)
+			continue;
+
+		console_lock();
+		seq = console_flush_and_unlock();
+	}
+	return 0;
+}
+
+void console_bkl_kthread_create(void)
+{
+	struct task_struct *kt;
+	struct console *c;
+
+	lockdep_assert_held(&console_mutex);
+
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+		return;
+
+	if (!printk_threads_enabled || console_bkl_kthread)
+		return;
+
+	for_each_console(c) {
+		if (c->flags & CON_BOOT)
+			return;
+	}
+
+	kt = kthread_run(console_bkl_kthread_func, NULL, "pr/bkl");
+	if (IS_ERR(kt)) {
+		pr_err("unable to start BKL printing thread\n");
+		return;
+	}
+
+	console_bkl_kthread = kt;
+
+	/*
+	 * It is important that console printing threads are scheduled
+	 * shortly after a printk call and with generous runtime budgets.
+	 */
+	sched_set_normal(console_bkl_kthread, -20);
+}
 
 static int __read_mostly keep_bootcon;
 
@@ -3538,10 +3645,12 @@ void register_console(struct console *newcon)
 	newcon->dropped = 0;
 	console_init_seq(newcon, bootcon_registered);
 
-	if (!(newcon->flags & CON_NO_BKL))
+	if (!(newcon->flags & CON_NO_BKL)) {
 		have_bkl_console = true;
-	else if (!cons_nobkl_init(newcon))
+		console_bkl_kthread_create();
+	} else if (!cons_nobkl_init(newcon)) {
 		goto unlock;
+	}
 
 	if (newcon->flags & CON_BOOT)
 		have_boot_console = true;
@@ -3914,9 +4023,17 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 	int pending = this_cpu_xchg(printk_pending, 0);
 
 	if (pending & PRINTK_PENDING_OUTPUT) {
-		/* If trylock fails, someone else is doing the printing */
-		if (console_trylock())
-			console_unlock();
+		if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
+			/* The BKL thread waits on @log_wait. */
+			pending |= PRINTK_PENDING_WAKEUP;
+		} else {
+			/*
+			 * If trylock fails, some other context
+			 * will do the printing.
+			 */
+			if (console_trylock())
+				console_unlock();
+		}
 	}
 
 	if (pending & PRINTK_PENDING_WAKEUP)
