@@ -44,6 +44,8 @@ enum printk_info_flags {
 
 extern struct printk_ringbuffer *prb;
 
+extern bool have_boot_console;
+
 __printf(4, 0)
 int vprintk_store(int facility, int level,
 		  const struct dev_printk_info *dev_info,
@@ -75,12 +77,64 @@ u64 cons_read_seq(struct console *con);
 void cons_nobkl_cleanup(struct console *con);
 bool cons_nobkl_init(struct console *con);
 bool cons_alloc_percpu_data(struct console *con);
+void cons_kthread_create(struct console *con);
+
+/*
+ * Check if the given console is currently capable and allowed to print
+ * records. If the caller only works with certain types of consoles, the
+ * caller is responsible for checking the console type before calling
+ * this function.
+ */
+static inline bool console_is_usable(struct console *con, short flags)
+{
+	if (!(flags & CON_ENABLED))
+		return false;
+
+	if ((flags & CON_SUSPENDED))
+		return false;
+
+	/*
+	 * The usability of a console varies depending on whether
+	 * it is a NOBKL console or not.
+	 */
+
+	if (flags & CON_NO_BKL) {
+		if (have_boot_console)
+			return false;
+
+	} else {
+		if (!con->write)
+			return false;
+		/*
+		 * Console drivers may assume that per-cpu resources have
+		 * been allocated. So unless they're explicitly marked as
+		 * being able to cope (CON_ANYTIME) don't call them until
+		 * this CPU is officially up.
+		 */
+		if (!cpu_online(raw_smp_processor_id()) && !(flags & CON_ANYTIME))
+			return false;
+	}
+
+	return true;
+}
+
+/**
+ * cons_kthread_wake - Wake up a printk thread
+ * @con:        Console to operate on
+ */
+static inline void cons_kthread_wake(struct console *con)
+{
+	rcuwait_wake_up(&con->rcuwait);
+}
 
 #else
 
 #define PRINTK_PREFIX_MAX	0
 #define PRINTK_MESSAGE_MAX	0
 #define PRINTKRB_RECORD_MAX	0
+
+static inline void cons_kthread_wake(struct console *con) { }
+static inline void cons_kthread_create(struct console *con) { }
 
 /*
  * In !PRINTK builds we still export console_sem
@@ -93,6 +147,7 @@ bool cons_alloc_percpu_data(struct console *con);
 static inline bool printk_percpu_data_ready(void) { return false; }
 static inline bool cons_nobkl_init(struct console *con) { return true; }
 static inline void cons_nobkl_cleanup(struct console *con) { }
+static inline bool console_is_usable(struct console *con, short flags) { return false; }
 
 #endif /* CONFIG_PRINTK */
 

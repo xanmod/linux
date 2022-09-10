@@ -17,6 +17,7 @@
 #include <linux/atomic.h>
 #include <linux/bits.h>
 #include <linux/rculist.h>
+#include <linux/rcuwait.h>
 #include <linux/types.h>
 
 struct vc_data;
@@ -315,7 +316,12 @@ struct cons_context_data;
  * @atomic_state:	State array for NOBKL consoles; real and handover
  * @atomic_seq:		Sequence for record tracking (32bit only)
  * @thread_pbufs:	Pointer to thread private buffer
+ * @kthread:		Pointer to kernel thread
+ * @rcuwait:		RCU wait for the kernel thread
+ * @kthread_waiting:	Indicator whether the kthread is waiting to be woken
  * @write_atomic:	Write callback for atomic context
+ * @write_thread:	Write callback for printk threaded printing
+ * @port_lock:		Callback to lock/unlock the port lock
  * @pcpu_data:		Pointer to percpu context data
  */
 struct console {
@@ -343,8 +349,13 @@ struct console {
 	atomic_t		__private atomic_seq;
 #endif
 	struct printk_buffers	*thread_pbufs;
+	struct task_struct	*kthread;
+	struct rcuwait		rcuwait;
+	atomic_t		kthread_waiting;
 
 	bool (*write_atomic)(struct console *con, struct cons_write_context *wctxt);
+	bool (*write_thread)(struct console *con, struct cons_write_context *wctxt);
+	void (*port_lock)(struct console *con, bool do_lock, unsigned long *flags);
 
 	struct cons_context_data	__percpu *pcpu_data;
 };
