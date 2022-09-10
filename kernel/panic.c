@@ -275,6 +275,7 @@ static void panic_other_cpus_shutdown(bool crash_kexec)
  */
 void panic(const char *fmt, ...)
 {
+	enum cons_prio prev_prio;
 	static char buf[1024];
 	va_list args;
 	long i, i_next = 0, len;
@@ -321,6 +322,8 @@ void panic(const char *fmt, ...)
 
 	if (old_cpu != PANIC_CPU_INVALID && old_cpu != this_cpu)
 		panic_smp_self_stop();
+
+	prev_prio = cons_atomic_enter(CONS_PRIO_PANIC);
 
 	console_verbose();
 	bust_spinlocks(1);
@@ -382,6 +385,8 @@ void panic(const char *fmt, ...)
 	if (_crash_kexec_post_notifiers)
 		__crash_kexec(NULL);
 
+	cons_atomic_flush(NULL, true);
+
 	console_unblank();
 
 	/*
@@ -406,6 +411,7 @@ void panic(const char *fmt, ...)
 		 * We can't use the "normal" timers since we just panicked.
 		 */
 		pr_emerg("Rebooting in %d seconds..\n", panic_timeout);
+		cons_atomic_flush(NULL, true);
 
 		for (i = 0; i < panic_timeout * 1000; i += PANIC_TIMER_STEP) {
 			touch_nmi_watchdog();
@@ -424,6 +430,7 @@ void panic(const char *fmt, ...)
 		 */
 		if (panic_reboot_mode != REBOOT_UNDEFINED)
 			reboot_mode = panic_reboot_mode;
+		cons_atomic_flush(NULL, true);
 		emergency_restart();
 	}
 #ifdef __sparc__
@@ -436,12 +443,16 @@ void panic(const char *fmt, ...)
 	}
 #endif
 #if defined(CONFIG_S390)
+	cons_atomic_flush(NULL, true);
 	disabled_wait();
 #endif
 	pr_emerg("---[ end Kernel panic - not syncing: %s ]---\n", buf);
 
 	/* Do not scroll important messages printed above */
 	suppress_printk = 1;
+
+	cons_atomic_exit(CONS_PRIO_PANIC, prev_prio);
+
 	local_irq_enable();
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
 		touch_softlockup_watchdog();
@@ -652,6 +663,10 @@ struct warn_args {
 void __warn(const char *file, int line, void *caller, unsigned taint,
 	    struct pt_regs *regs, struct warn_args *args)
 {
+	enum cons_prio prev_prio;
+
+	prev_prio = cons_atomic_enter(CONS_PRIO_EMERGENCY);
+
 	disable_trace_on_warning();
 
 	if (file)
@@ -682,6 +697,8 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 
 	/* Just a warning, don't kill lockdep. */
 	add_taint(taint, LOCKDEP_STILL_OK);
+
+	cons_atomic_exit(CONS_PRIO_EMERGENCY, prev_prio);
 }
 
 #ifdef CONFIG_BUG
