@@ -182,11 +182,16 @@ struct printk_message {
 
 /**
  * struct cons_context_data - console context data
+ * @wctxt:		Write context per priority level
  * @pbufs:		Buffer for storing the text
  *
  * Used for early boot and for per CPU data.
+ *
+ * The write contexts are allocated to avoid having them on stack, e.g. in
+ * warn() or panic().
  */
 struct cons_context_data {
+	struct cons_write_context	wctxt[CONS_PRIO_MAX];
 	struct printk_buffers	pbufs;
 };
 

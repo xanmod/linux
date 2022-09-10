@@ -223,6 +223,7 @@ struct cons_state {
  * @CONS_PRIO_NORMAL:		Regular printk
  * @CONS_PRIO_EMERGENCY:	Emergency output (WARN/OOPS...)
  * @CONS_PRIO_PANIC:		Panic output
+ * @CONS_PRIO_MAX:		The number of priority levels
  *
  * Emergency output can carefully takeover the console even without consent
  * of the owner, ideally only when @cons_state::unsafe is not set. Panic
@@ -235,6 +236,7 @@ enum cons_prio {
 	CONS_PRIO_NORMAL,
 	CONS_PRIO_EMERGENCY,
 	CONS_PRIO_PANIC,
+	CONS_PRIO_MAX,
 };
 
 struct console;
