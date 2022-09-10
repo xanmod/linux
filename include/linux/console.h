@@ -490,12 +490,16 @@ static inline bool console_is_registered(const struct console *con)
 	hlist_for_each_entry(con, &console_list, node)
 
 #ifdef CONFIG_PRINTK
+extern enum cons_prio cons_atomic_enter(enum cons_prio prio);
+extern void cons_atomic_exit(enum cons_prio prio, enum cons_prio prev_prio);
 extern bool console_can_proceed(struct cons_write_context *wctxt);
 extern bool console_enter_unsafe(struct cons_write_context *wctxt);
 extern bool console_exit_unsafe(struct cons_write_context *wctxt);
 extern bool console_try_acquire(struct cons_write_context *wctxt);
 extern bool console_release(struct cons_write_context *wctxt);
 #else
+static inline enum cons_prio cons_atomic_enter(enum cons_prio prio) { return CONS_PRIO_NONE; }
+static inline void cons_atomic_exit(enum cons_prio prio, enum cons_prio prev_prio) { }
 static inline bool console_can_proceed(struct cons_write_context *wctxt) { return false; }
 static inline bool console_enter_unsafe(struct cons_write_context *wctxt) { return false; }
 static inline bool console_exit_unsafe(struct cons_write_context *wctxt) { return false; }

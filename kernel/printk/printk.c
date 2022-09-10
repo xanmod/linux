@@ -2291,6 +2291,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 			    const struct dev_printk_info *dev_info,
 			    const char *fmt, va_list args)
 {
+	struct cons_write_context wctxt = { };
 	int printed_len;
 	bool in_sched = false;
 
@@ -2311,16 +2312,25 @@ asmlinkage int vprintk_emit(int facility, int level,
 
 	printed_len = vprintk_store(facility, level, dev_info, fmt, args);
 
+	/*
+	 * The caller may be holding system-critical or
+	 * timing-sensitive locks. Disable preemption during
+	 * printing of all remaining records to all consoles so that
+	 * this context can return as soon as possible. Hopefully
+	 * another printk() caller will take over the printing.
+	 */
+	preempt_disable();
+
+	/*
+	 * Flush the non-BKL consoles. This only leads to direct atomic
+	 * printing for non-BKL consoles that do not have a printer
+	 * thread available. Otherwise the printer thread will perform
+	 * the printing.
+	 */
+	cons_atomic_flush(&wctxt, true);
+
 	/* If called from the scheduler, we can not call up(). */
 	if (!in_sched && have_bkl_console) {
-		/*
-		 * The caller may be holding system-critical or
-		 * timing-sensitive locks. Disable preemption during
-		 * printing of all remaining records to all consoles so that
-		 * this context can return as soon as possible. Hopefully
-		 * another printk() caller will take over the printing.
-		 */
-		preempt_disable();
 		/*
 		 * Try to acquire and then immediately release the console
 		 * semaphore. The release will print out buffers. With the
@@ -2329,8 +2339,9 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 */
 		if (console_trylock_spinning())
 			console_unlock();
-		preempt_enable();
 	}
+
+	preempt_enable();
 
 	cons_wake_threads();
 	if (in_sched)
@@ -3968,6 +3979,12 @@ void defer_console_output(void)
 
 void printk_trigger_flush(void)
 {
+	struct cons_write_context wctxt = { };
+
+	preempt_disable();
+	cons_atomic_flush(&wctxt, true);
+	preempt_enable();
+
 	cons_wake_threads();
 	defer_console_output();
 }
