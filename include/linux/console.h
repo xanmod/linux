@@ -177,8 +177,20 @@ enum cons_flags {
  * @seq:	Sequence for record tracking (64bit only)
  * @bits:	Compound of the state bits below
  *
+ * @locked:	Console is locked by a writer
+ * @unsafe:	Console is busy in a non takeover region
+ * @cur_prio:	The priority of the current output
+ * @req_prio:	The priority of a handover request
+ * @cpu:	The CPU on which the writer runs
+ *
  * To be used for state read and preparation of atomic_long_cmpxchg()
  * operations.
+ *
+ * The @req_prio field is particularly important to allow spin-waiting to
+ * timeout and give up without the risk of it being assigned the lock
+ * after giving up. The @req_prio field has a nice side-effect that it
+ * also makes it possible for a single read+cmpxchg in the common case of
+ * acquire and release.
  */
 struct cons_state {
 	union {
@@ -190,10 +202,77 @@ struct cons_state {
 			union {
 				u32	bits;
 				struct {
+					u32 locked	:  1;
+					u32 unsafe	:  1;
+					u32 cur_prio	:  2;
+					u32 req_prio	:  2;
+					u32 cpu		: 18;
 				};
 			};
 		};
 	};
+};
+
+/**
+ * cons_prio - console writer priority for NOBKL consoles
+ * @CONS_PRIO_NONE:		Unused
+ * @CONS_PRIO_NORMAL:		Regular printk
+ * @CONS_PRIO_EMERGENCY:	Emergency output (WARN/OOPS...)
+ * @CONS_PRIO_PANIC:		Panic output
+ *
+ * Emergency output can carefully takeover the console even without consent
+ * of the owner, ideally only when @cons_state::unsafe is not set. Panic
+ * output can ignore the unsafe flag as a last resort. If panic output is
+ * active no takeover is possible until the panic output releases the
+ * console.
+ */
+enum cons_prio {
+	CONS_PRIO_NONE = 0,
+	CONS_PRIO_NORMAL,
+	CONS_PRIO_EMERGENCY,
+	CONS_PRIO_PANIC,
+};
+
+struct console;
+
+/**
+ * struct cons_context - Context for console acquire/release
+ * @console:		The associated console
+ * @state:		The state at acquire time
+ * @old_state:		The old state when try_acquire() failed for analysis
+ *			by the caller
+ * @hov_state:		The handover state for spin and cleanup
+ * @req_state:		The request state for spin and cleanup
+ * @spinwait_max_us:	Limit for spinwait acquire
+ * @prio:		Priority of the context
+ * @hostile:		Hostile takeover requested. Cleared on normal
+ *			acquire or friendly handover
+ * @spinwait:		Spinwait on acquire if possible
+ */
+struct cons_context {
+	struct console		*console;
+	struct cons_state	state;
+	struct cons_state	old_state;
+	struct cons_state	hov_state;
+	struct cons_state	req_state;
+	unsigned int		spinwait_max_us;
+	enum cons_prio		prio;
+	unsigned int		hostile		: 1;
+	unsigned int		spinwait	: 1;
+};
+
+/**
+ * struct cons_write_context - Context handed to the write callbacks
+ * @ctxt:	The core console context
+ * @outbuf:	Pointer to the text buffer for output
+ * @len:	Length to write
+ * @unsafe:	Invoked in unsafe state due to force takeover
+ */
+struct cons_write_context {
+	struct cons_context	__private ctxt;
+	char			*outbuf;
+	unsigned int		len;
+	bool			unsafe;
 };
 
 /**
@@ -364,6 +443,14 @@ static inline bool console_is_registered(const struct console *con)
 #define for_each_console(con)						\
 	lockdep_assert_console_list_lock_held();			\
 	hlist_for_each_entry(con, &console_list, node)
+
+#ifdef CONFIG_PRINTK
+extern bool console_try_acquire(struct cons_write_context *wctxt);
+extern bool console_release(struct cons_write_context *wctxt);
+#else
+static inline bool console_try_acquire(struct cons_write_context *wctxt) { return false; }
+static inline bool console_release(struct cons_write_context *wctxt) { return false; }
+#endif
 
 extern int console_set_on_cmdline;
 extern struct console *early_console;

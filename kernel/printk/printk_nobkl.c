@@ -4,6 +4,7 @@
 
 #include <linux/kernel.h>
 #include <linux/console.h>
+#include <linux/delay.h>
 #include "internal.h"
 /*
  * Printk implementation for consoles that do not depend on the BKL style
@@ -111,6 +112,536 @@ static inline bool cons_state_try_cmpxchg(struct console *con,
 	return atomic_long_try_cmpxchg(&ACCESS_PRIVATE(con, atomic_state[which]),
 				       &old->atom, new->atom);
 }
+
+/**
+ * cons_state_full_match - Check whether the full state matches
+ * @cur:	The state to check
+ * @prev:	The previous state
+ *
+ * Returns: True if matching, false otherwise.
+ *
+ * Check the full state including state::seq on 64bit. For take over
+ * detection.
+ */
+static inline bool cons_state_full_match(struct cons_state cur,
+					 struct cons_state prev)
+{
+	/*
+	 * req_prio can be set by a concurrent writer for friendly
+	 * handover. Ignore it in the comparison.
+	 */
+	cur.req_prio = prev.req_prio;
+	return cur.atom == prev.atom;
+}
+
+/**
+ * cons_state_bits_match - Check for matching state bits
+ * @cur:	The state to check
+ * @prev:	The previous state
+ *
+ * Returns: True if state matches, false otherwise.
+ *
+ * Contrary to cons_state_full_match this checks only the bits and ignores
+ * a sequence change on 64bits. On 32bit the two functions are identical.
+ */
+static inline bool cons_state_bits_match(struct cons_state cur, struct cons_state prev)
+{
+	/*
+	 * req_prio can be set by a concurrent writer for friendly
+	 * handover. Ignore it in the comparison.
+	 */
+	cur.req_prio = prev.req_prio;
+	return cur.bits == prev.bits;
+}
+
+/**
+ * cons_check_panic - Check whether a remote CPU is in panic
+ *
+ * Returns: True if a remote CPU is in panic, false otherwise.
+ */
+static inline bool cons_check_panic(void)
+{
+	unsigned int pcpu = atomic_read(&panic_cpu);
+
+	return pcpu != PANIC_CPU_INVALID && pcpu != smp_processor_id();
+}
+
+/**
+ * cons_cleanup_handover - Cleanup a handover request
+ * @ctxt:	Pointer to acquire context
+ *
+ * @ctxt->hov_state contains the state to clean up
+ */
+static void cons_cleanup_handover(struct cons_context *ctxt)
+{
+	struct console *con = ctxt->console;
+	struct cons_state new;
+
+	/*
+	 * No loop required. Either hov_state is still the same or
+	 * not.
+	 */
+	new.atom = 0;
+	cons_state_try_cmpxchg(con, CON_STATE_REQ, &ctxt->hov_state, &new);
+}
+
+/**
+ * cons_setup_handover - Setup a handover request
+ * @ctxt:	Pointer to acquire context
+ *
+ * Returns: True if a handover request was setup, false otherwise.
+ *
+ * On success @ctxt->hov_state contains the requested handover state
+ *
+ * On failure this context is not allowed to request a handover from the
+ * current owner. Reasons would be priority too low or a remote CPU in panic.
+ * In both cases this context should give up trying to acquire the console.
+ */
+static bool cons_setup_handover(struct cons_context *ctxt)
+{
+	unsigned int cpu = smp_processor_id();
+	struct console *con = ctxt->console;
+	struct cons_state old;
+	struct cons_state hstate = {
+		.locked		= 1,
+		.cur_prio	= ctxt->prio,
+		.cpu		= cpu,
+	};
+
+	/*
+	 * Try to store hstate in @con->atomic_state[REQ]. This might
+	 * race with a higher priority waiter.
+	 */
+	cons_state_read(con, CON_STATE_REQ, &old);
+	do {
+		if (cons_check_panic())
+			return false;
+
+		/* Same or higher priority waiter exists? */
+		if (old.cur_prio >= ctxt->prio)
+			return false;
+
+	} while (!cons_state_try_cmpxchg(con, CON_STATE_REQ, &old, &hstate));
+
+	/* Save that state for comparison in spinwait */
+	copy_full_state(ctxt->hov_state, hstate);
+	return true;
+}
+
+/**
+ * cons_setup_request - Setup a handover request in state[CUR]
+ * @ctxt:	Pointer to acquire context
+ * @old:	The state that was used to make the decision to spin wait
+ *
+ * Returns: True if a handover request was setup in state[CUR], false
+ * otherwise.
+ *
+ * On success @ctxt->req_state contains the request state that was set in
+ * state[CUR]
+ *
+ * On failure this context encountered unexpected state values. This
+ * context should retry the full handover request setup process (the
+ * handover request setup by cons_setup_handover() is now invalidated
+ * and must be performed again).
+ */
+static bool cons_setup_request(struct cons_context *ctxt, struct cons_state old)
+{
+	struct console *con = ctxt->console;
+	struct cons_state cur;
+	struct cons_state new;
+
+	/* Now set the request in state[CUR] */
+	cons_state_read(con, CON_STATE_CUR, &cur);
+	do {
+		if (cons_check_panic())
+			goto cleanup;
+
+		/* Bit state changed vs. the decision to spinwait? */
+		if (!cons_state_bits_match(cur, old))
+			goto cleanup;
+
+		/*
+		 * A higher or equal priority context already setup a
+		 * request?
+		 */
+		if (cur.req_prio >= ctxt->prio)
+			goto cleanup;
+
+		/* Setup a request for handover. */
+		copy_full_state(new, cur);
+		new.req_prio = ctxt->prio;
+	} while (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &cur, &new));
+
+	/* Save that state for comparison in spinwait */
+	copy_bit_state(ctxt->req_state, new);
+	return true;
+
+cleanup:
+	cons_cleanup_handover(ctxt);
+	return false;
+}
+
+/**
+ * cons_try_acquire_spin - Complete the spinwait attempt
+ * @ctxt:	Pointer to an acquire context that contains
+ *		all information about the acquire mode
+ *
+ * @ctxt->hov_state contains the handover state that was set in
+ * state[REQ]
+ * @ctxt->req_state contains the request state that was set in
+ * state[CUR]
+ *
+ * Returns: 0 if successfully locked. -EBUSY on timeout. -EAGAIN on
+ * unexpected state values.
+ *
+ * On success @ctxt->state contains the new state that was set in
+ * state[CUR]
+ *
+ * On -EBUSY failure this context timed out. This context should either
+ * give up or attempt a hostile takeover.
+ *
+ * On -EAGAIN failure this context encountered unexpected state values.
+ * This context should retry the full handover request setup process (the
+ * handover request setup by cons_setup_handover() is now invalidated and
+ * must be performed again).
+ */
+static int cons_try_acquire_spin(struct cons_context *ctxt)
+{
+	struct console *con = ctxt->console;
+	struct cons_state cur;
+	struct cons_state new;
+	int err = -EAGAIN;
+	int timeout;
+
+	/* Now wait for the other side to hand over */
+	for (timeout = ctxt->spinwait_max_us; timeout >= 0; timeout--) {
+		/* Timeout immediately if a remote panic is detected. */
+		if (cons_check_panic())
+			break;
+
+		cons_state_read(con, CON_STATE_CUR, &cur);
+
+		/*
+		 * If the real state of the console matches the handover state
+		 * that this context setup, then the handover was a success
+		 * and this context is now the owner.
+		 *
+		 * Note that this might have raced with a new higher priority
+		 * requester coming in after the lock was handed over.
+		 * However, that requester will see that the owner changes and
+		 * setup a new request for the current owner (this context).
+		 */
+		if (cons_state_bits_match(cur, ctxt->hov_state))
+			goto success;
+
+		/*
+		 * If state changed since the request was made, give up as
+		 * it is no longer consistent. This must include
+		 * state::req_prio since there could be a higher priority
+		 * request available.
+		 */
+		if (cur.bits != ctxt->req_state.bits)
+			goto cleanup;
+
+		/*
+		 * Finally check whether the handover state is still
+		 * the same.
+		 */
+		cons_state_read(con, CON_STATE_REQ, &cur);
+		if (cur.atom != ctxt->hov_state.atom)
+			goto cleanup;
+
+		/* Account time */
+		if (timeout > 0)
+			udelay(1);
+	}
+
+	/*
+	 * Timeout. Cleanup the handover state and carefully try to reset
+	 * req_prio in the real state. The reset is important to ensure
+	 * that the owner does not hand over the lock after this context
+	 * has given up waiting.
+	 */
+	cons_cleanup_handover(ctxt);
+
+	cons_state_read(con, CON_STATE_CUR, &cur);
+	do {
+		/*
+		 * The timeout might have raced with the owner coming late
+		 * and handing it over gracefully.
+		 */
+		if (cons_state_bits_match(cur, ctxt->hov_state))
+			goto success;
+
+		/*
+		 * Validate that the state matches with the state at request
+		 * time. If this check fails, there is already a higher
+		 * priority context waiting or the owner has changed (either
+		 * by higher priority or by hostile takeover). In all fail
+		 * cases this context is no longer in line for a handover to
+		 * take place, so no reset is necessary.
+		 */
+		if (cur.bits != ctxt->req_state.bits)
+			goto cleanup;
+
+		copy_full_state(new, cur);
+		new.req_prio = 0;
+	} while (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &cur, &new));
+	/* Reset worked. Report timeout. */
+	return -EBUSY;
+
+success:
+	/* Store the real state */
+	copy_full_state(ctxt->state, cur);
+	ctxt->hostile = false;
+	err = 0;
+
+cleanup:
+	cons_cleanup_handover(ctxt);
+	return err;
+}
+
+/**
+ * __cons_try_acquire - Try to acquire the console for printk output
+ * @ctxt:	Pointer to an acquire context that contains
+ *		all information about the acquire mode
+ *
+ * Returns: True if the acquire was successful. False on fail.
+ *
+ * In case of success @ctxt->state contains the acquisition
+ * state.
+ *
+ * In case of fail @ctxt->old_state contains the state
+ * that was read from @con->state for analysis by the caller.
+ */
+static bool __cons_try_acquire(struct cons_context *ctxt)
+{
+	unsigned int cpu = smp_processor_id();
+	struct console *con = ctxt->console;
+	short flags = console_srcu_read_flags(con);
+	struct cons_state old;
+	struct cons_state new;
+	int err;
+
+	if (WARN_ON_ONCE(!(flags & CON_NO_BKL)))
+		return false;
+again:
+	cons_state_read(con, CON_STATE_CUR, &old);
+
+	/* Preserve it for the caller and for spinwait */
+	copy_full_state(ctxt->old_state, old);
+
+	if (cons_check_panic())
+		return false;
+
+	/* Set up the new state for takeover */
+	copy_full_state(new, old);
+	new.locked = 1;
+	new.cur_prio = ctxt->prio;
+	new.req_prio = CONS_PRIO_NONE;
+	new.cpu = cpu;
+
+	/* Attempt to acquire it directly if unlocked */
+	if (!old.locked) {
+		if (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &old, &new))
+			goto again;
+
+		ctxt->hostile = false;
+		copy_full_state(ctxt->state, new);
+		goto success;
+	}
+
+	/*
+	 * If the active context is on the same CPU then there is
+	 * obviously no handshake possible.
+	 */
+	if (old.cpu == cpu)
+		goto check_hostile;
+
+	/*
+	 * If a handover request with same or higher priority is already
+	 * pending then this context cannot setup a handover request.
+	 */
+	if (old.req_prio >= ctxt->prio)
+		goto check_hostile;
+
+	/*
+	 * If the caller did not request spin-waiting then performing a
+	 * handover is not an option.
+	 */
+	if (!ctxt->spinwait)
+		goto check_hostile;
+
+	/*
+	 * Setup the request in state[REQ]. If this fails then this
+	 * context is not allowed to setup a handover request.
+	 */
+	if (!cons_setup_handover(ctxt))
+		goto check_hostile;
+
+	/*
+	 * Setup the request in state[CUR]. Hand in the state that was
+	 * used to make the decision to spinwait above, for comparison. If
+	 * this fails then unexpected state values were encountered and the
+	 * full request setup process is retried.
+	 */
+	if (!cons_setup_request(ctxt, old))
+		goto again;
+
+	/*
+	 * Spin-wait to acquire the console. If this fails then unexpected
+	 * state values were encountered (for example, a hostile takeover by
+	 * another context) and the full request setup process is retried.
+	 */
+	err = cons_try_acquire_spin(ctxt);
+	if (err) {
+		if (err == -EAGAIN)
+			goto again;
+		goto check_hostile;
+	}
+success:
+	/* Common updates on success */
+	return true;
+
+check_hostile:
+	if (!ctxt->hostile)
+		return false;
+
+	if (cons_check_panic())
+		return false;
+
+	if (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &old, &new))
+		goto again;
+
+	copy_full_state(ctxt->state, new);
+	goto success;
+}
+
+/**
+ * cons_try_acquire - Try to acquire the console for printk output
+ * @ctxt:	Pointer to an acquire context that contains
+ *		all information about the acquire mode
+ *
+ * Returns: True if the acquire was successful. False on fail.
+ *
+ * In case of success @ctxt->state contains the acquisition
+ * state.
+ *
+ * In case of fail @ctxt->old_state contains the state
+ * that was read from @con->state for analysis by the caller.
+ */
+static bool cons_try_acquire(struct cons_context *ctxt)
+{
+	if (__cons_try_acquire(ctxt))
+		return true;
+
+	ctxt->state.atom = 0;
+	return false;
+}
+
+/**
+ * __cons_release - Release the console after output is done
+ * @ctxt:	The acquire context that contains the state
+ *		at cons_try_acquire()
+ *
+ * Returns:	True if the release was regular
+ *
+ *		False if the console is in unusable state or was handed over
+ *		with handshake or taken	over hostile without handshake.
+ *
+ * The return value tells the caller whether it needs to evaluate further
+ * printing.
+ */
+static bool __cons_release(struct cons_context *ctxt)
+{
+	struct console *con = ctxt->console;
+	short flags = console_srcu_read_flags(con);
+	struct cons_state hstate;
+	struct cons_state old;
+	struct cons_state new;
+
+	if (WARN_ON_ONCE(!(flags & CON_NO_BKL)))
+		return false;
+
+	cons_state_read(con, CON_STATE_CUR, &old);
+again:
+	if (!cons_state_bits_match(old, ctxt->state))
+		return false;
+
+	/* Release it directly when no handover request is pending. */
+	if (!old.req_prio)
+		goto unlock;
+
+	/* Read the handover target state */
+	cons_state_read(con, CON_STATE_REQ, &hstate);
+
+	/* If the waiter gave up hstate is 0 */
+	if (!hstate.atom)
+		goto unlock;
+
+	/*
+	 * If a higher priority waiter raced against a lower priority
+	 * waiter then unlock instead of handing over to either. The
+	 * higher priority waiter will notice the updated state and
+	 * retry.
+	 */
+	if (hstate.cur_prio != old.req_prio)
+		goto unlock;
+
+	/* Switch the state and preserve the sequence on 64bit */
+	copy_bit_state(new, hstate);
+	copy_seq_state64(new, old);
+	if (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &old, &new))
+		goto again;
+
+	return true;
+
+unlock:
+	/* Clear the state and preserve the sequence on 64bit */
+	new.atom = 0;
+	copy_seq_state64(new, old);
+	if (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &old, &new))
+		goto again;
+
+	return true;
+}
+
+/**
+ * cons_release - Release the console after output is done
+ * @ctxt:	The acquire context that contains the state
+ *		at cons_try_acquire()
+ *
+ * Returns:	True if the release was regular
+ *
+ *		False if the console is in unusable state or was handed over
+ *		with handshake or taken	over hostile without handshake.
+ *
+ * The return value tells the caller whether it needs to evaluate further
+ * printing.
+ */
+static bool cons_release(struct cons_context *ctxt)
+{
+	bool ret = __cons_release(ctxt);
+
+	ctxt->state.atom = 0;
+	return ret;
+}
+
+bool console_try_acquire(struct cons_write_context *wctxt)
+{
+	struct cons_context *ctxt = &ACCESS_PRIVATE(wctxt, ctxt);
+
+	return cons_try_acquire(ctxt);
+}
+EXPORT_SYMBOL_GPL(console_try_acquire);
+
+bool console_release(struct cons_write_context *wctxt)
+{
+	struct cons_context *ctxt = &ACCESS_PRIVATE(wctxt, ctxt);
+
+	return cons_release(ctxt);
+}
+EXPORT_SYMBOL_GPL(console_release);
 
 /**
  * cons_nobkl_init - Initialize the NOBKL console specific data
