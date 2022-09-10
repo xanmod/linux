@@ -251,10 +251,12 @@ struct printk_buffers;
  * @newseq:		The sequence number for progress
  * @prio:		Priority of the context
  * @pbufs:		Pointer to the text buffer for this context
+ * @dropped:		Dropped counter for the current context
  * @thread:		The acquire is printk thread context
  * @hostile:		Hostile takeover requested. Cleared on normal
  *			acquire or friendly handover
  * @spinwait:		Spinwait on acquire if possible
+ * @backlog:		Ringbuffer has pending records
  */
 struct cons_context {
 	struct console		*console;
@@ -267,9 +269,11 @@ struct cons_context {
 	unsigned int		spinwait_max_us;
 	enum cons_prio		prio;
 	struct printk_buffers	*pbufs;
+	unsigned long		dropped;
 	unsigned int		thread		: 1;
 	unsigned int		hostile		: 1;
 	unsigned int		spinwait	: 1;
+	unsigned int		backlog		: 1;
 };
 
 /**
@@ -311,6 +315,7 @@ struct cons_context_data;
  * @atomic_state:	State array for NOBKL consoles; real and handover
  * @atomic_seq:		Sequence for record tracking (32bit only)
  * @thread_pbufs:	Pointer to thread private buffer
+ * @write_atomic:	Write callback for atomic context
  * @pcpu_data:		Pointer to percpu context data
  */
 struct console {
@@ -338,6 +343,9 @@ struct console {
 	atomic_t		__private atomic_seq;
 #endif
 	struct printk_buffers	*thread_pbufs;
+
+	bool (*write_atomic)(struct console *con, struct cons_write_context *wctxt);
+
 	struct cons_context_data	__percpu *pcpu_data;
 };
 
