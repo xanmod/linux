@@ -5,6 +5,7 @@
 #include <linux/kernel.h>
 #include <linux/console.h>
 #include <linux/delay.h>
+#include "printk_ringbuffer.h"
 #include "internal.h"
 /*
  * Printk implementation for consoles that do not depend on the BKL style
@@ -206,6 +207,227 @@ static __ref void cons_context_set_pbufs(struct cons_context *ctxt)
 	else
 		ctxt->pbufs = &(this_cpu_ptr(con->pcpu_data)->pbufs);
 }
+
+/**
+ * cons_seq_init - Helper function to initialize the console sequence
+ * @con:	Console to work on
+ *
+ * Set @con->atomic_seq to the starting record, or if that record no
+ * longer exists, the oldest available record. For init only. Do not
+ * use for runtime updates.
+ */
+static void cons_seq_init(struct console *con)
+{
+	u32 seq = (u32)max_t(u64, con->seq, prb_first_valid_seq(prb));
+#ifdef CONFIG_64BIT
+	struct cons_state state;
+
+	cons_state_read(con, CON_STATE_CUR, &state);
+	state.seq = seq;
+	cons_state_set(con, CON_STATE_CUR, &state);
+#else
+	atomic_set(&ACCESS_PRIVATE(con, atomic_seq), seq);
+#endif
+}
+
+static inline u64 cons_expand_seq(u64 seq)
+{
+	u64 rbseq;
+
+	/*
+	 * The provided sequence is only the lower 32bits of the ringbuffer
+	 * sequence. It needs to be expanded to 64bit. Get the next sequence
+	 * number from the ringbuffer and fold it.
+	 */
+	rbseq = prb_next_seq(prb);
+	seq = rbseq - ((u32)rbseq - (u32)seq);
+
+	return seq;
+}
+
+/**
+ * cons_read_seq - Read the current console sequence
+ * @con:	Console to read the sequence of
+ *
+ * Returns:	Sequence number of the next record to print on @con.
+ */
+u64 cons_read_seq(struct console *con)
+{
+	u64 seq;
+#ifdef CONFIG_64BIT
+	struct cons_state state;
+
+	cons_state_read(con, CON_STATE_CUR, &state);
+	seq = state.seq;
+#else
+	seq = atomic_read(&ACCESS_PRIVATE(con, atomic_seq));
+#endif
+	return cons_expand_seq(seq);
+}
+
+/**
+ * cons_context_set_seq - Setup the context with the next sequence to print
+ * @ctxt:	Pointer to an acquire context that contains
+ *		all information about the acquire mode
+ *
+ * On return the retrieved sequence number is stored in ctxt->oldseq.
+ *
+ * The sequence number is safe in forceful takeover situations.
+ *
+ * Either the writer succeeded to update before it got interrupted
+ * or it failed. In the latter case the takeover will print the
+ * same line again.
+ *
+ * The sequence is only the lower 32bits of the ringbuffer sequence. The
+ * ringbuffer must be 2^31 records ahead to get out of sync. This needs
+ * some care when starting a console, i.e setting the sequence to 0 is
+ * wrong. It has to be set to the oldest valid sequence in the ringbuffer
+ * as that cannot be more than 2^31 records away
+ *
+ * On 64bit the 32bit sequence is part of console::state, which is saved
+ * in @ctxt->state. This prevents the 32bit update race.
+ */
+static void cons_context_set_seq(struct cons_context *ctxt)
+{
+#ifdef CONFIG_64BIT
+	ctxt->oldseq = ctxt->state.seq;
+#else
+	ctxt->oldseq = atomic_read(&ACCESS_PRIVATE(ctxt->console, atomic_seq));
+#endif
+	ctxt->oldseq = cons_expand_seq(ctxt->oldseq);
+	ctxt->newseq = ctxt->oldseq;
+}
+
+/**
+ * cons_seq_try_update - Try to update the console sequence number
+ * @ctxt:	Pointer to an acquire context that contains
+ *		all information about the acquire mode
+ *
+ * Returns:	True if the console sequence was updated, false otherwise.
+ *
+ * Internal helper as the logic is different on 32bit and 64bit.
+ *
+ * On 32 bit the sequence is separate from state and therefore
+ * subject to a subtle race in the case of hostile takeovers.
+ *
+ * On 64 bit the sequence is part of the state and therefore safe
+ * vs. hostile takeovers.
+ *
+ * In case of fail the console has been taken over and @ctxt is
+ * invalid. Caller has to reacquire the console.
+ */
+#ifdef CONFIG_64BIT
+static bool __maybe_unused cons_seq_try_update(struct cons_context *ctxt)
+{
+	struct console *con = ctxt->console;
+	struct cons_state old;
+	struct cons_state new;
+
+	cons_state_read(con, CON_STATE_CUR, &old);
+	do {
+		/* Make sure this context is still the owner. */
+		if (!cons_state_bits_match(old, ctxt->state))
+			return false;
+
+		/* Preserve bit state */
+		copy_bit_state(new, old);
+		new.seq = ctxt->newseq;
+
+		/*
+		 * Can race with hostile takeover or with a handover
+		 * request.
+		 */
+	} while (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &old, &new));
+
+	copy_full_state(ctxt->state, new);
+	ctxt->oldseq = ctxt->newseq;
+
+	return true;
+}
+#else
+static bool cons_release(struct cons_context *ctxt);
+static bool __maybe_unused cons_seq_try_update(struct cons_context *ctxt)
+{
+	struct console *con = ctxt->console;
+	struct cons_state state;
+	int pcpu;
+	u32 old;
+	u32 new;
+
+	/*
+	 * There is a corner case that needs to be considered here:
+	 *
+	 * CPU0			CPU1
+	 * printk()
+	 *  acquire()		-> emergency
+	 *  write()		   acquire()
+	 *  update_seq()
+	 *    state == OK
+	 * --> NMI
+	 *			   takeover()
+	 * <---			     write()
+	 *  cmpxchg() succeeds	     update_seq()
+	 *			     cmpxchg() fails
+	 *
+	 * There is nothing that can be done about this other than having
+	 * yet another state bit that needs to be tracked and analyzed,
+	 * but fails to cover the problem completely.
+	 *
+	 * No other scenarios expose such a problem. On same CPU takeovers
+	 * the cmpxchg() always fails on the interrupted context after the
+	 * interrupting context finished printing, but that's fine as it
+	 * does not own the console anymore. The state check after the
+	 * failed cmpxchg prevents that.
+	 */
+	cons_state_read(con, CON_STATE_CUR, &state);
+	/* Make sure this context is still the owner. */
+	if (!cons_state_bits_match(state, ctxt->state))
+		return false;
+
+	/*
+	 * Get the original sequence number that was retrieved
+	 * from @con->atomic_seq. @con->atomic_seq should be still
+	 * the same. 32bit truncates. See cons_context_set_seq().
+	 */
+	old = (u32)ctxt->oldseq;
+	new = (u32)ctxt->newseq;
+	if (atomic_try_cmpxchg(&ACCESS_PRIVATE(con, atomic_seq), &old, new)) {
+		ctxt->oldseq = ctxt->newseq;
+		return true;
+	}
+
+	/*
+	 * Reread the state. If this context does not own the console anymore
+	 * then it cannot touch the sequence again.
+	 */
+	cons_state_read(con, CON_STATE_CUR, &state);
+	if (!cons_state_bits_match(state, ctxt->state))
+		return false;
+
+	pcpu = atomic_read(&panic_cpu);
+	if (pcpu == smp_processor_id()) {
+		/*
+		 * This is the panic CPU. Emitting a warning here does not
+		 * help at all. The callchain is clear and the priority is
+		 * to get the messages out. In the worst case duplicated
+		 * ones. That's a job for postprocessing.
+		 */
+		atomic_set(&ACCESS_PRIVATE(con, atomic_seq), new);
+		ctxt->oldseq = ctxt->newseq;
+		return true;
+	}
+
+	/*
+	 * Only emit a warning when this happens outside of a panic
+	 * situation as on panic it's neither useful nor helping to let the
+	 * panic CPU get the important stuff out.
+	 */
+	WARN_ON_ONCE(pcpu == PANIC_CPU_INVALID);
+
+	cons_release(ctxt);
+	return false;
+}
+#endif
 
 /**
  * cons_cleanup_handover - Cleanup a handover request
@@ -542,6 +764,7 @@ again:
 	}
 success:
 	/* Common updates on success */
+	cons_context_set_seq(ctxt);
 	cons_context_set_pbufs(ctxt);
 	return true;
 
@@ -739,6 +962,7 @@ bool cons_nobkl_init(struct console *con)
 
 	cons_state_set(con, CON_STATE_CUR, &state);
 	cons_state_set(con, CON_STATE_REQ, &state);
+	cons_seq_init(con);
 	return true;
 }
 

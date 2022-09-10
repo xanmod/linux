@@ -509,7 +509,7 @@ _DEFINE_PRINTKRB(printk_rb_static, CONFIG_LOG_BUF_SHIFT - PRB_AVGBITS,
 
 static struct printk_ringbuffer printk_rb_dynamic;
 
-static struct printk_ringbuffer *prb = &printk_rb_static;
+struct printk_ringbuffer *prb = &printk_rb_static;
 
 /*
  * We cannot access per-CPU data (e.g. per-CPU flush irq_work) before
@@ -2711,30 +2711,39 @@ EXPORT_SYMBOL(is_console_locked);
 
 /*
  * Check if the given console is currently capable and allowed to print
- * records.
- *
- * Requires the console_srcu_read_lock.
+ * records. If the caller only works with certain types of consoles, the
+ * caller is responsible for checking the console type before calling
+ * this function.
  */
-static inline bool console_is_usable(struct console *con)
+static inline bool console_is_usable(struct console *con, short flags)
 {
-	short flags = console_srcu_read_flags(con);
-
 	if (!(flags & CON_ENABLED))
 		return false;
 
 	if ((flags & CON_SUSPENDED))
 		return false;
 
-	if (!con->write)
-		return false;
-
 	/*
-	 * Console drivers may assume that per-cpu resources have been
-	 * allocated. So unless they're explicitly marked as being able to
-	 * cope (CON_ANYTIME) don't call them until this CPU is officially up.
+	 * The usability of a console varies depending on whether
+	 * it is a NOBKL console or not.
 	 */
-	if (!cpu_online(raw_smp_processor_id()) && !(flags & CON_ANYTIME))
-		return false;
+
+	if (flags & CON_NO_BKL) {
+		if (have_boot_console)
+			return false;
+
+	} else {
+		if (!con->write)
+			return false;
+		/*
+		 * Console drivers may assume that per-cpu resources have
+		 * been allocated. So unless they're explicitly marked as
+		 * being able to cope (CON_ANYTIME) don't call them until
+		 * this CPU is officially up.
+		 */
+		if (!cpu_online(raw_smp_processor_id()) && !(flags & CON_ANYTIME))
+			return false;
+	}
 
 	return true;
 }
@@ -2984,9 +2993,14 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 
 		cookie = console_srcu_read_lock();
 		for_each_console_srcu(con) {
+			short flags = console_srcu_read_flags(con);
 			bool progress;
 
-			if (!console_is_usable(con))
+			/* console_flush_all() is only for legacy consoles. */
+			if (flags & CON_NO_BKL)
+				continue;
+
+			if (!console_is_usable(con, flags))
 				continue;
 			any_usable = true;
 
@@ -3791,6 +3805,8 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 
 		cookie = console_srcu_read_lock();
 		for_each_console_srcu(c) {
+			short flags;
+
 			if (con && con != c)
 				continue;
 			/*
@@ -3798,8 +3814,19 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 			 * that they make forward progress, so only increment
 			 * @diff for usable consoles.
 			 */
-			if (!console_is_usable(c))
+
+			flags = console_srcu_read_flags(c);
+
+			if (!console_is_usable(c, flags))
 				continue;
+
+			/*
+			 * Since the console is locked, use this opportunity
+			 * to update console->seq for NOBKL consoles.
+			 */
+			if (flags & CON_NO_BKL)
+				c->seq = cons_read_seq(c);
+
 			printk_seq = c->seq;
 			if (printk_seq < seq)
 				diff += seq - printk_seq;
