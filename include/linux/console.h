@@ -179,6 +179,7 @@ enum cons_flags {
  *
  * @locked:	Console is locked by a writer
  * @unsafe:	Console is busy in a non takeover region
+ * @thread:	Current owner is the printk thread
  * @cur_prio:	The priority of the current output
  * @req_prio:	The priority of a handover request
  * @cpu:	The CPU on which the writer runs
@@ -204,6 +205,7 @@ struct cons_state {
 				struct {
 					u32 locked	:  1;
 					u32 unsafe	:  1;
+					u32 thread	:  1;
 					u32 cur_prio	:  2;
 					u32 req_prio	:  2;
 					u32 cpu		: 18;
@@ -234,6 +236,7 @@ enum cons_prio {
 };
 
 struct console;
+struct printk_buffers;
 
 /**
  * struct cons_context - Context for console acquire/release
@@ -245,6 +248,8 @@ struct console;
  * @req_state:		The request state for spin and cleanup
  * @spinwait_max_us:	Limit for spinwait acquire
  * @prio:		Priority of the context
+ * @pbufs:		Pointer to the text buffer for this context
+ * @thread:		The acquire is printk thread context
  * @hostile:		Hostile takeover requested. Cleared on normal
  *			acquire or friendly handover
  * @spinwait:		Spinwait on acquire if possible
@@ -257,6 +262,8 @@ struct cons_context {
 	struct cons_state	req_state;
 	unsigned int		spinwait_max_us;
 	enum cons_prio		prio;
+	struct printk_buffers	*pbufs;
+	unsigned int		thread		: 1;
 	unsigned int		hostile		: 1;
 	unsigned int		spinwait	: 1;
 };
@@ -274,6 +281,8 @@ struct cons_write_context {
 	unsigned int		len;
 	bool			unsafe;
 };
+
+struct cons_context_data;
 
 /**
  * struct console - The console descriptor structure
@@ -296,6 +305,8 @@ struct cons_write_context {
  * @node:		hlist node for the console list
  *
  * @atomic_state:	State array for NOBKL consoles; real and handover
+ * @thread_pbufs:	Pointer to thread private buffer
+ * @pcpu_data:		Pointer to percpu context data
  */
 struct console {
 	char			name[16];
@@ -318,6 +329,8 @@ struct console {
 
 	/* NOBKL console specific members */
 	atomic_long_t		__private atomic_state[2];
+	struct printk_buffers	*thread_pbufs;
+	struct cons_context_data	__percpu *pcpu_data;
 };
 
 #ifdef CONFIG_LOCKDEP

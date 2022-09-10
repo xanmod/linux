@@ -13,8 +13,13 @@ int devkmsg_sysctl_set_loglvl(struct ctl_table *table, int write,
 #define printk_sysctl_init() do { } while (0)
 #endif
 
-#ifdef CONFIG_PRINTK
+#define con_printk(lvl, con, fmt, ...)				\
+	printk(lvl pr_fmt("%s%sconsole [%s%d] " fmt),		\
+	       (con->flags & CON_NO_BKL) ? "" : "legacy ",	\
+	       (con->flags & CON_BOOT) ? "boot" : "",		\
+	       con->name, con->index, ##__VA_ARGS__)
 
+#ifdef CONFIG_PRINTK
 #ifdef CONFIG_PRINTK_CALLER
 #define PRINTK_PREFIX_MAX	48
 #else
@@ -64,7 +69,8 @@ u16 printk_parse_prefix(const char *text, int *level,
 			enum printk_info_flags *flags);
 
 void cons_nobkl_cleanup(struct console *con);
-void cons_nobkl_init(struct console *con);
+bool cons_nobkl_init(struct console *con);
+bool cons_alloc_percpu_data(struct console *con);
 
 #else
 
@@ -81,7 +87,7 @@ void cons_nobkl_init(struct console *con);
 #define printk_safe_exit_irqrestore(flags) local_irq_restore(flags)
 
 static inline bool printk_percpu_data_ready(void) { return false; }
-static inline void cons_nobkl_init(struct console *con) { }
+static inline bool cons_nobkl_init(struct console *con) { return true; }
 static inline void cons_nobkl_cleanup(struct console *con) { }
 
 #endif /* CONFIG_PRINTK */
@@ -112,6 +118,16 @@ struct printk_message {
 	unsigned int		outbuf_len;
 	u64			seq;
 	unsigned long		dropped;
+};
+
+/**
+ * struct cons_context_data - console context data
+ * @pbufs:		Buffer for storing the text
+ *
+ * Used for early boot and for per CPU data.
+ */
+struct cons_context_data {
+	struct printk_buffers	pbufs;
 };
 
 bool other_cpu_in_panic(void);

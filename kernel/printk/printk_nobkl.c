@@ -166,6 +166,47 @@ static inline bool cons_check_panic(void)
 	return pcpu != PANIC_CPU_INVALID && pcpu != smp_processor_id();
 }
 
+static struct cons_context_data early_cons_ctxt_data __initdata;
+
+/**
+ * cons_context_set_pbufs - Set the output text buffer for the current context
+ * @ctxt:	Pointer to the acquire context
+ *
+ * Buffer selection:
+ *   1) Early boot uses the global (initdata) buffer
+ *   2) Printer threads use the dynamically allocated per-console buffers
+ *   3) All other contexts use the per CPU buffers
+ *
+ * This guarantees that there is no concurrency on the output records ever.
+ * Early boot and per CPU nesting is not a problem. The takeover logic
+ * tells the interrupted context that the buffer has been overwritten.
+ *
+ * There are two critical regions that matter:
+ *
+ * 1) Context is filling the buffer with a record. After interruption
+ *    it continues to sprintf() the record and before it goes to
+ *    write it out, it checks the state, notices the takeover, discards
+ *    the content and backs out.
+ *
+ * 2) Context is in a unsafe critical region in the driver. After
+ *    interruption it might read overwritten data from the output
+ *    buffer. When it leaves the critical region it notices and backs
+ *    out. Hostile takeovers in driver critical regions are best effort
+ *    and there is not much that can be done about that.
+ */
+static __ref void cons_context_set_pbufs(struct cons_context *ctxt)
+{
+	struct console *con = ctxt->console;
+
+	/* Thread context or early boot? */
+	if (ctxt->thread)
+		ctxt->pbufs = con->thread_pbufs;
+	else if (!con->pcpu_data)
+		ctxt->pbufs = &early_cons_ctxt_data.pbufs;
+	else
+		ctxt->pbufs = &(this_cpu_ptr(con->pcpu_data)->pbufs);
+}
+
 /**
  * cons_cleanup_handover - Cleanup a handover request
  * @ctxt:	Pointer to acquire context
@@ -501,6 +542,7 @@ again:
 	}
 success:
 	/* Common updates on success */
+	cons_context_set_pbufs(ctxt);
 	return true;
 
 check_hostile:
@@ -623,6 +665,9 @@ static bool cons_release(struct cons_context *ctxt)
 {
 	bool ret = __cons_release(ctxt);
 
+	/* Invalidate the buffer pointer. It is no longer valid. */
+	ctxt->pbufs = NULL;
+
 	ctxt->state.atom = 0;
 	return ret;
 }
@@ -644,15 +689,57 @@ bool console_release(struct cons_write_context *wctxt)
 EXPORT_SYMBOL_GPL(console_release);
 
 /**
+ * cons_alloc_percpu_data - Allocate percpu data for a console
+ * @con:	Console to allocate for
+ *
+ * Returns: True on success. False otherwise and the console cannot be used.
+ *
+ * If it is not yet possible to allocate per CPU data, success is returned.
+ * When per CPU data becomes possible, set_percpu_data_ready() will call
+ * this function again for all registered consoles.
+ */
+bool cons_alloc_percpu_data(struct console *con)
+{
+	if (!printk_percpu_data_ready())
+		return true;
+
+	con->pcpu_data = alloc_percpu(typeof(*con->pcpu_data));
+	if (con->pcpu_data)
+		return true;
+
+	con_printk(KERN_WARNING, con, "failed to allocate percpu buffers\n");
+	return false;
+}
+
+/**
+ * cons_free_percpu_data - Free percpu data of a console on unregister
+ * @con:	Console to clean up
+ */
+static void cons_free_percpu_data(struct console *con)
+{
+	if (!con->pcpu_data)
+		return;
+
+	free_percpu(con->pcpu_data);
+	con->pcpu_data = NULL;
+}
+
+/**
  * cons_nobkl_init - Initialize the NOBKL console specific data
  * @con:	Console to initialize
+ *
+ * Returns: True on success. False otherwise and the console cannot be used.
  */
-void cons_nobkl_init(struct console *con)
+bool cons_nobkl_init(struct console *con)
 {
 	struct cons_state state = { };
 
+	if (!cons_alloc_percpu_data(con))
+		return false;
+
 	cons_state_set(con, CON_STATE_CUR, &state);
 	cons_state_set(con, CON_STATE_REQ, &state);
+	return true;
 }
 
 /**
@@ -665,4 +752,5 @@ void cons_nobkl_cleanup(struct console *con)
 
 	cons_state_set(con, CON_STATE_CUR, &state);
 	cons_state_set(con, CON_STATE_REQ, &state);
+	cons_free_percpu_data(con);
 }

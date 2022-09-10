@@ -457,6 +457,8 @@ static bool have_bkl_console;
  */
 bool have_boot_console;
 
+static int unregister_console_locked(struct console *console);
+
 #ifdef CONFIG_PRINTK
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 /* All 3 protected by @syslog_lock. */
@@ -1104,7 +1106,19 @@ static inline void log_buf_add_cpu(void) {}
 
 static void __init set_percpu_data_ready(void)
 {
+	struct hlist_node *tmp;
+	struct console *con;
+
+	console_list_lock();
+
+	hlist_for_each_entry_safe(con, tmp, &console_list, node) {
+		if (!cons_alloc_percpu_data(con))
+			unregister_console_locked(con);
+	}
+
 	__printk_percpu_data_ready = true;
+
+	console_list_unlock();
 }
 
 static unsigned int __init add_to_rb(struct printk_ringbuffer *rb,
@@ -3345,12 +3359,6 @@ static void try_enable_default_console(struct console *newcon)
 		newcon->flags |= CON_CONSDEV;
 }
 
-#define con_printk(lvl, con, fmt, ...)				\
-	printk(lvl pr_fmt("%s%sconsole [%s%d] " fmt),		\
-	       (con->flags & CON_NO_BKL) ? "" : "legacy ",	\
-	       (con->flags & CON_BOOT) ? "boot" : "",		\
-	       con->name, con->index, ##__VA_ARGS__)
-
 static void console_init_seq(struct console *newcon, bool bootcon_registered)
 {
 	struct console *con;
@@ -3414,8 +3422,6 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 
 #define console_first()				\
 	hlist_entry(console_list.first, struct console, node)
-
-static int unregister_console_locked(struct console *console);
 
 /*
  * The console driver calls this routine during kernel initialization
@@ -3510,8 +3516,8 @@ void register_console(struct console *newcon)
 
 	if (!(newcon->flags & CON_NO_BKL))
 		have_bkl_console = true;
-	else
-		cons_nobkl_init(newcon);
+	else if (!cons_nobkl_init(newcon))
+		goto unlock;
 
 	if (newcon->flags & CON_BOOT)
 		have_boot_console = true;
