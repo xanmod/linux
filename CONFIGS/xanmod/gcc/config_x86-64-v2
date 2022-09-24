@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 5.19.10 Kernel Configuration
+# Linux/x86 5.19.11 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-12 (Debian 12.2.0-2) 12.2.0"
 CONFIG_CC_IS_GCC=y
