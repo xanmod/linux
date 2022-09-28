@@ -15,6 +15,7 @@ TARGETS += drivers/dma-buf
 TARGETS += drivers/s390x/uvdevice
 TARGETS += drivers/net/bonding
 TARGETS += drivers/net/team
+TARGETS += drivers/winesync
 TARGETS += efivarfs
 TARGETS += exec
 TARGETS += filesystems
