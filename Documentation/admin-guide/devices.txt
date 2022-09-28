@@ -376,8 +376,9 @@
 		240 = /dev/userio	Serio driver testing device
 		241 = /dev/vhost-vsock	Host kernel driver for virtio vsock
 		242 = /dev/rfkill	Turning off radio transmissions (rfkill)
+		243 = /dev/winesync	Wine synchronization primitive device
 
-		243-254			Reserved for local use
+		244-254			Reserved for local use
 		255			Reserved for MISC_DYNAMIC_MINOR
 
   11 char	Raw keyboard device	(Linux/SPARC only)
