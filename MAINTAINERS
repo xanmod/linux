@@ -22171,6 +22171,15 @@ M:	David Härdeman <david@hardeman.nu>
 S:	Maintained
 F:	drivers/media/rc/winbond-cir.c
 
+WINESYNC SYNCHRONIZATION PRIMITIVE DRIVER
+M:	Zebediah Figura <zfigura@codeweavers.com>
+L:	wine-devel@winehq.org
+S:	Supported
+F:	Documentation/userspace-api/winesync.rst
+F:	drivers/misc/winesync.c
+F:	include/uapi/linux/winesync.h
+F:	tools/testing/selftests/drivers/winesync/
+
 WINSYSTEMS EBC-C384 WATCHDOG DRIVER
 M:	William Breathitt Gray <william.gray@linaro.org>
 L:	linux-watchdog@vger.kernel.org
