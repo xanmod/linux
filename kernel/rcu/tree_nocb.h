@@ -1511,7 +1511,7 @@ static void rcu_spawn_cpu_nocb_kthread(int cpu)
 		}
 		WRITE_ONCE(rdp_gp->nocb_gp_kthread, t);
 		if (kthread_prio)
-			sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+			sched_setscheduler_nocheck(t, SCHED_RR, &sp);
 	}
 	mutex_unlock(&rdp_gp->nocb_gp_kthread_mutex);
 
@@ -1522,7 +1522,7 @@ static void rcu_spawn_cpu_nocb_kthread(int cpu)
 		goto end;
 
 	if (IS_ENABLED(CONFIG_RCU_NOCB_CPU_CB_BOOST) && kthread_prio)
-		sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+		sched_setscheduler_nocheck(t, SCHED_RR, &sp);
 
 	WRITE_ONCE(rdp->nocb_cb_kthread, t);
 	WRITE_ONCE(rdp->nocb_gp_kthread, rdp_gp->nocb_gp_kthread);
