@@ -282,9 +282,9 @@ config RCU_NOCB_CPU_CB_BOOST
 	depends on RCU_NOCB_CPU && RCU_BOOST
 	default y if PREEMPT_RT
 	help
-	  Use this option to invoke offloaded callbacks as SCHED_FIFO
+	  Use this option to invoke offloaded callbacks as SCHED_RR
 	  to avoid starvation by heavy SCHED_OTHER background load.
-	  Of course, running as SCHED_FIFO during callback floods will
+	  Of course, running as SCHED_RR during callback floods will
 	  cause the rcuo[ps] kthreads to monopolize the CPU for hundreds
 	  of milliseconds or more.  Therefore, when enabling this option,
 	  it is your responsibility to ensure that latency-sensitive
