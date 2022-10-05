@@ -4401,8 +4401,8 @@ static void __init rcu_start_exp_gp_kworkers(void)
 		return;
 	}
 
-	sched_setscheduler_nocheck(rcu_exp_gp_kworker->task, SCHED_FIFO, &param);
-	sched_setscheduler_nocheck(rcu_exp_par_gp_kworker->task, SCHED_FIFO,
+	sched_setscheduler_nocheck(rcu_exp_gp_kworker->task, SCHED_RR, &param);
+	sched_setscheduler_nocheck(rcu_exp_par_gp_kworker->task, SCHED_RR,
 				   &param);
 }
 
@@ -4440,7 +4440,7 @@ static int __init rcu_spawn_gp_kthread(void)
 		return 0;
 	if (kthread_prio) {
 		sp.sched_priority = kthread_prio;
-		sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+		sched_setscheduler_nocheck(t, SCHED_RR, &sp);
 	}
 	rnp = rcu_get_root();
 	raw_spin_lock_irqsave_rcu_node(rnp, flags);

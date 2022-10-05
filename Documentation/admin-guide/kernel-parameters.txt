@@ -4720,7 +4720,7 @@
 			overwritten.
 
 	rcutree.kthread_prio= 	 [KNL,BOOT]
-			Set the SCHED_FIFO priority of the RCU per-CPU
+			Set the SCHED_RR priority of the RCU per-CPU
 			kthreads (rcuc/N). This value is also used for
 			the priority of the RCU boost threads (rcub/N)
 			and for the RCU grace-period kthreads (rcu_bh,

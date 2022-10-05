@@ -2362,7 +2362,7 @@ static int rcutorture_booster_init(unsigned int cpu)
 		t = per_cpu(ksoftirqd, cpu);
 		WARN_ON_ONCE(!t);
 		sp.sched_priority = 2;
-		sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+		sched_setscheduler_nocheck(t, SCHED_RR, &sp);
 	}
 
 	/* Don't allow time recalculation while creating a new task. */
