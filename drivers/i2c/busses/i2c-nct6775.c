@@ -219,6 +219,7 @@ static s32 nct6775_access(struct i2c_adapter * adap, u16 addr,
 			break;
 		case I2C_SMBUS_BYTE_DATA:
 			tmp_data.byte = data->byte;
+			fallthrough;
 		case I2C_SMBUS_BYTE:
 			outb_p((addr << 1) | read_write,
 			       SMBHSTADD);
