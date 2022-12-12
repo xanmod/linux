@@ -820,6 +820,146 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, format-truncation)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
 
+# This selects which ARM instruction set is used.
+# Note that GCC does not numerically define an architecture version
+# macro, but instead defines a whole series of macros which makes
+# testing for a specific architecture or later rather impossible.
+arch-$(CONFIG_CPU_32v7M)	=-D__LINUX_ARM_ARCH__=7 -march=armv7-m
+arch-$(CONFIG_CPU_32v7)		=-D__LINUX_ARM_ARCH__=7 -march=armv7-a
+arch-$(CONFIG_CPU_32v6)		=-D__LINUX_ARM_ARCH__=6 -march=armv6
+# Only override the compiler option if ARMv6. The ARMv6K extensions are
+# always available in ARMv7
+ifeq ($(CONFIG_CPU_32v6),y)
+arch-$(CONFIG_CPU_32v6K)	=-D__LINUX_ARM_ARCH__=6 -march=armv6k
+endif
+arch-$(CONFIG_CPU_32v5)		=-D__LINUX_ARM_ARCH__=5 -march=armv5te
+arch-$(CONFIG_CPU_32v4T)	=-D__LINUX_ARM_ARCH__=4 -march=armv4t
+arch-$(CONFIG_CPU_32v4)		=-D__LINUX_ARM_ARCH__=4 -march=armv4
+arch-$(CONFIG_CPU_32v3)		=-D__LINUX_ARM_ARCH__=3 -march=armv3m
+
+# Evaluate arch cc-option calls now
+arch-y := $(arch-y)
+
+# This selects how we optimise for the processor.
+tune-$(CONFIG_CPU_ARM7TDMI)	=-mtune=arm7tdmi
+tune-$(CONFIG_CPU_ARM720T)	=-mtune=arm7tdmi
+tune-$(CONFIG_CPU_ARM740T)	=-mtune=arm7tdmi
+tune-$(CONFIG_CPU_ARM9TDMI)	=-mtune=arm9tdmi
+tune-$(CONFIG_CPU_ARM940T)	=-mtune=arm9tdmi
+tune-$(CONFIG_CPU_ARM946E)	=-mtune=arm9e
+tune-$(CONFIG_CPU_ARM920T)	=-mtune=arm9tdmi
+tune-$(CONFIG_CPU_ARM922T)	=-mtune=arm9tdmi
+tune-$(CONFIG_CPU_ARM925T)	=-mtune=arm9tdmi
+tune-$(CONFIG_CPU_ARM926T)	=-mtune=arm9tdmi
+tune-$(CONFIG_CPU_FA526)	=-mtune=arm9tdmi
+tune-$(CONFIG_CPU_SA110)	=-mtune=strongarm110
+tune-$(CONFIG_CPU_SA1100)	=-mtune=strongarm1100
+tune-$(CONFIG_CPU_XSCALE)	=-mtune=xscale
+tune-$(CONFIG_CPU_XSC3)		=-mtune=xscale
+tune-$(CONFIG_CPU_FEROCEON)	=-mtune=xscale
+tune-$(CONFIG_CPU_V6)		=-mtune=arm1136j-s
+tune-$(CONFIG_CPU_V6K)		=-mtune=arm1136j-s
+
+# Evaluate tune cc-option calls now
+tune-y := $(tune-y)
+
+# This selects which x86 instruction set is used.
+cflags-$(CONFIG_M486SX)		+= -march=i486
+cflags-$(CONFIG_M486)		+= -march=i486
+cflags-$(CONFIG_M586)		+= -march=i586
+cflags-$(CONFIG_M586TSC)	+= -march=i586
+cflags-$(CONFIG_M586MMX)	+= -march=pentium-mmx
+cflags-$(CONFIG_M686)		+= -march=i686
+cflags-$(CONFIG_MPENTIUMII)	+= -march=i686 $(call tune,pentium2)
+cflags-$(CONFIG_MPENTIUMIII)	+= -march=i686 $(call tune,pentium3)
+cflags-$(CONFIG_MPENTIUMM)	+= -march=i686 $(call tune,pentium3)
+cflags-$(CONFIG_MPENTIUM4)	+= -march=i686 $(call tune,pentium4)
+cflags-$(CONFIG_MK6)		+= -march=k6
+# Please note, that patches that add -march=athlon-xp and friends are pointless.
+# They make zero difference whatsosever to performance at this time.
+cflags-$(CONFIG_MK7)		+= -march=athlon
+cflags-$(CONFIG_MK8)		+= $(call cc-option,-march=k8,-march=athlon)
+cflags-$(CONFIG_MCRUSOE)	+= -march=i686 $(align)
+cflags-$(CONFIG_MEFFICEON)	+= -march=i686 $(call tune,pentium3) $(align)
+cflags-$(CONFIG_MWINCHIPC6)	+= $(call cc-option,-march=winchip-c6,-march=i586)
+cflags-$(CONFIG_MWINCHIP3D)	+= $(call cc-option,-march=winchip2,-march=i586)
+cflags-$(CONFIG_MCYRIXIII)	+= $(call cc-option,-march=c3,-march=i486) $(align)
+cflags-$(CONFIG_MVIAC3_2)	+= $(call cc-option,-march=c3-2,-march=i686)
+cflags-$(CONFIG_MVIAC7)		+= -march=i686
+cflags-$(CONFIG_MCORE2)		+= -march=i686 $(call tune,core2)
+cflags-$(CONFIG_MATOM)		+= $(call cc-option,-march=atom,$(call cc-option,-march=core2,-march=i686)) \
+$(call cc-option,-mtune=atom,$(call cc-option,-mtune=generic))
+
+# AMD Elan support
+cflags-$(CONFIG_MELAN)		+= -march=i486
+
+# Geode GX1 support
+cflags-$(CONFIG_MGEODEGX1)	+= -march=pentium-mmx
+cflags-$(CONFIG_MGEODE_LX)	+= $(call cc-option,-march=geode,-march=pentium-mmx)
+# add at the end to overwrite eventual tuning options from earlier
+# cpu entries
+cflags-$(CONFIG_X86_GENERIC) 	+= $(call tune,generic,$(call tune,i686))
+
+# Bug fix for binutils: this option is required in order to keep
+# binutils from generating NOPL instructions against our will.
+ifneq ($(CONFIG_X86_P6_NOP),y)
+cflags-y			+= $(call cc-option,-Wa$(comma)-mtune=generic32,)
+endif
+
+# x86_64 instruction set
+cflags64-$(CONFIG_MK8)		+= -march=k8
+cflags64-$(CONFIG_MPSC)		+= -march=nocona
+cflags64-$(CONFIG_MK8SSE3)	+= -march=k8-sse3
+cflags64-$(CONFIG_MK10) 		+= -march=amdfam10
+cflags64-$(CONFIG_MBARCELONA) 	+= -march=barcelona
+cflags64-$(CONFIG_MBOBCAT) 	+= -march=btver1
+cflags64-$(CONFIG_MJAGUAR) 	+= -march=btver2
+cflags64-$(CONFIG_MBULLDOZER) 	+= -march=bdver1
+cflags64-$(CONFIG_MPILEDRIVER)	+= -march=bdver2 -mno-tbm
+cflags64-$(CONFIG_MSTEAMROLLER) 	+= -march=bdver3 -mno-tbm
+cflags64-$(CONFIG_MEXCAVATOR) 	+= -march=bdver4 -mno-tbm
+cflags64-$(CONFIG_MZEN) 		+= -march=znver1
+cflags64-$(CONFIG_MZEN2) 	+= -march=znver2
+cflags64-$(CONFIG_MZEN3) 	+= -march=znver3
+cflags64-$(CONFIG_MZEN4) 	+= -march=znver4
+cflags64-$(CONFIG_MNATIVE_INTEL) += -march=native
+cflags64-$(CONFIG_MNATIVE_AMD) 	+= -march=native
+cflags64-$(CONFIG_MATOM) 	+= -march=bonnell
+cflags64-$(CONFIG_MCORE2) 	+= -march=core2
+cflags64-$(CONFIG_MNEHALEM) 	+= -march=nehalem
+cflags64-$(CONFIG_MWESTMERE) 	+= -march=westmere
+cflags64-$(CONFIG_MSILVERMONT) 	+= -march=silvermont
+cflags64-$(CONFIG_MGOLDMONT) 	+= -march=goldmont
+cflags64-$(CONFIG_MGOLDMONTPLUS) += -march=goldmont-plus
+cflags64-$(CONFIG_MSANDYBRIDGE) 	+= -march=sandybridge
+cflags64-$(CONFIG_MIVYBRIDGE) 	+= -march=ivybridge
+cflags64-$(CONFIG_MHASWELL) 	+= -march=haswell
+cflags64-$(CONFIG_MBROADWELL) 	+= -march=broadwell
+cflags64-$(CONFIG_MSKYLAKE) 	+= -march=skylake
+cflags64-$(CONFIG_MSKYLAKEX) 	+= -march=skylake-avx512
+cflags64-$(CONFIG_MCANNONLAKE) 	+= -march=cannonlake
+cflags64-$(CONFIG_MICELAKE) 	+= -march=icelake-client
+cflags64-$(CONFIG_MCASCADELAKE) 	+= -march=cascadelake
+cflags64-$(CONFIG_MCOOPERLAKE) 	+= -march=cooperlake
+cflags64-$(CONFIG_MTIGERLAKE) 	+= -march=tigerlake
+cflags64-$(CONFIG_MSAPPHIRERAPIDS) += -march=sapphirerapids
+cflags64-$(CONFIG_MROCKETLAKE) 	+= -march=rocketlake
+cflags64-$(CONFIG_MALDERLAKE) 	+= -march=alderlake
+cflags64-$(CONFIG_MRAPTORLAKE) 	+= -march=raptorlake
+cflags64-$(CONFIG_MMETEORLAKE) 	+= -march=meteorlake
+cflags64-$(CONFIG_GENERIC_CPU2) 	+= -march=x86-64-v2
+cflags64-$(CONFIG_GENERIC_CPU3) 	+= -march=x86-64-v3
+cflags64-$(CONFIG_GENERIC_CPU4) 	+= -march=x86-64-v4
+cflags64-$(CONFIG_GENERIC_CPU)	+= -mtune=generic
+KBUILD_CFLAGS += $(cflags64-y)
+
+rustflags64-$(CONFIG_MK8)		+= -Ctarget-cpu=k8
+rustflags64-$(CONFIG_MPSC)	+= -Ctarget-cpu=nocona
+rustflags64-$(CONFIG_MCORE2)	+= -Ctarget-cpu=core2
+rustflags64-$(CONFIG_MATOM)	+= -Ctarget-cpu=atom
+rustflags64-$(CONFIG_GENERIC_CPU)	+= -Ztune-cpu=generic
+KBUILD_RUSTFLAGS += $(rustflags64-y)
+
 ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
 KBUILD_CFLAGS += -O2
 KBUILD_RUSTFLAGS += -Copt-level=2
