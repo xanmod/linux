@@ -731,10 +731,19 @@ nfsd4_commit(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	     union nfsd4_op_u *u)
 {
 	struct nfsd4_commit *commit = &u->commit;
+	struct nfsd_file *nf;
+	__be32 status;
 
-	return nfsd_commit(rqstp, &cstate->current_fh, commit->co_offset,
+	status = nfsd_file_acquire(rqstp, &cstate->current_fh, NFSD_MAY_WRITE |
+				   NFSD_MAY_NOT_BREAK_LEASE, &nf);
+	if (status != nfs_ok)
+		return status;
+
+	status = nfsd_commit(rqstp, &cstate->current_fh, nf, commit->co_offset,
 			     commit->co_count,
 			     (__be32 *)commit->co_verf.data);
+	nfsd_file_put(nf);
+	return status;
 }
 
 static __be32
@@ -928,7 +937,7 @@ nfsd4_read(struct svc_rqst *rqstp, struct nfsd4_compound_state *cstate,
 	 * the client wants us to do more in this compound:
 	 */
 	if (!nfsd4_last_compound_op(rqstp))
-		__clear_bit(RQ_SPLICE_OK, &rqstp->rq_flags);
+		clear_bit(RQ_SPLICE_OK, &rqstp->rq_flags);
 
 	/* check stateid */
 	status = nfs4_preprocess_stateid_op(rqstp, cstate, &cstate->current_fh,
@@ -2615,12 +2624,11 @@ nfsd4_proc_compound(struct svc_rqst *rqstp)
 	cstate->minorversion = args->minorversion;
 	fh_init(current_fh, NFS4_FHSIZE);
 	fh_init(save_fh, NFS4_FHSIZE);
-
 	/*
 	 * Don't use the deferral mechanism for NFSv4; compounds make it
 	 * too hard to avoid non-idempotency problems.
 	 */
-	__clear_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
+	clear_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
 
 	/*
 	 * According to RFC3010, this takes precedence over all other errors.
@@ -2742,7 +2750,7 @@ encode_op:
 out:
 	cstate->status = status;
 	/* Reset deferral mechanism for RPC deferrals */
-	__set_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
+	set_bit(RQ_USEDEFERRAL, &rqstp->rq_flags);
 	return rpc_success;
 }
 
