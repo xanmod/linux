@@ -9,9 +9,9 @@
 
 #include <linux/efi.h>
 #include <linux/init.h>
-#include <linux/percpu.h>
 
 #include <asm/efi.h>
+#include <asm/stacktrace.h>
 
 static bool region_is_misaligned(const efi_memory_desc_t *md)
 {
@@ -146,27 +146,51 @@ asmlinkage efi_status_t efi_handle_corrupted_x18(efi_status_t s, const char *f)
 	return s;
 }
 
-asmlinkage DEFINE_PER_CPU(u64, __efi_rt_asm_recover_sp);
+DEFINE_SPINLOCK(efi_rt_lock);
+
+asmlinkage u64 *efi_rt_stack_top __ro_after_init;
 
 asmlinkage efi_status_t __efi_rt_asm_recover(void);
-
-asmlinkage efi_status_t efi_handle_runtime_exception(const char *f)
-{
-	pr_err(FW_BUG "Synchronous exception occurred in EFI runtime service %s()\n", f);
-	clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
-	return EFI_ABORTED;
-}
 
 bool efi_runtime_fixup_exception(struct pt_regs *regs, const char *msg)
 {
 	 /* Check whether the exception occurred while running the firmware */
-	if (current_work() != &efi_rts_work.work || regs->pc >= TASK_SIZE_64)
+	if (!current_in_efi() || regs->pc >= TASK_SIZE_64)
 		return false;
 
 	pr_err(FW_BUG "Unable to handle %s in EFI runtime service\n", msg);
 	add_taint(TAINT_FIRMWARE_WORKAROUND, LOCKDEP_STILL_OK);
-	dump_stack();
+	clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
 
-	regs->pc = (u64)__efi_rt_asm_recover;
+	regs->regs[0]	= EFI_ABORTED;
+	regs->regs[30]	= efi_rt_stack_top[-1];
+	regs->pc	= (u64)__efi_rt_asm_recover;
+
+	if (IS_ENABLED(CONFIG_SHADOW_CALL_STACK))
+		regs->regs[18] = efi_rt_stack_top[-2];
+
 	return true;
 }
+
+/* EFI requires 8 KiB of stack space for runtime services */
+static_assert(THREAD_SIZE >= SZ_8K);
+
+static int __init arm64_efi_rt_init(void)
+{
+	void *p;
+
+	if (!efi_enabled(EFI_RUNTIME_SERVICES))
+		return 0;
+
+	p = __vmalloc_node(THREAD_SIZE, THREAD_ALIGN, GFP_KERNEL,
+			   NUMA_NO_NODE, &&l);
+l:	if (!p) {
+		pr_warn("Failed to allocate EFI runtime stack\n");
+		clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
+		return -ENOMEM;
+	}
+
+	efi_rt_stack_top = p + THREAD_SIZE;
+	return 0;
+}
+core_initcall(arm64_efi_rt_init);
