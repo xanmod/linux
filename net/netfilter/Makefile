@@ -227,3 +227,8 @@ obj-$(CONFIG_IP_VS) += ipvs/
 
 # lwtunnel
 obj-$(CONFIG_LWTUNNEL) += nf_hooks_lwtunnel.o
+
+# Nftables/netfilter fullcone expression support
+obj-$(CONFIG_NFT_FULLCONE) += \
+	nf_nat_fullcone.o \
+	nft_ext_fullcone.o
