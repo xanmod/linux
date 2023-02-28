@@ -233,6 +233,30 @@ static void cons_seq_init(struct console *con)
 #endif
 }
 
+/**
+ * cons_force_seq - Force a specified sequence number for a console
+ * @con:	Console to work on
+ * @seq:	Sequence number to force
+ *
+ * This function is only intended to be used in emergency situations. In
+ * particular: console_flush_on_panic(CONSOLE_REPLAY_ALL)
+ */
+void cons_force_seq(struct console *con, u64 seq)
+{
+#ifdef CONFIG_64BIT
+	struct cons_state old;
+	struct cons_state new;
+
+	do {
+		cons_state_read(con, CON_STATE_CUR, &old);
+		copy_bit_state(new, old);
+		new.seq = seq;
+	} while (!cons_state_try_cmpxchg(con, CON_STATE_CUR, &old, &new));
+#else
+	atomic_set(&ACCESS_PRIVATE(con, atomic_seq), seq);
+#endif
+}
+
 static inline u64 cons_expand_seq(u64 seq)
 {
 	u64 rbseq;

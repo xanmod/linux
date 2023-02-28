@@ -79,6 +79,7 @@ bool cons_nobkl_init(struct console *con);
 bool cons_alloc_percpu_data(struct console *con);
 void cons_kthread_create(struct console *con);
 void cons_wake_threads(void);
+void cons_force_seq(struct console *con, u64 seq);
 
 /*
  * Check if the given console is currently capable and allowed to print
@@ -149,6 +150,7 @@ static inline bool printk_percpu_data_ready(void) { return false; }
 static inline bool cons_nobkl_init(struct console *con) { return true; }
 static inline void cons_nobkl_cleanup(struct console *con) { }
 static inline bool console_is_usable(struct console *con, short flags) { return false; }
+static inline void cons_force_seq(struct console *con, u64 seq) { }
 
 #endif /* CONFIG_PRINTK */
 
