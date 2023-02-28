@@ -78,6 +78,7 @@ void cons_nobkl_cleanup(struct console *con);
 bool cons_nobkl_init(struct console *con);
 bool cons_alloc_percpu_data(struct console *con);
 void cons_kthread_create(struct console *con);
+void cons_wake_threads(void);
 
 /*
  * Check if the given console is currently capable and allowed to print

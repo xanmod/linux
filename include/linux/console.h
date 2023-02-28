@@ -16,6 +16,7 @@
 
 #include <linux/atomic.h>
 #include <linux/bits.h>
+#include <linux/irq_work.h>
 #include <linux/rculist.h>
 #include <linux/rcuwait.h>
 #include <linux/types.h>
@@ -318,6 +319,7 @@ struct cons_context_data;
  * @thread_pbufs:	Pointer to thread private buffer
  * @kthread:		Pointer to kernel thread
  * @rcuwait:		RCU wait for the kernel thread
+ * @irq_work:		IRQ work for thread wakeup
  * @kthread_waiting:	Indicator whether the kthread is waiting to be woken
  * @write_atomic:	Write callback for atomic context
  * @write_thread:	Write callback for printk threaded printing
@@ -351,6 +353,7 @@ struct console {
 	struct printk_buffers	*thread_pbufs;
 	struct task_struct	*kthread;
 	struct rcuwait		rcuwait;
+	struct irq_work		irq_work;
 	atomic_t		kthread_waiting;
 
 	bool (*write_atomic)(struct console *con, struct cons_write_context *wctxt);

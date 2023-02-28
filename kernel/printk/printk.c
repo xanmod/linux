@@ -2332,6 +2332,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		preempt_enable();
 	}
 
+	cons_wake_threads();
 	if (in_sched)
 		defer_console_output();
 	else
@@ -2599,6 +2600,8 @@ void suspend_console(void)
 void resume_console(void)
 {
 	struct console *con;
+	short flags;
+	int cookie;
 
 	if (!console_suspend_enabled)
 		return;
@@ -2614,6 +2617,14 @@ void resume_console(void)
 	 * that they are guaranteed to wake up and resume printing.
 	 */
 	synchronize_srcu(&console_srcu);
+
+	cookie = console_srcu_read_lock();
+	for_each_console_srcu(con) {
+		flags = console_srcu_read_flags(con);
+		if (flags & CON_NO_BKL)
+			cons_kthread_wake(con);
+	}
+	console_srcu_read_unlock(cookie);
 
 	pr_flush(1000, true);
 }
@@ -3242,9 +3253,23 @@ EXPORT_SYMBOL(console_stop);
 
 void console_start(struct console *console)
 {
+	short flags;
+
 	console_list_lock();
 	console_srcu_write_flags(console, console->flags | CON_ENABLED);
+	flags = console->flags;
 	console_list_unlock();
+
+	/*
+	 * Ensure that all SRCU list walks have completed. The related
+	 * printing context must be able to see it is enabled so that
+	 * it is guaranteed to wake up and resume printing.
+	 */
+	synchronize_srcu(&console_srcu);
+
+	if (flags & CON_NO_BKL)
+		cons_kthread_wake(console);
+
 	__pr_flush(console, 1000, true);
 }
 EXPORT_SYMBOL(console_start);
@@ -3943,6 +3968,7 @@ void defer_console_output(void)
 
 void printk_trigger_flush(void)
 {
+	cons_wake_threads();
 	defer_console_output();
 }
 

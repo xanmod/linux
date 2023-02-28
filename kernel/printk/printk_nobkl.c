@@ -1372,6 +1372,37 @@ static int cons_kthread_func(void *__console)
 }
 
 /**
+ * cons_irq_work - irq work to wake printk thread
+ * @irq_work:	The irq work to operate on
+ */
+static void cons_irq_work(struct irq_work *irq_work)
+{
+	struct console *con = container_of(irq_work, struct console, irq_work);
+
+	cons_kthread_wake(con);
+}
+
+/**
+ * cons_wake_threads - Wake up printing threads
+ *
+ * A printing thread is only woken if it is within the @kthread_waiting
+ * block. If it is not within the block (or enters the block later), it
+ * will see any new records and continue printing on its own.
+ */
+void cons_wake_threads(void)
+{
+	struct console *con;
+	int cookie;
+
+	cookie = console_srcu_read_lock();
+	for_each_console_srcu(con) {
+		if (con->kthread && atomic_read(&con->kthread_waiting))
+			irq_work_queue(&con->irq_work);
+	}
+	console_srcu_read_unlock(cookie);
+}
+
+/**
  * cons_kthread_stop - Stop a printk thread
  * @con:	Console to operate on
  */
@@ -1474,6 +1505,7 @@ bool cons_nobkl_init(struct console *con)
 
 	rcuwait_init(&con->rcuwait);
 	atomic_set(&con->kthread_waiting, 0);
+	init_irq_work(&con->irq_work, cons_irq_work);
 	cons_state_set(con, CON_STATE_CUR, &state);
 	cons_state_set(con, CON_STATE_REQ, &state);
 	cons_seq_init(con);
