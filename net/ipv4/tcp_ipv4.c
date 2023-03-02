@@ -3277,6 +3277,7 @@ static int __net_init tcp_sk_init(struct net *net)
 		net->ipv4.tcp_congestion_control = &tcp_reno;
 
 	net->ipv4.sysctl_tcp_collapse_max_bytes = 0;
+	net->ipv4.sysctl_tcp_shrink_window = 0;
 
 	return 0;
 }
