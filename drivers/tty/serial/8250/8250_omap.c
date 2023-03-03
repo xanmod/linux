@@ -338,8 +338,7 @@ static void omap8250_restore_regs(struct uart_8250_port *up)
 
 	/* drop TCR + TLR access, we setup XON/XOFF later */
 	serial8250_out_MCR(up, mcr);
-
-	serial_out(up, UART_IER, up->ier);
+	serial8250_set_IER(up, up->ier);
 
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B);
 	serial_dl_write(up, priv->quot);
@@ -536,7 +535,7 @@ static void omap_8250_pm(struct uart_port *port, unsigned int state,
 	serial_out(up, UART_EFR, efr | UART_EFR_ECB);
 	serial_out(up, UART_LCR, 0);
 
-	serial_out(up, UART_IER, (state != 0) ? UART_IERX_SLEEP : 0);
+	serial8250_set_IER(up, (state != 0) ? UART_IERX_SLEEP : 0);
 	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B);
 	serial_out(up, UART_EFR, efr);
 	serial_out(up, UART_LCR, 0);
@@ -719,7 +718,7 @@ static int omap_8250_startup(struct uart_port *port)
 	/* Synchronize UART_IER access against the console. */
 	spin_lock_irq(&port->lock);
 	up->ier = UART_IER_RLSI | UART_IER_RDI;
-	serial_out(up, UART_IER, up->ier);
+	serial8250_set_IER(up, up->ier);
 	spin_unlock_irq(&port->lock);
 
 #ifdef CONFIG_PM
@@ -763,7 +762,7 @@ static void omap_8250_shutdown(struct uart_port *port)
 	/* Synchronize UART_IER access against the console. */
 	spin_lock_irq(&port->lock);
 	up->ier = 0;
-	serial_out(up, UART_IER, 0);
+	serial8250_set_IER(up, 0);
 	spin_unlock_irq(&port->lock);
 	disable_irq_nosync(up->port.irq);
 	dev_pm_clear_wake_irq(port->dev);
@@ -813,7 +812,7 @@ static void omap_8250_unthrottle(struct uart_port *port)
 		up->dma->rx_dma(up);
 	up->ier |= UART_IER_RLSI | UART_IER_RDI;
 	port->read_status_mask |= UART_LSR_DR;
-	serial_out(up, UART_IER, up->ier);
+	serial8250_set_IER(up, up->ier);
 	spin_unlock_irqrestore(&port->lock, flags);
 
 	pm_runtime_mark_last_busy(port->dev);
@@ -973,7 +972,7 @@ static void __dma_rx_complete(void *param)
 	__dma_rx_do_complete(p);
 	if (!priv->throttled) {
 		p->ier |= UART_IER_RLSI | UART_IER_RDI;
-		serial_out(p, UART_IER, p->ier);
+		serial8250_set_IER(p, p->ier);
 		if (!(priv->habit & UART_HAS_EFR2))
 			omap_8250_rx_dma(p);
 	}
@@ -1033,7 +1032,7 @@ static int omap_8250_rx_dma(struct uart_8250_port *p)
 			 * callback to run.
 			 */
 			p->ier &= ~(UART_IER_RLSI | UART_IER_RDI);
-			serial_out(p, UART_IER, p->ier);
+			serial8250_set_IER(p, p->ier);
 		}
 		goto out;
 	}
@@ -1249,12 +1248,12 @@ static void am654_8250_handle_rx_dma(struct uart_8250_port *up, u8 iir,
 		 * periodic timeouts, re-enable interrupts.
 		 */
 		up->ier &= ~(UART_IER_RLSI | UART_IER_RDI);
-		serial_out(up, UART_IER, up->ier);
+		serial8250_set_IER(up, up->ier);
 		omap_8250_rx_dma_flush(up);
 		serial_in(up, UART_IIR);
 		serial_out(up, UART_OMAP_EFR2, 0x0);
 		up->ier |= UART_IER_RLSI | UART_IER_RDI;
-		serial_out(up, UART_IER, up->ier);
+		serial8250_set_IER(up, up->ier);
 	}
 }
 
