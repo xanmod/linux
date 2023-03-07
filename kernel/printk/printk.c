@@ -3609,19 +3609,18 @@ static int unregister_console_locked(struct console *console)
 
 	is_boot_con = console->flags & CON_BOOT;
 
-	con_printk(KERN_INFO, console, "disabled\n");
-
 	res = _braille_unregister_console(console);
 	if (res < 0)
 		return res;
 	if (res > 0)
 		return 0;
 
-	/* Disable it unconditionally */
-	console_srcu_write_flags(console, console->flags & ~CON_ENABLED);
-
 	if (!console_is_registered_locked(console))
 		return -ENODEV;
+
+	console_srcu_write_flags(console, console->flags & ~CON_ENABLED);
+
+	con_printk(KERN_INFO, console, "disabled\n");
 
 	hlist_del_init_rcu(&console->node);
 
