@@ -3540,8 +3540,13 @@ static ssize_t show_cons_active(struct device *dev,
 	for_each_console(c) {
 		if (!c->device)
 			continue;
-		if (!c->write)
-			continue;
+		if (c->flags & CON_NO_BKL) {
+			if (!(c->write_thread || c->write_atomic))
+				continue;
+		} else {
+			if (!c->write)
+				continue;
+		}
 		if ((c->flags & CON_ENABLED) == 0)
 			continue;
 		cs[i++] = c;
