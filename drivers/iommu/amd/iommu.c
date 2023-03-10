@@ -558,6 +558,15 @@ static void amd_iommu_report_page_fault(struct amd_iommu *iommu,
 		 * prevent logging it.
 		 */
 		if (IS_IOMMU_MEM_TRANSACTION(flags)) {
+			/* Device not attached to domain properly */
+			if (dev_data->domain == NULL) {
+				pr_err_ratelimited("Event logged [Device not attached to domain properly]\n");
+				pr_err_ratelimited("  device=%04x:%02x:%02x.%x domain=0x%04x\n",
+						   iommu->pci_seg->id, PCI_BUS_NUM(devid), PCI_SLOT(devid),
+						   PCI_FUNC(devid), domain_id);
+				goto out;
+			}
+
 			if (!report_iommu_fault(&dev_data->domain->domain,
 						&pdev->dev, address,
 						IS_WRITE_REQUEST(flags) ?
@@ -1702,27 +1711,29 @@ static int pdev_pri_ats_enable(struct pci_dev *pdev)
 	/* Only allow access to user-accessible pages */
 	ret = pci_enable_pasid(pdev, 0);
 	if (ret)
-		goto out_err;
+		return ret;
 
 	/* First reset the PRI state of the device */
 	ret = pci_reset_pri(pdev);
 	if (ret)
-		goto out_err;
+		goto out_err_pasid;
 
 	/* Enable PRI */
 	/* FIXME: Hardcode number of outstanding requests for now */
 	ret = pci_enable_pri(pdev, 32);
 	if (ret)
-		goto out_err;
+		goto out_err_pasid;
 
 	ret = pci_enable_ats(pdev, PAGE_SHIFT);
 	if (ret)
-		goto out_err;
+		goto out_err_pri;
 
 	return 0;
 
-out_err:
+out_err_pri:
 	pci_disable_pri(pdev);
+
+out_err_pasid:
 	pci_disable_pasid(pdev);
 
 	return ret;
@@ -2159,6 +2170,13 @@ static int amd_iommu_attach_device(struct iommu_domain *dom,
 	struct amd_iommu *iommu = rlookup_amd_iommu(dev);
 	int ret;
 
+	/*
+	 * Skip attach device to domain if new domain is same as
+	 * devices current domain
+	 */
+	if (dev_data->domain == domain)
+		return 0;
+
 	dev_data->defer_attach = false;
 
 	if (dev_data->domain)
@@ -2387,12 +2405,17 @@ static int amd_iommu_def_domain_type(struct device *dev)
 		return 0;
 
 	/*
-	 * Do not identity map IOMMUv2 capable devices when memory encryption is
-	 * active, because some of those devices (AMD GPUs) don't have the
-	 * encryption bit in their DMA-mask and require remapping.
+	 * Do not identity map IOMMUv2 capable devices when:
+	 *  - memory encryption is active, because some of those devices
+	 *    (AMD GPUs) don't have the encryption bit in their DMA-mask
+	 *    and require remapping.
+	 *  - SNP is enabled, because it prohibits DTE[Mode]=0.
 	 */
-	if (!cc_platform_has(CC_ATTR_MEM_ENCRYPT) && dev_data->iommu_v2)
+	if (dev_data->iommu_v2 &&
+	    !cc_platform_has(CC_ATTR_MEM_ENCRYPT) &&
+	    !amd_iommu_snp_en) {
 		return IOMMU_DOMAIN_IDENTITY;
+	}
 
 	return 0;
 }
