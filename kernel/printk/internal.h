@@ -58,16 +58,24 @@ __printf(1, 0) int vprintk_deferred(const char *fmt, va_list args);
 
 bool printk_percpu_data_ready(void);
 
+/*
+ * The printk_safe_enter()/_exit() macros mark code blocks using locks that
+ * would lead to deadlock if an interrupting context were to call printk()
+ * while the interrupted context was within such code blocks.
+ *
+ * When a CPU is in such a code block, an interrupting context calling
+ * printk() will only log the new message to the lockless ringbuffer and
+ * then trigger console printing using irqwork.
+ */
+
 #define printk_safe_enter_irqsave(flags)	\
 	do {					\
-		local_irq_save(flags);		\
-		__printk_safe_enter();		\
+		__printk_safe_enter(&flags);	\
 	} while (0)
 
 #define printk_safe_exit_irqrestore(flags)	\
 	do {					\
-		__printk_safe_exit();		\
-		local_irq_restore(flags);	\
+		__printk_safe_exit(&flags);	\
 	} while (0)
 
 void defer_console_output(void);
