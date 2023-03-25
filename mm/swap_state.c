@@ -24,6 +24,10 @@
 #include <linux/shmem_fs.h>
 #include "internal.h"
 #include "swap.h"
+/*DJL ADD START*/
+#define CREATE_TRACE_POINTS
+#include <trace/events/swap.h>
+/*DJL ADD END*/
 
 /*
  * swapper_space is a fiction, retained to simplify the path through
@@ -214,7 +218,7 @@ bool add_to_swap(struct folio *folio)
 	 * for the folio solves the problem.
 	 */
 	folio_mark_dirty(folio);
-
+	trace_folio_add_to_swap(folio);
 	return true;
 
 fail:

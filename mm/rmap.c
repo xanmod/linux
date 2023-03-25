@@ -80,7 +80,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/tlb.h>
 #include <trace/events/migrate.h>
-
 #include "internal.h"
 
 static struct kmem_cache *anon_vma_cachep;
@@ -1348,6 +1347,9 @@ static void page_remove_file_rmap(struct page *page, bool compound)
 
 	/* page still mapped by someone else? */
 	if (compound && PageTransHuge(page)) {
+		/*DJL ADD BEGIN*/
+		trace_mapcount_dec(page_folio(page), folio_entire_mapcount(page_folio(page)), true);
+		/*DJL ADD END*/
 		int nr_pages = thp_nr_pages(page);
 
 		for (i = 0; i < nr_pages; i++) {
@@ -1374,7 +1376,9 @@ out:
 static void page_remove_anon_compound_rmap(struct page *page)
 {
 	int i, nr;
-
+	/*DJL ADD BEGIN*/
+	trace_mapcount_dec(page_folio(page), folio_entire_mapcount(page_folio(page)), false);
+	/*DJL ADD END*/
 	if (!atomic_add_negative(-1, compound_mapcount_ptr(page)))
 		return;
 

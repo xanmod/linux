@@ -5082,6 +5082,9 @@ restart:
 			goto nopage;
 	}
 
+	/*DJL ADD BEGIN*/	
+	trace_mm_page_alloc_slow(order, alloc_flags);
+	/*DJL ADD END*/
 	if (alloc_flags & ALLOC_KSWAPD)
 		wake_all_kswapds(order, gfp_mask, ac);
 

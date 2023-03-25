@@ -135,7 +135,24 @@ DEFINE_EVENT(migration_pte, remove_migration_pte,
 	TP_PROTO(unsigned long addr, unsigned long pte, int order),
 	TP_ARGS(addr, pte, order)
 );
+TRACE_EVENT(mapcount_dec,
 
+		TP_PROTO(struct folio *folio, int count, bool file),
+		TP_ARGS(folio, count, file),
+		TP_STRUCT__entry(
+		    __field(struct folio *, folio)
+			__field(int ,count)
+			__field(bool ,file)
+		    ),
+		
+		TP_fast_assign(
+		    __entry->folio = folio;
+			__entry->count = count;
+			__entry->file  = file;
+		    ),
+		TP_printk("[%s] thp[%p] folio_entire_mapcount:%d->%d", 
+				__entry->file ? "FILE":"ANON", __entry->folio,  __entry->count, __entry->count-1)
+);
 #endif /* _TRACE_MIGRATE_H */
 
 /* This part must be outside protection */

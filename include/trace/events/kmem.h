@@ -203,6 +203,28 @@ TRACE_EVENT(mm_page_alloc,
 		show_gfp_flags(__entry->gfp_flags))
 );
 
+TRACE_EVENT(mm_page_alloc_slow,
+
+	TP_PROTO(unsigned int order, unsigned int alloc_flags),
+
+	TP_ARGS(order, alloc_flags),
+
+	TP_STRUCT__entry(
+		__field(	unsigned int,	order		)
+		__field(	unsigned int,	alloc_flags	)
+	),
+
+	TP_fast_assign(
+		__entry->order		= order;
+		__entry->alloc_flags	= alloc_flags;
+	),
+
+	TP_printk("order=%d alloc_flags=%d [%s]",
+		__entry->order,
+		__entry->alloc_flags,
+		__entry->alloc_flags & ALLOC_KSWAPD ? "KSWAPD" : "NONE"
+	)
+);
 DECLARE_EVENT_CLASS(mm_page,
 
 	TP_PROTO(struct page *page, unsigned int order, int migratetype,

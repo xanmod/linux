@@ -67,6 +67,9 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/vmscan.h>
+/*DJL ADD START*/
+#include <trace/events/lru_gen.h>
+/*DJL ADD END*/
 
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
@@ -1812,12 +1815,16 @@ retry:
 		 * Lazyfree folio could be freed directly
 		 */
 		if (folio_test_anon(folio) && folio_test_swapbacked(folio)) {
+			trace_mm_ano_folio(folio, folio_lru_gen(folio));
 			if (!folio_test_swapcache(folio)) {
 				if (!(sc->gfp_mask & __GFP_IO))
 					goto keep_locked;
 				if (folio_maybe_dma_pinned(folio))
 					goto keep_locked;
 				if (folio_test_large(folio)) {
+					/*DJL ADD BEGIN*/
+					trace_mm_ano_folio2(folio, folio_entire_mapcount(folio), !folio_entire_mapcount(folio));
+					/*DJL ADD END*/
 					/* cannot split folio, skip it */
 					if (!can_split_folio(folio, NULL))
 						goto activate_locked;
@@ -1826,10 +1833,10 @@ retry:
 					 * away. Chances are some or all of the
 					 * tail pages can be freed without IO.
 					 */
-					if (!folio_entire_mapcount(folio) &&
-					    split_folio_to_list(folio,
-								folio_list))
-						goto activate_locked;
+					if (!folio_entire_mapcount(folio))
+						if (split_folio_to_list(folio, folio_list))
+							goto activate_locked;
+					/*DJL change here*/
 				}
 				if (!add_to_swap(folio)) {
 					if (!folio_test_large(folio))
@@ -3648,6 +3655,7 @@ static bool positive_ctrl_err(struct ctrl_pos *sp, struct ctrl_pos *pv)
 static int folio_update_gen(struct folio *folio, int gen)
 {
 	unsigned long new_flags, old_flags = READ_ONCE(folio->flags);
+	int oldgen;
 
 	VM_WARN_ON_ONCE(gen >= MAX_NR_GENS);
 	VM_WARN_ON_ONCE(!rcu_read_lock_held());
@@ -3664,7 +3672,11 @@ static int folio_update_gen(struct folio *folio, int gen)
 		new_flags |= (gen + 1UL) << LRU_GEN_PGOFF;
 	} while (!try_cmpxchg(&folio->flags, &old_flags, new_flags));
 
-	return ((old_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+	/*DJL ADD START*/
+	oldgen = ((old_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+	trace_mglru_folio_updt_gen(folio, oldgen, gen);
+	return oldgen;
+	/*DJL ADD END*/
 }
 
 /* protect pages accessed multiple times through file descriptors */
@@ -3693,6 +3705,9 @@ static int folio_inc_gen(struct lruvec *lruvec, struct folio *folio, bool reclai
 	} while (!try_cmpxchg(&folio->flags, &old_flags, new_flags));
 
 	lru_gen_update_size(lruvec, folio, old_gen, new_gen);
+	/*DJL ADD START*/
+	trace_mglru_folio_inc_gen(folio, old_gen, new_gen);
+	/*DJL ADD END*/
 
 	return new_gen;
 }
@@ -3926,7 +3941,9 @@ restart:
 		    !(folio_test_anon(folio) && folio_test_swapbacked(folio) &&
 		      !folio_test_swapcache(folio)))
 			folio_mark_dirty(folio);
-
+		/*DJL ADD BEGIN*/
+		trace_folio_update_gen(folio, new_gen, 1);
+		/*DJL ADD END*/
 		old_gen = folio_update_gen(folio, new_gen);
 		if (old_gen >= 0 && old_gen != new_gen)
 			update_batch_size(walk, folio, old_gen, new_gen);
@@ -4006,7 +4023,9 @@ static void walk_pmd_range_locked(pud_t *pud, unsigned long next, struct vm_area
 		    !(folio_test_anon(folio) && folio_test_swapbacked(folio) &&
 		      !folio_test_swapcache(folio)))
 			folio_mark_dirty(folio);
-
+		/*DJL ADD BEGIN*/
+		trace_folio_update_gen(folio, new_gen, 2);
+		/*DJL ADD END*/
 		old_gen = folio_update_gen(folio, new_gen);
 		if (old_gen >= 0 && old_gen != new_gen)
 			update_batch_size(walk, folio, old_gen, new_gen);
@@ -4690,6 +4709,9 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 		folio = pfn_folio(pte_pfn(pte[i]));
 		if (folio_memcg_rcu(folio) != memcg)
 			continue;
+		/*DJL ADD BEGIN*/
+		trace_folio_update_gen(folio, new_gen, 0);
+		/*DJL ADD END*/
 
 		old_gen = folio_update_gen(folio, new_gen);
 		if (old_gen < 0 || old_gen == new_gen)
@@ -4731,6 +4753,9 @@ static bool sort_folio(struct lruvec *lruvec, struct folio *folio, int tier_idx)
 		folio_set_unevictable(folio);
 		lruvec_add_folio(lruvec, folio);
 		__count_vm_events(UNEVICTABLE_PGCULLED, delta);
+		/*DJL ADD BEGIN*/
+		trace_mglru_sort_folio(lruvec, folio, folio_lru_gen(folio), 1);
+		/*DJL ADD END*/
 		return true;
 	}
 
@@ -4740,12 +4765,18 @@ static bool sort_folio(struct lruvec *lruvec, struct folio *folio, int tier_idx)
 		VM_WARN_ON_ONCE_FOLIO(!success, folio);
 		folio_set_swapbacked(folio);
 		lruvec_add_folio_tail(lruvec, folio);
+		/*DJL ADD BEGIN*/
+		trace_mglru_sort_folio(lruvec, folio, folio_lru_gen(folio), 2);
+		/*DJL ADD END*/
 		return true;
 	}
 
 	/* promoted */
 	if (gen != lru_gen_from_seq(lrugen->min_seq[type])) {
 		list_move(&folio->lru, &lrugen->lists[gen][type][zone]);
+		/*DJL ADD BEGIN*/
+		trace_mglru_sort_folio(lruvec, folio, folio_lru_gen(folio), 3);
+		/*DJL ADD END*/
 		return true;
 	}
 
@@ -4759,6 +4790,9 @@ static bool sort_folio(struct lruvec *lruvec, struct folio *folio, int tier_idx)
 		WRITE_ONCE(lrugen->protected[hist][type][tier - 1],
 			   lrugen->protected[hist][type][tier - 1] + delta);
 		__mod_lruvec_state(lruvec, WORKINGSET_ACTIVATE_BASE + type, delta);
+		/*DJL ADD BEGIN*/
+		trace_mglru_sort_folio(lruvec, folio, folio_lru_gen(folio), 4);
+		/*DJL ADD END*/
 		return true;
 	}
 
@@ -4767,9 +4801,14 @@ static bool sort_folio(struct lruvec *lruvec, struct folio *folio, int tier_idx)
 	    (type == LRU_GEN_FILE && folio_test_dirty(folio))) {
 		gen = folio_inc_gen(lruvec, folio, true);
 		list_move(&folio->lru, &lrugen->lists[gen][type][zone]);
+		/*DJL ADD BEGIN*/
+		trace_mglru_sort_folio(lruvec, folio, folio_lru_gen(folio), 5);
+		/*DJL ADD END*/
 		return true;
 	}
-
+	/*DJL ADD BEGIN*/
+	trace_mglru_sort_folio(lruvec, folio, folio_lru_gen(folio), 0);
+	/*DJL ADD END*/
 	return false;
 }
 
@@ -4849,9 +4888,15 @@ static int scan_folios(struct lruvec *lruvec, struct scan_control *sc,
 			if (sort_folio(lruvec, folio, tier))
 				sorted += delta;
 			else if (isolate_folio(lruvec, folio, sc)) {
+				/*DJL ADD BEGIN*/
+				trace_mglru_isolate_folio(lruvec, folio, folio_lru_gen(folio), true);
+				/*DJL ADD END*/
 				list_add(&folio->lru, list);
 				isolated += delta;
 			} else {
+				/*DJL ADD BEGIN*/
+				trace_mglru_isolate_folio(lruvec, folio, folio_lru_gen(folio), false);
+				/*DJL ADD END*/
 				list_move(&folio->lru, &moved);
 				skipped += delta;
 			}
@@ -4958,7 +5003,7 @@ static int isolate_folios(struct lruvec *lruvec, struct scan_control *sc, int sw
 		type = LRU_GEN_ANON;
 	else
 		type = get_type_to_scan(lruvec, swappiness, &tier);
-
+	trace_mm_isolate_folios(lruvec, type);
 	for (i = !swappiness; i < ANON_AND_FILE; i++) {
 		if (tier < 0)
 			tier = get_tier_idx(lruvec, type);
@@ -5190,12 +5235,18 @@ static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc
 		nr_to_scan = get_nr_to_scan(lruvec, sc, swappiness, &need_aging);
 		if (!nr_to_scan)
 			goto done;
-
+		/*DJL ADD BEGIN*/
+		trace_mm_mglru_evict_folios_start(lruvec, sc, scanned , delta, swappiness, need_swapping, need_aging);
+		/*DJL ADD END*/
 		delta = evict_folios(lruvec, sc, swappiness, &need_swapping);
+		/*DJL ADD BEGIN*/
+		trace_mm_mglru_evict_folios_end(lruvec, sc, scanned+delta ,delta, swappiness, need_swapping, need_aging);
+		/*DJL ADD END*/		
 		if (!delta)
 			goto done;
 
 		scanned += delta;
+
 		if (scanned >= nr_to_scan)
 			break;
 

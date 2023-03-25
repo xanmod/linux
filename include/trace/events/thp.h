@@ -75,6 +75,65 @@ DEFINE_EVENT(migration_pmd, remove_migration_pmd,
 	TP_PROTO(unsigned long addr, unsigned long pmd),
 	TP_ARGS(addr, pmd)
 );
+/*DJL ADD BEGIN*/
+TRACE_EVENT(add_thp_anon_rmap,
+
+	    TP_PROTO(struct folio *folio,  struct vm_area_struct * vma,  unsigned long haddr, int count),
+	    TP_ARGS(folio, vma, haddr, count),
+	    TP_STRUCT__entry(
+		    __field(struct folio *, folio)
+		    __field(struct vm_area_struct *, vma)
+		    __field(unsigned long , haddr)
+			__field(int ,count)
+		    ),
+
+	    TP_fast_assign(
+		    __entry->folio = folio;
+		    __entry->vma = vma;
+		    __entry->haddr = haddr;
+			__entry->count = count;
+		    ),
+
+	    TP_printk("add_thp_anon_rmap thp[%p]  at vma %p addr 0x%lx folio_entire_mapcount:%d", 
+				__entry->folio, __entry->vma, __entry->haddr, __entry->count)
+);
+
+TRACE_EVENT(hm_mapcount_dec,
+
+		TP_PROTO(struct folio *folio, int count, bool file),
+		TP_ARGS(folio, count, file),
+		TP_STRUCT__entry(
+		    __field(struct folio *, folio)
+			__field(int ,count)
+			__field(bool ,file)
+		    ),
+		
+		TP_fast_assign(
+		    __entry->folio = folio;
+			__entry->count = count;
+			__entry->file  = file;
+		    ),
+		TP_printk("[%s] thp[%p] folio_entire_mapcount:%d->%d", 
+				__entry->file ? "FILE":"ANON", __entry->folio,  __entry->count, __entry->count-1)
+);
+
+TRACE_EVENT(hm_deferred_split,
+
+		TP_PROTO(struct folio *folio, int count),
+		TP_ARGS(folio, count),
+		TP_STRUCT__entry(
+		    __field(struct folio *, folio)
+			__field(int ,count)
+		    ),
+		
+		TP_fast_assign(
+		    __entry->folio = folio;
+			__entry->count = count;
+		    ),
+		TP_printk("thp[%p] folio_entire_mapcount:%d->%d", 
+				 __entry->folio,  __entry->count, __entry->count-1)
+);
+/*DJL ADD END*/
 #endif /* _TRACE_THP_H */
 
 /* This part must be outside protection */

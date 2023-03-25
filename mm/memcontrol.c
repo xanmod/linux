@@ -2639,8 +2639,12 @@ static int try_charge_memcg(struct mem_cgroup *memcg, gfp_t gfp_mask,
 	unsigned long pflags;
 
 retry:
-	if (consume_stock(memcg, nr_pages))
-		return 0;
+	if (consume_stock(memcg, nr_pages)){
+		/*DJL ADD BEGIN*/
+		trace_try_charge_memcg(memcg, &memcg->memsw, nr_pages, 0);	//0 for consume_stock success
+		/*DJL ADD END*/
+		return 0;		
+	}
 
 	if (!do_memsw_account() ||
 	    page_counter_try_charge(&memcg->memsw, batch, &counter)) {
@@ -2763,7 +2767,9 @@ force:
 done_restock:
 	if (batch > nr_pages)
 		refill_stock(memcg, batch - nr_pages);
-
+	/*DJL ADD BEGIN*/
+	trace_try_charge_memcg(memcg, &memcg->memsw, nr_pages, 1);	//0 for consume_stock success
+	/*DJL ADD END*/
 	/*
 	 * If the hierarchy is above the normal consumption range, schedule
 	 * reclaim on returning to userland.  We can perform reclaim here

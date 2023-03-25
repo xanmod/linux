@@ -47,6 +47,9 @@
 #include <linux/swap_cgroup.h>
 #include "swap.h"
 
+/*DJL ADD BEGIN*/
+#include <trace/events/swap.h>
+/*DJL ADD END*/
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
 static void free_swap_count_continuations(struct swap_info_struct *);
@@ -875,6 +878,9 @@ static int scan_swap_map_slots(struct swap_info_struct *si,
 	}
 
 checks:
+	/*DJL ADD BEGIN*/
+	trace_scan_swap_map_slots(0);
+	/*DJL ADD END*/
 	if (si->cluster_info) {
 		while (scan_swap_map_ssd_cluster_conflict(si, offset)) {
 		/* take a break if we already got some slots */
@@ -966,11 +972,17 @@ checks:
 	}
 
 done:
+	/*DJL ADD BEGIN*/
+	trace_scan_swap_map_slots(1);
+	/*DJL ADD END*/
 	set_cluster_next(si, offset + 1);
 	si->flags -= SWP_SCANNING;
 	return n_ret;
 
 scan:
+	/*DJL ADD BEGIN*/
+	trace_scan_swap_map_slots(2);
+	/*DJL ADD END*/
 	spin_unlock(&si->lock);
 	while (++offset <= READ_ONCE(si->highest_bit)) {
 		if (unlikely(--latency_ration < 0)) {
@@ -995,6 +1007,9 @@ scan:
 	spin_lock(&si->lock);
 
 no_page:
+	/*DJL ADD BEGIN*/
+	trace_scan_swap_map_slots(3);
+	/*DJL ADD END*/
 	si->flags -= SWP_SCANNING;
 	return n_ret;
 }
@@ -1004,7 +1019,9 @@ static int swap_alloc_cluster(struct swap_info_struct *si, swp_entry_t *slot)
 	unsigned long idx;
 	struct swap_cluster_info *ci;
 	unsigned long offset;
-
+	/*DJL ADD BEGIN*/
+	trace_swap_alloc_cluster(si, cluster_list_empty(&si->free_clusters));
+	/*DJL ADD BEGIN*/
 	/*
 	 * Should not even be attempting cluster allocations when huge
 	 * page swap is disabled.  Warn and fail the allocation.
@@ -1074,10 +1091,12 @@ start_over:
 		plist_requeue(&si->avail_lists[node], &swap_avail_heads[node]);
 		spin_unlock(&swap_avail_lock);
 		spin_lock(&si->lock);
+		trace_get_swap_pages_noswap(0, n_ret, n_goal, avail_pgs);
 		if (!si->highest_bit || !(si->flags & SWP_WRITEOK)) {
 			spin_lock(&swap_avail_lock);
 			if (plist_node_empty(&si->avail_lists[node])) {
 				spin_unlock(&si->lock);
+				trace_get_swap_pages_noswap(1, n_ret, n_goal, avail_pgs);
 				goto nextsi;
 			}
 			WARN(!si->highest_bit,
@@ -1088,17 +1107,23 @@ start_over:
 			     si->type);
 			__del_from_avail_list(si);
 			spin_unlock(&si->lock);
+			trace_get_swap_pages_noswap(2, n_ret, n_goal, avail_pgs);
 			goto nextsi;
 		}
 		if (size == SWAPFILE_CLUSTER) {
-			if (si->flags & SWP_BLKDEV)
+			trace_get_swap_pages_noswap(3, n_ret, n_goal, avail_pgs);
+			if (si->flags & SWP_BLKDEV){
 				n_ret = swap_alloc_cluster(si, swp_entries);
+				trace_get_swap_pages_noswap(5, n_ret, n_goal, avail_pgs);
+			}
 		} else
 			n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE,
 						    n_goal, swp_entries);
 		spin_unlock(&si->lock);
-		if (n_ret || size == SWAPFILE_CLUSTER)
+		if (n_ret || size == SWAPFILE_CLUSTER){
+			trace_get_swap_pages_noswap(6, n_ret, n_goal, avail_pgs);
 			goto check_out;
+		}
 		pr_debug("scan_swap_map of si %d failed to find offset\n",
 			si->type);
 
@@ -1126,6 +1151,9 @@ check_out:
 		atomic_long_add((long)(n_goal - n_ret) * size,
 				&nr_swap_pages);
 noswap:
+	/*DJL ADD BEGIN*/
+	trace_get_swap_pages_noswap(4, n_ret, n_goal, avail_pgs);
+	/*DJL ADD END*/
 	return n_ret;
 }
 

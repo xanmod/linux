@@ -713,6 +713,9 @@ static vm_fault_t __do_huge_pmd_anonymous_page(struct vm_fault *vmf,
 		spin_unlock(vmf->ptl);
 		count_vm_event(THP_FAULT_ALLOC);
 		count_memcg_event_mm(vma->vm_mm, THP_FAULT_ALLOC);
+		/*DJL ADD BEGIN*/
+		trace_add_thp_anon_rmap(page_folio(page), vma, haddr, folio_entire_mapcount(page_folio(page)));
+		/*DJL ADD END*/
 	}
 
 	return 0;
@@ -2237,6 +2240,9 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 		}
 
 		lock_page_memcg(page);
+		/*DJL ADD BEGIN*/
+		trace_hm_mapcount_dec(page_folio(page), folio_entire_mapcount(page_folio(page)), false);
+		/*DJL ADD END*/
 		if (atomic_add_negative(-1, compound_mapcount_ptr(page))) {
 			/* Last compound_mapcount is gone. */
 			__mod_lruvec_page_state(page, NR_ANON_THPS,
@@ -2882,6 +2888,9 @@ static unsigned long deferred_split_scan(struct shrinker *shrink,
 		if (!trylock_page(page))
 			goto next;
 		/* split_huge_page() removes page from list on success */
+		/*DJL ADD BEGIN*/
+		trace_hm_deferred_split(page_folio(page), folio_entire_mapcount(page_folio(page)));
+		/*DJL ADD END*/
 		if (!split_huge_page(page))
 			split++;
 		unlock_page(page);

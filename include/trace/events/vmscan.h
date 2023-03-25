@@ -195,7 +195,83 @@ DEFINE_EVENT(mm_vmscan_direct_reclaim_end_template, mm_vmscan_memcg_softlimit_re
 	TP_ARGS(nr_reclaimed)
 );
 #endif /* CONFIG_MEMCG */
+/*DJL ADD BEGIN*/
+struct scan_control;
+TRACE_EVENT(mm_mglru_evict_folios_start,
+	TP_PROTO(struct lruvec *lruvec, struct scan_control* sc, 
+			unsigned long scanned , int delta, int swappiness, 
+			bool need_swapping, bool need_aging),
+	
+	TP_ARGS(lruvec, sc, scanned, delta, swappiness, need_swapping,
+			need_aging),
 
+	TP_STRUCT__entry(
+		__field(struct lruvec *, lruvec 	)
+		__field(struct scan_control* , sc	)
+		__field(unsigned long , scanned	)
+		__field(int , delta	)
+		__field(int ,swappiness	)
+		__field(bool , need_swapping	)
+		__field(bool , need_aging	)
+	),
+
+	TP_fast_assign(
+		__entry->lruvec 	= lruvec;
+		__entry->sc			= sc;
+		__entry->scanned	= scanned;
+		__entry->delta		= delta;
+		__entry->swappiness = swappiness;
+		__entry->need_swapping = need_swapping;
+		__entry->need_aging	= need_aging;
+	),
+
+	TP_printk("lruvec[%p] sc[%p] scanned:%ld delta:%d swappiness:%d need_swapping:%s need_aging:%s",
+		__entry->lruvec,
+		__entry->sc,
+		__entry->scanned,
+		__entry->delta,
+		__entry->swappiness,
+		__entry->need_swapping ? "T" : "F",
+		__entry->need_aging	   ? "T" : "F")
+);
+TRACE_EVENT(mm_mglru_evict_folios_end,
+	TP_PROTO(struct lruvec *lruvec, struct scan_control* sc, 
+			unsigned long scanned , int delta, int swappiness, 
+			bool need_swapping, bool need_aging),
+	
+	TP_ARGS(lruvec, sc, scanned, delta, swappiness, need_swapping,
+			need_aging),
+
+	TP_STRUCT__entry(
+		__field(struct lruvec *, lruvec 	)
+		__field(struct scan_control* , sc	)
+		__field(unsigned long , scanned	)
+		__field(int , delta	)
+		__field(int ,swappiness	)
+		__field(bool , need_swapping	)
+		__field(bool , need_aging	)
+	),
+
+	TP_fast_assign(
+		__entry->lruvec 	= lruvec;
+		__entry->sc			= sc;
+		__entry->scanned	= scanned;
+		__entry->delta		= delta;
+		__entry->swappiness = swappiness;
+		__entry->need_swapping = need_swapping;
+		__entry->need_aging	= need_aging;
+	),
+
+	TP_printk("lruvec[%p] sc[%p] scanned:%ld delta:%d swappiness:%d need_swapping:%s need_aging:%s",
+		__entry->lruvec,
+		__entry->sc,
+		__entry->scanned,
+		__entry->delta,
+		__entry->swappiness,
+		__entry->need_swapping ? "T" : "F",
+		__entry->need_aging    ? "T" : "F")
+);
+/*DJL ADD END*/
 TRACE_EVENT(mm_shrink_slab_start,
 	TP_PROTO(struct shrinker *shr, struct shrink_control *sc,
 		long nr_objects_to_shrink, unsigned long cache_items,
@@ -493,6 +569,111 @@ TRACE_EVENT(mm_vmscan_throttled,
 		__entry->usec_timeout,
 		__entry->usec_delayed,
 		show_throttle_flags(__entry->reason))
+);
+TRACE_EVENT(mm_ano_folio2,
+
+	TP_PROTO(struct folio *folio, int count, bool test),
+
+	TP_ARGS(folio, count, test),
+
+	TP_STRUCT__entry(
+		__field(struct folio* ,folio)
+		__field(int, reclaim_flags)
+		__field(int, count)
+		__field(bool, test)
+	),
+
+	TP_fast_assign(
+		__entry->folio = folio;
+		__entry->reclaim_flags = trace_reclaim_flags(
+						folio_is_file_lru(folio));
+		__entry->count = count;
+		__entry->test = test;
+	),
+
+	TP_printk("folio=%p  [%s][%s][mapcount=%d][%d] flags=%s",
+		__entry->folio, 
+		folio_test_swapbacked(__entry->folio) ? "swp_bk":"no_swap_bk" ,
+		folio_test_swapcache(__entry->folio) ? "swp_$" : "no_swp_$", 
+		__entry->count,
+		__entry->test,
+		show_reclaim_flags(__entry->reclaim_flags))
+);
+TRACE_EVENT(mm_ano_folio,
+
+	TP_PROTO(struct folio *folio, int gen),
+
+	TP_ARGS(folio, gen),
+
+	TP_STRUCT__entry(
+		__field(struct folio* ,folio)
+		__field(int, reclaim_flags)
+		__field(int, gen)
+	),
+
+	TP_fast_assign(
+		__entry->folio = folio;
+		__entry->reclaim_flags = trace_reclaim_flags(
+						folio_is_file_lru(folio));
+		__entry->gen = gen;
+	),
+
+	TP_printk("folio=%p  [gen:%d][%s][%s] flags=%s",
+		__entry->folio, 
+		__entry->gen,
+		folio_test_swapbacked(__entry->folio) ? "swp_bk":"no_swap_bk" ,
+		folio_test_swapcache(__entry->folio) ? "swp_$" : "no_swp_$", 
+		show_reclaim_flags(__entry->reclaim_flags))
+);
+
+TRACE_EVENT(mm_isolate_folios,
+
+	TP_PROTO(struct lruvec *lruvec, int type),
+
+	TP_ARGS(lruvec, type),
+
+	TP_STRUCT__entry(
+		__field(struct lruvec *, lruvec)
+		__field(int, type)
+	),
+
+	TP_fast_assign(
+		__entry->lruvec = lruvec;
+		__entry->type = type;
+	),
+
+	TP_printk("lruvec=%p type=%s ",
+		__entry->lruvec, 
+		__entry->type == 0 ? "LRU_GEN_ANON" : "LRU_GEN_FILE")
+);
+
+TRACE_EVENT(try_charge_memcg,
+
+	TP_PROTO(struct mem_cgroup * memcg, struct page_counter * memsw, int nr_pages, int type),
+
+	TP_ARGS(memcg, memsw, nr_pages, type),
+
+	TP_STRUCT__entry(
+		__field(struct mem_cgroup * ,memcg)
+		__field(struct page_counter * ,memsw)
+		__field(int, nr_pages)
+		__field(int, type)
+	),
+
+	TP_fast_assign(
+		__entry->memcg = memcg;
+		__entry->memsw = memsw;
+		__entry->nr_pages = nr_pages;
+		__entry->type = type;
+	),
+
+	TP_printk("memcg=%p nrpages:%d usage:%ld max:%ld watermark:%ld %s ",
+		__entry->memcg, 
+		__entry->nr_pages,
+		atomic_long_read(&__entry->memsw->usage),
+		READ_ONCE(__entry->memsw->max),
+		READ_ONCE(__entry->memsw->watermark),
+		__entry->type == 0 ? "[from batch]" : "[from memsw]")
 );
 #endif /* _TRACE_VMSCAN_H */
 

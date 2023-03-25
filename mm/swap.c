@@ -618,6 +618,10 @@ static void lru_deactivate_file_fn(struct lruvec *lruvec, struct folio *folio)
 
 static void lru_deactivate_fn(struct lruvec *lruvec, struct folio *folio)
 {
+	/*DJL ADD BEGIN*/
+	unsigned long new_flags, old_flags = READ_ONCE(folio->flags);
+	int new_gen, old_gen = ((old_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+	/*DJL ADD END*/
 	if (!folio_test_unevictable(folio) && (folio_test_active(folio) || lru_gen_enabled())) {
 		long nr_pages = folio_nr_pages(folio);
 
@@ -626,6 +630,12 @@ static void lru_deactivate_fn(struct lruvec *lruvec, struct folio *folio)
 		folio_clear_referenced(folio);
 		lruvec_add_folio(lruvec, folio);
 
+		/*DJL ADD BEGIN*/
+		new_flags = READ_ONCE(folio->flags);
+		new_gen = ((new_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+		trace_mm_lru_deactivate(folio, old_gen, new_gen);
+		//the gen definitely is going to change
+		/*DJL ADD END*/
 		__count_vm_events(PGDEACTIVATE, nr_pages);
 		__count_memcg_events(lruvec_memcg(lruvec), PGDEACTIVATE,
 				     nr_pages);
