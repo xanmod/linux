@@ -5519,6 +5519,53 @@ failed:
 }
 EXPORT_SYMBOL_GPL(__alloc_pages_bulk);
 
+int __swapin_force_wake_kswapd(gfp_t gfp, unsigned int order, int preferred_nid,
+							nodemask_t *nodemask)
+{
+	gfp_t alloc_gfp; /* The gfp_t that was actually used for allocation */
+	struct alloc_context ac = { };
+	unsigned int alloc_flags;
+
+	/*
+	 * There are several places where we assume that the order value is sane
+	 * so bail out early if the request is out of bound.
+	 */
+	if (WARN_ON_ONCE_GFP(order >= MAX_ORDER, gfp))
+		return -1;
+
+	gfp &= gfp_allowed_mask;
+	/*
+	 * Apply scoped allocation constraints. This is mainly about GFP_NOFS
+	 * resp. GFP_NOIO which has to be inherited for all allocation requests
+	 * from a particular context which has been marked by
+	 * memalloc_no{fs,io}_{save,restore}. And PF_MEMALLOC_PIN which ensures
+	 * movable zones are not used during allocation.
+	 */
+	gfp = current_gfp_context(gfp);
+	alloc_gfp = gfp;
+	if (!prepare_alloc_pages(gfp, order, preferred_nid, nodemask, &ac,
+			&alloc_gfp, &alloc_flags))
+		return -1;
+	
+	alloc_gfp = gfp;
+	ac.spread_dirty_pages = false;
+	/*
+	 * Restore the original nodemask if it was potentially replaced with
+	 * &cpuset_current_mems_allowed to optimize the fast-path attempt.
+	 */
+	ac.nodemask = nodemask;
+	alloc_flags = gfp_to_alloc_flags(gfp);
+
+	ac.preferred_zoneref = first_zones_zonelist(ac.zonelist,
+					ac.highest_zoneidx, ac.nodemask);
+	if (!ac.preferred_zoneref->zone)
+		return -1;
+	if (alloc_flags & ALLOC_KSWAPD)
+		wake_all_kswapds(order, gfp, &ac);
+	return 0;
+}
+EXPORT_SYMBOL(__swapin_force_wake_kswapd);
+
 /*
  * This is the 'heart' of the zoned buddy allocator.
  */

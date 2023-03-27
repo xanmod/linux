@@ -77,9 +77,9 @@
 #include <linux/ptrace.h>
 #include <linux/vmalloc.h>
 #include <linux/sched/sysctl.h>
-
 #include <trace/events/kmem.h>
-
+// #define CREATE_TRACE_POINTS
+// #include <trace/events/memory.h>
 #include <asm/io.h>
 #include <asm/mmu_context.h>
 #include <asm/pgalloc.h>
@@ -4898,7 +4898,7 @@ split:
 static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 {
 	pte_t entry;
-
+	trace_memory_handle_pte_fault(vmf, 0);
 	if (unlikely(pmd_none(*vmf->pmd))) {
 		/*
 		 * Leave __pte_alloc() until later: because vm_ops->fault may
@@ -4947,6 +4947,7 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 			vmf->pte = NULL;
 		}
 	}
+	trace_memory_handle_pte_fault(vmf, 1);
 
 	if (!vmf->pte) {
 		if (vma_is_anonymous(vmf->vma))
@@ -4954,12 +4955,15 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 		else
 			return do_fault(vmf);
 	}
+	trace_memory_handle_pte_fault(vmf, 2);
 
 	if (!pte_present(vmf->orig_pte))
 		return do_swap_page(vmf);
+	trace_memory_handle_pte_fault(vmf, 3);
 
 	if (pte_protnone(vmf->orig_pte) && vma_is_accessible(vmf->vma))
 		return do_numa_page(vmf);
+	trace_memory_handle_pte_fault(vmf, 4);
 
 	vmf->ptl = pte_lockptr(vmf->vma->vm_mm, vmf->pmd);
 	spin_lock(vmf->ptl);

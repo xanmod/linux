@@ -1334,7 +1334,7 @@ out:
 
 static void page_remove_file_rmap(struct page *page, bool compound)
 {
-	int i, nr = 0;
+	int i, nr_pages ,nr = 0;
 
 	VM_BUG_ON_PAGE(compound && !PageHead(page), page);
 
@@ -1350,7 +1350,7 @@ static void page_remove_file_rmap(struct page *page, bool compound)
 		/*DJL ADD BEGIN*/
 		trace_mapcount_dec(page_folio(page), folio_entire_mapcount(page_folio(page)), true);
 		/*DJL ADD END*/
-		int nr_pages = thp_nr_pages(page);
+		nr_pages = thp_nr_pages(page);
 
 		for (i = 0; i < nr_pages; i++) {
 			if (atomic_add_negative(-1, &page[i]._mapcount))
