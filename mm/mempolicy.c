@@ -2307,6 +2307,18 @@ int swapin_force_wake_kswapd(gfp_t gfp, int order){
 }
 EXPORT_SYMBOL(swapin_force_wake_kswapd);
 
+int swapin_force_zone_wake_kswapd(gfp_t gfp, struct zone *zone,  unsigned int order){
+	struct mempolicy *pol = &default_policy;
+	if (!in_interrupt() && !(gfp & __GFP_THISNODE))
+		pol = get_task_policy(current);
+	
+	if (pol->mode == MPOL_INTERLEAVE)
+		return -1;
+	else if (pol->mode == MPOL_PREFERRED_MANY)
+		return -1;
+	else return __swapin_force_zone_wake_kswapd(gfp, zone, order);
+}
+
 struct folio *folio_alloc(gfp_t gfp, unsigned order)
 {
 	struct page *page = alloc_pages(gfp | __GFP_COMP, order);

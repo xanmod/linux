@@ -6339,6 +6339,59 @@ static void consider_reclaim_throttle(pg_data_t *pgdat, struct scan_control *sc)
 	if (sc->priority == 1 && !sc->nr_reclaimed)
 		reclaim_throttle(pgdat, VMSCAN_THROTTLE_NOPROGRESS);
 }
+/*DJL ADD BEGIN*/
+/* Must be called after current_gfp_context() which can change gfp_mask */
+static inline unsigned int gfp_to_alloc_flags_cma(gfp_t gfp_mask,
+						  unsigned int alloc_flags)
+{
+#ifdef CONFIG_CMA
+	if (gfp_migratetype(gfp_mask) == MIGRATE_MOVABLE)
+		alloc_flags |= ALLOC_CMA;
+#endif
+	return alloc_flags;
+}
+static inline unsigned int
+gfp_to_alloc_flags(gfp_t gfp_mask)
+{
+	unsigned int alloc_flags = ALLOC_WMARK_MIN | ALLOC_CPUSET;
+
+	/*
+	 * __GFP_HIGH is assumed to be the same as ALLOC_HIGH
+	 * and __GFP_KSWAPD_RECLAIM is assumed to be the same as ALLOC_KSWAPD
+	 * to save two branches.
+	 */
+	BUILD_BUG_ON(__GFP_HIGH != (__force gfp_t) ALLOC_HIGH);
+	BUILD_BUG_ON(__GFP_KSWAPD_RECLAIM != (__force gfp_t) ALLOC_KSWAPD);
+
+	/*
+	 * The caller may dip into page reserves a bit more if the caller
+	 * cannot run direct reclaim, or if the caller has realtime scheduling
+	 * policy or is asking for __GFP_HIGH memory.  GFP_ATOMIC requests will
+	 * set both ALLOC_HARDER (__GFP_ATOMIC) and ALLOC_HIGH (__GFP_HIGH).
+	 */
+	alloc_flags |= (__force int)
+		(gfp_mask & (__GFP_HIGH | __GFP_KSWAPD_RECLAIM));
+
+	if (gfp_mask & __GFP_ATOMIC) {
+		/*
+		 * Not worth trying to allocate harder for __GFP_NOMEMALLOC even
+		 * if it can't schedule.
+		 */
+		if (!(gfp_mask & __GFP_NOMEMALLOC))
+			alloc_flags |= ALLOC_HARDER;
+		/*
+		 * Ignore cpuset mems for GFP_ATOMIC rather than fail, see the
+		 * comment for __cpuset_node_allowed().
+		 */
+		alloc_flags &= ~ALLOC_CPUSET;
+	} else if (unlikely(rt_task(current)) && in_task())
+		alloc_flags |= ALLOC_HARDER;
+
+	alloc_flags = gfp_to_alloc_flags_cma(gfp_mask, alloc_flags);
+
+	return alloc_flags;
+}
+/*DJL ADD END*/
 
 /*
  * This is the direct reclaim path, for page-allocating processes.  We only
@@ -6357,6 +6410,7 @@ static void shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 	gfp_t orig_mask;
 	pg_data_t *last_pgdat = NULL;
 	pg_data_t *first_pgdat = NULL;
+	unsigned int alloc_flags = ALLOC_WMARK_LOW;
 
 	/*
 	 * If the number of buffer_heads in the machine exceeds the maximum
@@ -6427,6 +6481,12 @@ static void shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 		if (zone->zone_pgdat == last_pgdat)
 			continue;
 		last_pgdat = zone->zone_pgdat;
+		/*DJL ADD BEGIn*/
+		alloc_flags = gfp_to_alloc_flags(sc->gfp_mask);
+		if (boost_watermark(zone) && (alloc_flags & ALLOC_KSWAPD)){
+			set_bit(ZONE_BOOSTED_WATERMARK, &zone->flags);
+		}
+		/*DJL ADD END*/
 		shrink_node(zone->zone_pgdat, sc);
 	}
 
@@ -7370,6 +7430,7 @@ static int kswapd(void *p)
 
 	if (!cpumask_empty(cpumask))
 		set_cpus_allowed_ptr(tsk, cpumask);
+	pr_err("kswapd enter\n");
 
 	/*
 	 * Tell the memory management that we're a "memory allocator",
@@ -7385,6 +7446,7 @@ static int kswapd(void *p)
 	 */
 	tsk->flags |= PF_MEMALLOC | PF_KSWAPD;
 	set_freezable();
+	pr_err("kswapd set_freezable ok\n");
 
 	WRITE_ONCE(pgdat->kswapd_order, 0);
 	WRITE_ONCE(pgdat->kswapd_highest_zoneidx, MAX_NR_ZONES);
@@ -7469,7 +7531,8 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 
 	if (!waitqueue_active(&pgdat->kswapd_wait))
 		return;
-
+	// trace_mm_vmscan_wakeup_kswapd(pgdat->node_id, highest_zoneidx, order,
+	// 			      gfp_flags, 3);
 	/* Hopeless node, leave it to direct reclaim if possible */
 	if (pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES ||
 	    (pgdat_balanced(pgdat, order, highest_zoneidx) &&
@@ -7486,8 +7549,8 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 		return;
 	}
 
-	trace_mm_vmscan_wakeup_kswapd(pgdat->node_id, highest_zoneidx, order,
-				      gfp_flags);
+	// trace_mm_vmscan_wakeup_kswapd(pgdat->node_id, highest_zoneidx, order,
+	// 			      gfp_flags, 4);
 	wake_up_interruptible(&pgdat->kswapd_wait);
 }
 

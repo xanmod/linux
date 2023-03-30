@@ -88,15 +88,16 @@ TRACE_EVENT(mm_vmscan_kswapd_wake,
 
 TRACE_EVENT(mm_vmscan_wakeup_kswapd,
 
-	TP_PROTO(int nid, int zid, int order, gfp_t gfp_flags),
+	TP_PROTO(int nid, int zid, int order, gfp_t gfp_flags, int place),
 
-	TP_ARGS(nid, zid, order, gfp_flags),
+	TP_ARGS(nid, zid, order, gfp_flags, place),
 
 	TP_STRUCT__entry(
 		__field(	int,	nid		)
 		__field(	int,	zid		)
 		__field(	int,	order		)
 		__field(	unsigned long,	gfp_flags	)
+		__field(	int,	place		)
 	),
 
 	TP_fast_assign(
@@ -104,10 +105,13 @@ TRACE_EVENT(mm_vmscan_wakeup_kswapd,
 		__entry->zid		= zid;
 		__entry->order		= order;
 		__entry->gfp_flags	= (__force unsigned long)gfp_flags;
+		__entry->place		= place;
 	),
 
-	TP_printk("nid=%d order=%d gfp_flags=%s",
+	TP_printk("[%d] nid=%d zid=%d order=%d gfp_flags=%s",
+		__entry->place,
 		__entry->nid,
+		__entry->zid,
 		__entry->order,
 		show_gfp_flags(__entry->gfp_flags))
 );

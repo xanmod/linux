@@ -2714,8 +2714,8 @@ static bool can_steal_fallback(unsigned int order, int start_mt)
 
 	return false;
 }
-
-static inline bool boost_watermark(struct zone *zone)
+//DJL DELETE static inline
+bool boost_watermark(struct zone *zone)
 {
 	unsigned long max_boost;
 
@@ -2751,6 +2751,7 @@ static inline bool boost_watermark(struct zone *zone)
 
 	return true;
 }
+EXPORT_SYMBOL(boost_watermark);
 
 /*
  * This function implements actual steal behaviour. If order is large enough,
@@ -5519,12 +5520,21 @@ failed:
 }
 EXPORT_SYMBOL_GPL(__alloc_pages_bulk);
 
+int __swapin_force_zone_wake_kswapd(gfp_t gfp, struct zone *zone,  unsigned int order)
+{
+	WARN_ON_ONCE((gfp & __GFP_NOFAIL) && (order > 1));
+	clear_bit(ZONE_BOOSTED_WATERMARK, &zone->flags);
+	wakeup_kswapd(zone, 0, order, zone_idx(zone));
+	return 1;
+}
+EXPORT_SYMBOL(__swapin_force_zone_wake_kswapd);
+
 int __swapin_force_wake_kswapd(gfp_t gfp, unsigned int order, int preferred_nid,
 							nodemask_t *nodemask)
 {
 	gfp_t alloc_gfp; /* The gfp_t that was actually used for allocation */
 	struct alloc_context ac = { };
-	unsigned int alloc_flags;
+	unsigned int alloc_flags = ALLOC_WMARK_LOW;
 
 	/*
 	 * There are several places where we assume that the order value is sane
@@ -5554,14 +5564,37 @@ int __swapin_force_wake_kswapd(gfp_t gfp, unsigned int order, int preferred_nid,
 	 * &cpuset_current_mems_allowed to optimize the fast-path attempt.
 	 */
 	ac.nodemask = nodemask;
+	/*
+	 * We also sanity check to catch abuse of atomic reserves being used by
+	 * callers that are not in atomic context.
+	 */
+	if (WARN_ON_ONCE((gfp & (__GFP_ATOMIC|__GFP_DIRECT_RECLAIM)) ==
+				(__GFP_ATOMIC|__GFP_DIRECT_RECLAIM)))
+		gfp &= ~__GFP_ATOMIC;
+
 	alloc_flags = gfp_to_alloc_flags(gfp);
 
 	ac.preferred_zoneref = first_zones_zonelist(ac.zonelist,
 					ac.highest_zoneidx, ac.nodemask);
 	if (!ac.preferred_zoneref->zone)
 		return -1;
+	/*
+	 * Check for insane configurations where the cpuset doesn't contain
+	 * any suitable zone to satisfy the request - e.g. non-movable
+	 * GFP_HIGHUSER allocations from MOVABLE nodes only.
+	 */
+	if (cpusets_insane_config() && (gfp & __GFP_HARDWALL)) {
+		struct zoneref *z = first_zones_zonelist(ac.zonelist,
+					ac.highest_zoneidx,
+					&cpuset_current_mems_allowed);
+		if (!z->zone)
+			return -1;
+	}
+	// gfp |= __GFP_DIRECT_RECLAIM;
 	if (alloc_flags & ALLOC_KSWAPD)
 		wake_all_kswapds(order, gfp, &ac);
+	// gfp &= ~__GFP_DIRECT_RECLAIM;
+
 	return 0;
 }
 EXPORT_SYMBOL(__swapin_force_wake_kswapd);
