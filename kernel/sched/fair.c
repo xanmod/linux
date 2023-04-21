@@ -6537,6 +6537,46 @@ static int wake_wide(struct task_struct *p)
 }
 
 /*
+ * Wake up the task on current CPU, if the following conditions are met:
+ *
+ * 1. waker A is the only running task on this_cpu
+ * 3. A is a short duration task (waker will fall asleep soon)
+ * 4. wakee B is a short duration task (impact of B on A is minor)
+ * 5. A and B wake up each other alternately
+ */
+static bool
+wake_on_current(int this_cpu, struct task_struct *p)
+{
+	if (!sched_feat(SIS_CURRENT))
+		return false;
+
+	if (cpu_rq(this_cpu)->nr_running > 1)
+		return false;
+
+	/*
+	 * If a task switches in and then voluntarily relinquishes the
+	 * CPU quickly, it is regarded as a short duration task. In that
+	 * way, the short waker is likely to relinquish the CPU soon, which
+	 * provides room for the wakee. Meanwhile, a short wakee would bring
+	 * minor impact to the target rq. Put the short waker and wakee together
+	 * bring benefit to cache-share task pairs and avoid migration overhead.
+	 */
+	if (!current->se.dur_avg || ((current->se.dur_avg * 8) >= sysctl_sched_min_granularity))
+		return false;
+
+	if (!p->se.dur_avg || ((p->se.dur_avg * 8) >= sysctl_sched_min_granularity))
+		return false;
+
+	if (current->wakee_flips || p->wakee_flips)
+		return false;
+
+	if (current->last_wakee != p || p->last_wakee != current)
+		return false;
+
+	return true;
+}
+
+/*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
  * soonest. For the purpose of speed we only consider the waking and previous
  * CPU.
@@ -6628,6 +6668,9 @@ static int wake_affine(struct sched_domain *sd, struct task_struct *p,
 
 	if (sched_feat(WA_WEIGHT) && target == nr_cpumask_bits)
 		target = wake_affine_weight(sd, p, this_cpu, prev_cpu, sync);
+
+	if (target == nr_cpumask_bits && wake_on_current(this_cpu, p))
+		target = this_cpu;
 
 	schedstat_inc(p->stats.nr_wakeups_affine_attempts);
 	if (target == nr_cpumask_bits)
@@ -7149,6 +7192,9 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 				return i;
 		}
 	}
+
+	if (smp_processor_id() == target && wake_on_current(target, p))
+		return target;
 
 	i = select_idle_cpu(p, sd, has_idle_core, target);
 	if ((unsigned)i < nr_cpumask_bits)
