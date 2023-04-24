@@ -798,6 +798,7 @@ struct file *__close_fd_get_file(unsigned int fd)
 {
 	return pick_file(current->files, fd);
 }
+EXPORT_SYMBOL(close_fd_get_file);
 
 /*
  * variant of close_fd that gets a ref on the file for later fput.
