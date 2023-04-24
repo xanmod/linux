@@ -182,4 +182,4 @@ elif [ "${LOCALVERSION+set}" != "set" ]; then
 	scm_version="$(scm_version --short)"
 fi
 
-echo "${KERNELVERSION}${file_localversion}${config_localversion}${LOCALVERSION}${scm_version}"
+echo "${KERNELVERSION}${config_localversion}${LOCALVERSION}${scm_version}${file_localversion}"
