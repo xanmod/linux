@@ -10148,14 +10148,9 @@ asym_active_balance(struct lb_env *env)
 	 * ASYM_PACKING needs to force migrate tasks from busy but
 	 * lower priority CPUs in order to pack all tasks in the
 	 * highest priority CPUs.
-	 *
-	 * If the busy CPU has higher priority but is an SMT sibling
-	 * in which other SMT siblings are also busy, a lower-priority
-	 * CPU in a separate core can help.
 	 */
 	return env->idle != CPU_NOT_IDLE && (env->sd->flags & SD_ASYM_PACKING) &&
-	       (sched_asym_prefer(env->dst_cpu, env->src_cpu) ||
-		!(env->sd->flags & SD_SHARE_CPUCAPACITY));
+	       sched_asym_prefer(env->dst_cpu, env->src_cpu);
 }
 
 static inline bool
