@@ -449,7 +449,9 @@ static struct file_system_type sock_fs_type = {
  *
  *	Returns the &file bound with @sock, implicitly storing it
  *	in sock->file. If dname is %NULL, sets to "".
- *	On failure the return is a ERR pointer (see linux/err.h).
+ *
+ *	On failure @sock is released, and an ERR pointer is returned.
+ *
  *	This function uses GFP_KERNEL internally.
  */
 
@@ -971,9 +973,12 @@ static inline void sock_recv_drops(struct msghdr *msg, struct sock *sk,
 static void sock_recv_mark(struct msghdr *msg, struct sock *sk,
 			   struct sk_buff *skb)
 {
-	if (sock_flag(sk, SOCK_RCVMARK) && skb)
-		put_cmsg(msg, SOL_SOCKET, SO_MARK, sizeof(__u32),
-			 &skb->mark);
+	if (sock_flag(sk, SOCK_RCVMARK) && skb) {
+		/* We must use a bounce buffer for CONFIG_HARDENED_USERCOPY=y */
+		__u32 mark = skb->mark;
+
+		put_cmsg(msg, SOL_SOCKET, SO_MARK, sizeof(__u32), &mark);
+	}
 }
 
 void __sock_recv_cmsgs(struct msghdr *msg, struct sock *sk,
@@ -1610,7 +1615,6 @@ static struct socket *__sys_socket_create(int family, int type, int protocol)
 struct file *__sys_socket_file(int family, int type, int protocol)
 {
 	struct socket *sock;
-	struct file *file;
 	int flags;
 
 	sock = __sys_socket_create(family, type, protocol);
@@ -1621,11 +1625,7 @@ struct file *__sys_socket_file(int family, int type, int protocol)
 	if (SOCK_NONBLOCK != O_NONBLOCK && (flags & SOCK_NONBLOCK))
 		flags = (flags & ~SOCK_NONBLOCK) | O_NONBLOCK;
 
-	file = sock_alloc_file(sock, flags, NULL);
-	if (IS_ERR(file))
-		sock_release(sock);
-
-	return file;
+	return sock_alloc_file(sock, flags, NULL);
 }
 
 int __sys_socket(int family, int type, int protocol)
