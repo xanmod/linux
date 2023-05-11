@@ -71,7 +71,7 @@
  *
  * (default SCHED_TUNABLESCALING_LOG = *(1+ilog(ncpus))
  */
-unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_LOG;
+unsigned int sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
 
 /*
  * Minimal preemption granularity for CPU-bound tasks:
