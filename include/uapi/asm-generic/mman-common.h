@@ -79,6 +79,10 @@
 
 #define MADV_COLLAPSE	25		/* Synchronous hugepage collapse */
 
+/*DJL ADD BEGIN*/
+#define MADV_SWAPPRIO_HIGH	26		/* has high priority */
+#define MADV_SWAPPRIO_LOW	27		/* has low priority */
+/*DJL ADD END*/
 /* compatibility flags */
 #define MAP_FILE	0
 

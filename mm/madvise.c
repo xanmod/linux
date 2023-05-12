@@ -42,6 +42,10 @@ struct madvise_walk_private {
 	bool pageout;
 };
 
+struct madvise_walk_private_prio {
+	struct mmu_gather *tlb;
+	int low;
+};
 /*
  * Any behaviour which results in changes to the vma->vm_flags needs to
  * take mmap_lock for writing. Others, which simply traverse vmas, need
@@ -321,6 +325,118 @@ static long madvise_willneed(struct vm_area_struct *vma,
 	return 0;
 }
 
+static int madvise_prio_pte_range(pmd_t *pmd,
+				unsigned long addr, unsigned long end,
+				struct mm_walk *walk)
+{
+	struct madvise_walk_private_prio *private = walk->private;
+	struct mmu_gather *tlb = private->tlb;
+	int low = private->low;
+	struct mm_struct *mm = tlb->mm;
+	struct vm_area_struct *vma = walk->vma;
+	pte_t *orig_pte, *pte, ptent;
+	spinlock_t *ptl;
+	struct page *page = NULL;
+
+	if (fatal_signal_pending(current))
+		return -EINTR;
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+	if (pmd_trans_huge(*pmd)) {
+		pmd_t orig_pmd;
+		unsigned long next = pmd_addr_end(addr, end);
+
+		tlb_change_page_size(tlb, HPAGE_PMD_SIZE);
+		ptl = pmd_trans_huge_lock(pmd, vma);
+		if (!ptl)
+			return 0;
+
+		orig_pmd = *pmd;
+		if (is_huge_zero_pmd(orig_pmd))
+			goto huge_unlock;
+
+		if (unlikely(!pmd_present(orig_pmd))) {
+			VM_BUG_ON(thp_migration_supported() &&
+					!is_pmd_migration_entry(orig_pmd));
+			goto huge_unlock;
+		}
+
+		page = pmd_page(orig_pmd);
+
+		/* Do not interfere with other mappings of this page */
+		if (page_mapcount(page) != 1)
+			goto huge_unlock;
+
+		if (next - addr != HPAGE_PMD_SIZE) {
+			int err;
+
+			get_page(page);
+			spin_unlock(ptl);
+			lock_page(page);
+			err = split_huge_page(page);
+			unlock_page(page);
+			put_page(page);
+			if (!err)
+				goto regular_page;
+			return 0;
+		}
+		if (low) {
+			SetPageSwapPrio2(page);
+		}else{
+			SetPageSwapPrio1(page);
+		}
+huge_unlock:
+		spin_unlock(ptl);
+		return 0;
+	}
+
+regular_page:
+	if (pmd_trans_unstable(pmd))
+		return 0;
+#endif
+	tlb_change_page_size(tlb, PAGE_SIZE);
+	orig_pte = pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
+	flush_tlb_batched_pending(mm);
+	arch_enter_lazy_mmu_mode();
+	for (; addr < end; pte++, addr += PAGE_SIZE) {
+		ptent = *pte;
+
+		if (pte_none(ptent))
+			continue;
+
+		if (!pte_present(ptent))
+			continue;
+
+		page = vm_normal_page(vma, addr, ptent);
+		if (!page || is_zone_device_page(page))
+			continue;
+
+		if (PageTransCompound(page)) {
+			return 0;	//shouldn't happen here?
+		}
+
+		/*
+		 * Do not interfere with other mappings of this page and
+		 * non-LRU page.
+		 */
+		if (!PageLRU(page) || page_mapcount(page) != 1)
+			continue;
+
+		VM_BUG_ON_PAGE(PageTransCompound(page), page);
+
+		if (low) {
+			SetPageSwapPrio2(page);
+		}else{
+			SetPageSwapPrio1(page);
+		}	
+	}
+	arch_leave_lazy_mmu_mode();
+	pte_unmap_unlock(orig_pte, ptl);
+	cond_resched();
+
+	return 0;
+}
+
 static int madvise_cold_or_pageout_pte_range(pmd_t *pmd,
 				unsigned long addr, unsigned long end,
 				struct mm_walk *walk)
@@ -515,6 +631,24 @@ static void madvise_cold_page_range(struct mmu_gather *tlb,
 	tlb_end_vma(tlb, vma);
 }
 
+static const struct mm_walk_ops prio_walk_ops = {
+	.pmd_entry = madvise_prio_pte_range,
+};
+
+static void madvise_swapprio_page_range(struct mmu_gather *tlb,
+				 struct vm_area_struct *vma,
+			     unsigned long addr, unsigned long end, int low)
+{
+	struct madvise_walk_private_prio walk_private = {
+		.low = low,
+		.tlb = tlb,
+	};
+
+	tlb_start_vma(tlb, vma);
+	walk_page_range(vma->vm_mm, addr, end, &prio_walk_ops, &walk_private);
+	tlb_end_vma(tlb, vma);
+}
+
 static inline bool can_madv_lru_vma(struct vm_area_struct *vma)
 {
 	return !(vma->vm_flags & (VM_LOCKED|VM_PFNMAP|VM_HUGETLB));
@@ -552,6 +686,29 @@ static void madvise_pageout_page_range(struct mmu_gather *tlb,
 	walk_page_range(vma->vm_mm, addr, end, &cold_walk_ops, &walk_private);
 	tlb_end_vma(tlb, vma);
 }
+
+/* DJL ADD BEGIN */
+static long madvise_swapprio(struct vm_area_struct *vma,
+			struct vm_area_struct **prev,
+			unsigned long start_addr, unsigned long end_addr, 
+			unsigned long behavior)
+{
+	struct mm_struct *mm = vma->vm_mm;
+	struct mmu_gather tlb;
+	int low = behavior - MADV_SWAPPRIO_HIGH;
+	*prev = vma;
+	if (!can_madv_lru_vma(vma))	
+		//make sure not hugetlb / locked or sth else
+		return -EINVAL;
+
+	// lru_add_drain();
+	tlb_gather_mmu(&tlb, mm);
+	madvise_swapprio_page_range(&tlb, vma, start_addr, end_addr, low);
+	tlb_finish_mmu(&tlb);
+
+	return 0;
+}
+/* DJL ADD END */
 
 static inline bool can_do_pageout(struct vm_area_struct *vma)
 {
@@ -1072,6 +1229,14 @@ static int madvise_vma_behavior(struct vm_area_struct *vma,
 		if (error)
 			goto out;
 		break;
+	/* DJL ADD BEGIN */
+	case MADV_SWAPPRIO_HIGH:
+	case MADV_SWAPPRIO_LOW:
+		error = madvise_swapprio(vma, prev, start, end, behavior);
+		if (error)
+			goto out;
+		break;
+	/* DJL ADD END */
 	case MADV_COLLAPSE:
 		return madvise_collapse(vma, prev, start, end);
 	}
