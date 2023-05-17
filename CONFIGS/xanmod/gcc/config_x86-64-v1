@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 6.3.2 Kernel Configuration
+# Linux/x86 6.3.3 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-12 (Debian 12.2.0-14) 12.2.0"
 CONFIG_CC_IS_GCC=y
@@ -8037,7 +8037,7 @@ CONFIG_HID_SONY=m
 CONFIG_SONY_FF=y
 CONFIG_HID_SPEEDLINK=m
 CONFIG_HID_STEAM=m
-# CONFIG_STEAM_FF is not set
+CONFIG_STEAM_FF=y
 CONFIG_HID_STEELSERIES=m
 CONFIG_HID_SUNPLUS=m
 CONFIG_HID_RMI=m
