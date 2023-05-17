@@ -1061,14 +1061,16 @@ static void swap_free_cluster(struct swap_info_struct *si, unsigned long idx)
 	swap_range_free(si, offset, SWAPFILE_CLUSTER);
 }
 
-int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size)
+int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int slow)
 {
 	unsigned long size = swap_entry_size(entry_size);
 	struct swap_info_struct *si, *next;
 	long avail_pgs;
 	int n_ret = 0;
 	int node;
-
+	/*DJL ADD BEGIN*/
+	int highprio = -1;
+	/*DJL ADD BEGIN*/
 	/* Only single cluster request supported */
 	WARN_ON_ONCE(n_goal > 1 && size == SWAPFILE_CLUSTER);
 
@@ -1092,6 +1094,17 @@ start_over:
 		spin_unlock(&swap_avail_lock);
 		spin_lock(&si->lock);
 		trace_get_swap_pages_noswap(0, n_ret, n_goal, avail_pgs);
+		/*DJL ADD BEGIN*/
+		//if folio/page's low priority is set, we go straight to the next si
+		//until prio is lower than this one
+		if (slow){
+			if (highprio < 0 || highprio <= si->prio){
+				highprio = si->prio;
+				spin_unlock(&si->lock);
+				// spin_lock(&swap_avail_lock);
+				goto nextsi;
+			}	
+		}		
 		if (!si->highest_bit || !(si->flags & SWP_WRITEOK)) {
 			spin_lock(&swap_avail_lock);
 			if (plist_node_empty(&si->avail_lists[node])) {

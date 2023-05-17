@@ -224,5 +224,26 @@ TRACE_EVENT(folio_update_gen,
 			__entry->flags & PAGEMAP_MAPPEDDISK	? "d" : " ",
 			__entry->flags & PAGEMAP_BUFFERS	? "B" : " ")
 );
+
+TRACE_EVENT(page_set_swapprio,
+
+	TP_PROTO(struct page* page),
+
+	TP_ARGS(page),
+
+	TP_STRUCT__entry(
+		__field(struct page* ,page)
+	),
+
+	TP_fast_assign(
+		__entry->page	= page;
+	),
+
+	TP_printk("page@[%p] prio1[%d],prio2[%d]", 
+                __entry->page,
+                PageSwapPrio1(__entry->page),
+                PageSwapPrio2(__entry->page))
+);
+
 #endif /* _TRACE_LRU_GEN_H */
 #include <trace/define_trace.h>

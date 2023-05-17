@@ -48,12 +48,13 @@ static void __drain_swap_slots_cache(unsigned int type);
 #define use_swap_slot_cache (swap_slot_cache_active && swap_slot_cache_enabled)
 #define SLOTS_CACHE 0x1
 #define SLOTS_CACHE_RET 0x2
+#define SLOTS_CACHE_SLOW 0x4
 
 static void deactivate_swap_slots_cache(void)
 {
 	mutex_lock(&swap_slots_cache_mutex);
 	swap_slot_cache_active = false;
-	__drain_swap_slots_cache(SLOTS_CACHE|SLOTS_CACHE_RET);
+	__drain_swap_slots_cache(SLOTS_CACHE|SLOTS_CACHE_RET|SLOTS_CACHE_SLOW);
 	mutex_unlock(&swap_slots_cache_mutex);
 }
 
@@ -72,7 +73,7 @@ void disable_swap_slots_cache_lock(void)
 	if (swap_slot_cache_initialized) {
 		/* serialize with cpu hotplug operations */
 		cpus_read_lock();
-		__drain_swap_slots_cache(SLOTS_CACHE|SLOTS_CACHE_RET);
+		__drain_swap_slots_cache(SLOTS_CACHE|SLOTS_CACHE_RET|SLOTS_CACHE_SLOW);
 		cpus_read_unlock();
 	}
 }
@@ -113,7 +114,7 @@ out:
 static int alloc_swap_slot_cache(unsigned int cpu)
 {
 	struct swap_slots_cache *cache;
-	swp_entry_t *slots, *slots_ret;
+	swp_entry_t *slots, *slots_ret, *slots_slow;
 
 	/*
 	 * Do allocation outside swap_slots_cache_mutex
@@ -131,7 +132,15 @@ static int alloc_swap_slot_cache(unsigned int cpu)
 		kvfree(slots);
 		return -ENOMEM;
 	}
-
+/*DJL ADD BEGIN*/
+	slots_slow = kvcalloc(SWAP_SLOTS_CACHE_SIZE, sizeof(swp_entry_t),
+			 GFP_KERNEL);
+	if (!slots_slow){
+		kvfree(slots);
+		kvfree(slots_ret);
+		return -ENOMEM;
+	}
+/*DJL ADD END*/
 	mutex_lock(&swap_slots_cache_mutex);
 	cache = &per_cpu(swp_slots, cpu);
 	if (cache->slots || cache->slots_ret) {
@@ -140,7 +149,9 @@ static int alloc_swap_slot_cache(unsigned int cpu)
 
 		kvfree(slots);
 		kvfree(slots_ret);
-
+/*DJL ADD BEGIN*/
+		kvfree(slots_slow);
+/*DJL ADD END*/
 		return 0;
 	}
 
@@ -152,6 +163,10 @@ static int alloc_swap_slot_cache(unsigned int cpu)
 	cache->nr = 0;
 	cache->cur = 0;
 	cache->n_ret = 0;
+/*DJL ADD BEGIN*/
+	cache->nr_slow = 0;
+	cache->cur_slow = 0;
+/*DJL ADD END*/
 	/*
 	 * We initialized alloc_lock and free_lock earlier.  We use
 	 * !cache->slots or !cache->slots_ret to know if it is safe to acquire
@@ -161,6 +176,7 @@ static int alloc_swap_slot_cache(unsigned int cpu)
 	mb();
 	cache->slots = slots;
 	cache->slots_ret = slots_ret;
+	cache->slots_slow = slots_slow;
 	mutex_unlock(&swap_slots_cache_mutex);
 	return 0;
 }
@@ -180,6 +196,17 @@ static void drain_slots_cache_cpu(unsigned int cpu, unsigned int type,
 		if (free_slots && cache->slots) {
 			kvfree(cache->slots);
 			cache->slots = NULL;
+		}
+		mutex_unlock(&cache->alloc_lock);
+	}
+	if ((type & SLOTS_CACHE_SLOW) && cache->slots_slow){
+		mutex_lock(&cache->alloc_lock);
+		swapcache_free_entries(cache->slots_slow + cache->cur_slow, cache->nr_slow);
+		cache->cur_slow = 0;
+		cache->nr_slow = 0;
+		if (free_slots && cache->slots_slow) {
+			kvfree(cache->slots_slow);
+			cache->slots_slow = NULL;
 		}
 		mutex_unlock(&cache->alloc_lock);
 	}
@@ -264,11 +291,26 @@ static int refill_swap_slots_cache(struct swap_slots_cache *cache)
 	cache->cur = 0;
 	if (swap_slot_cache_active)
 		cache->nr = get_swap_pages(SWAP_SLOTS_CACHE_SIZE,
-					   cache->slots, 1);
+					   cache->slots, 1, 0);	//DJL ADD PARAMETER
 
 	return cache->nr;
 }
 
+/*DJL ADD BEGIN*/
+/* called with swap slot cache's alloc lock held */
+static int refill_swap_slots_slow_cache(struct swap_slots_cache *cache)
+{
+	if (!use_swap_slot_cache)
+		return 0;
+
+	cache->cur_slow = 0;
+	if (swap_slot_cache_active)
+		cache->nr_slow = get_swap_pages(SWAP_SLOTS_CACHE_SIZE,
+					   cache->slots_slow, 1, 0);	//DJL ADD PARAMETER
+
+	return cache->nr_slow;
+}
+/*DJL ADD END*/
 void free_swap_slot(swp_entry_t entry)
 {
 	struct swap_slots_cache *cache;
@@ -308,7 +350,7 @@ swp_entry_t folio_alloc_swap(struct folio *folio)
 
 	if (folio_test_large(folio)) {
 		if (IS_ENABLED(CONFIG_THP_SWAP) && arch_thp_swp_supported())
-			get_swap_pages(1, &entry, folio_nr_pages(folio));
+			get_swap_pages(1, &entry, folio_nr_pages(folio), 0);
 		goto out;
 	}
 
@@ -322,29 +364,53 @@ swp_entry_t folio_alloc_swap(struct folio *folio)
 	 * so cache->free_lock is not taken.
 	 */
 	cache = raw_cpu_ptr(&swp_slots);
-
-	if (likely(check_cache_active() && cache->slots)) {
-		mutex_lock(&cache->alloc_lock);
-		if (cache->slots) {
-repeat:
-			if (cache->nr) {
-				entry = cache->slots[cache->cur];
-				cache->slots[cache->cur++].val = 0;
-				cache->nr--;
-			} else if (refill_swap_slots_cache(cache)) {
-				goto repeat;
+	if (folio_test_swapprio2(folio)){
+		if (likely(check_cache_active() && cache->slots_slow)) {
+			mutex_lock(&cache->alloc_lock);
+			if (cache->slots_slow) {
+	repeat_slow:
+				if (cache->nr_slow) {
+					entry = cache->slots_slow[cache->cur_slow];
+					cache->slots_slow[cache->cur_slow++].val = 0;
+					cache->nr_slow--;
+				} else if (refill_swap_slots_slow_cache(cache)) {
+					goto repeat_slow;
+				}
 			}
-		}
-		mutex_unlock(&cache->alloc_lock);
-		if (entry.val)
-			goto out;
+			mutex_unlock(&cache->alloc_lock);
+			if (entry.val)
+				goto out;
+		}	
 	}
+	else{
+		if (likely(check_cache_active() && cache->slots)) {
+			mutex_lock(&cache->alloc_lock);
+			if (cache->slots) {
+	repeat:
+				if (cache->nr) {
+					entry = cache->slots[cache->cur];
+					cache->slots[cache->cur++].val = 0;
+					cache->nr--;
+				} else if (refill_swap_slots_cache(cache)) {
+					goto repeat;
+				}
+			}
+			mutex_unlock(&cache->alloc_lock);
+			if (entry.val)
+				goto out;
+		}	
+	}
+	
 
-	get_swap_pages(1, &entry, 1);
+	get_swap_pages(1, &entry, 1, folio_test_swapprio2(folio));
 out:
 	if (mem_cgroup_try_charge_swap(folio, entry)) {
 		put_swap_folio(folio, entry);
 		entry.val = 0;
 	}
+	/*DJL ADD BEGIN*/
+	if (entry.val)
+		folio_clear_swapprio2(folio);
+	/*DJL ADD END*/
 	return entry;
 }
