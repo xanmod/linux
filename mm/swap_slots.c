@@ -306,7 +306,7 @@ static int refill_swap_slots_slow_cache(struct swap_slots_cache *cache)
 	cache->cur_slow = 0;
 	if (swap_slot_cache_active)
 		cache->nr_slow = get_swap_pages(SWAP_SLOTS_CACHE_SIZE,
-					   cache->slots_slow, 1, 0);	//DJL ADD PARAMETER
+					   cache->slots_slow, 1, 1);	//DJL ADD PARAMETER
 
 	return cache->nr_slow;
 }

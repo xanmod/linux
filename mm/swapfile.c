@@ -56,6 +56,7 @@ static void free_swap_count_continuations(struct swap_info_struct *);
 
 static DEFINE_SPINLOCK(swap_lock);
 static unsigned int nr_swapfiles;
+static int high_prio;
 atomic_long_t nr_swap_pages;
 /*
  * Some modules use swappable objects and may try to swap them out under
@@ -1068,9 +1069,7 @@ int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int sl
 	long avail_pgs;
 	int n_ret = 0;
 	int node;
-	/*DJL ADD BEGIN*/
-	int highprio = -1;
-	/*DJL ADD BEGIN*/
+
 	/* Only single cluster request supported */
 	WARN_ON_ONCE(n_goal > 1 && size == SWAPFILE_CLUSTER);
 
@@ -1098,10 +1097,10 @@ start_over:
 		//if folio/page's low priority is set, we go straight to the next si
 		//until prio is lower than this one
 		if (slow){
-			if (highprio < 0 || highprio <= si->prio){
-				highprio = si->prio;
+			if (high_prio <= 0 || high_prio <= si->prio){
+				high_prio = si->prio;
+				spin_lock(&swap_avail_lock);
 				spin_unlock(&si->lock);
-				// spin_lock(&swap_avail_lock);
 				goto nextsi;
 			}	
 		}		
