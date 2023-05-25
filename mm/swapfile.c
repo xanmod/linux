@@ -1070,6 +1070,9 @@ int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int sl
 	int n_ret = 0;
 	int node;
 
+	/*DJL CONTROLLER*/
+	slow = 0;
+	/*DJL CONTROLLER*/
 	/* Only single cluster request supported */
 	WARN_ON_ONCE(n_goal > 1 && size == SWAPFILE_CLUSTER);
 
