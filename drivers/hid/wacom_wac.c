@@ -113,6 +113,11 @@ static void wacom_notify_battery(struct wacom_wac *wacom_wac,
 	bool bat_connected, bool ps_connected)
 {
 	struct wacom *wacom = container_of(wacom_wac, struct wacom, wacom_wac);
+	bool bat_initialized = wacom->battery.battery;
+	bool has_quirk = wacom_wac->features.quirks & WACOM_QUIRK_BATTERY;
+
+	if (bat_initialized != has_quirk)
+		wacom_schedule_work(wacom_wac, WACOM_WORKER_BATTERY);
 
 	__wacom_notify_battery(&wacom->battery, bat_status, bat_capacity,
 			       bat_charging, bat_connected, ps_connected);
@@ -826,7 +831,7 @@ static int wacom_intuos_inout(struct wacom_wac *wacom)
 	/* Enter report */
 	if ((data[1] & 0xfc) == 0xc0) {
 		/* serial number of the tool */
-		wacom->serial[idx] = ((data[3] & 0x0f) << 28) +
+		wacom->serial[idx] = ((__u64)(data[3] & 0x0f) << 28) +
 			(data[4] << 20) + (data[5] << 12) +
 			(data[6] << 4) + (data[7] >> 4);
 
@@ -3388,19 +3393,13 @@ static int wacom_status_irq(struct wacom_wac *wacom_wac, size_t len)
 		int battery = (data[8] & 0x3f) * 100 / 31;
 		bool charging = !!(data[8] & 0x80);
 
+		features->quirks |= WACOM_QUIRK_BATTERY;
 		wacom_notify_battery(wacom_wac, WACOM_POWER_SUPPLY_STATUS_AUTO,
 				     battery, charging, battery || charging, 1);
-
-		if (!wacom->battery.battery &&
-		    !(features->quirks & WACOM_QUIRK_BATTERY)) {
-			features->quirks |= WACOM_QUIRK_BATTERY;
-			wacom_schedule_work(wacom_wac, WACOM_WORKER_BATTERY);
-		}
 	}
 	else if ((features->quirks & WACOM_QUIRK_BATTERY) &&
 		 wacom->battery.battery) {
 		features->quirks &= ~WACOM_QUIRK_BATTERY;
-		wacom_schedule_work(wacom_wac, WACOM_WORKER_BATTERY);
 		wacom_notify_battery(wacom_wac, POWER_SUPPLY_STATUS_UNKNOWN, 0, 0, 0, 0);
 	}
 	return 0;
