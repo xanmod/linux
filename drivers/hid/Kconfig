@@ -976,6 +976,24 @@ config HID_SEMITEK
 	- Woo-dy
 	- X-Bows Nature/Knight
 
+config HID_SHIELD
+	tristate "SHIELD HID Driver"
+	depends on USB_HID
+	depends on BT_HIDP
+	help
+	Support for NVIDIA SHIELD accessories.
+
+	Supported devices:
+	- Thunderstrike (NVIDIA SHIELD Controller 2017)
+
+config SHIELD_FF
+	bool "SHIELD force feedback support"
+	depends on HID_SHIELD
+	select INPUT_FF_MEMLESS
+	help
+	Say Y here if you would like to enable force feedback support for
+	NVIDIA SHIELD accessories with haptics capabilities.
+
 config HID_SIGMAMICRO
 	tristate "SiGma Micro-based keyboards"
 	depends on USB_HID
@@ -1016,6 +1034,13 @@ config HID_SPEEDLINK
 	tristate "Speedlink VAD Cezanne mouse support"
 	help
 	Support for Speedlink Vicious and Divine Cezanne mouse.
+
+config HID_STADIA_FF
+	tristate "Google Stadia force feedback"
+	select INPUT_FF_MEMLESS
+	help
+	Say Y here if you want to enable force feedback support for the Google
+	Stadia controller.
 
 config HID_STEAM
 	tristate "Steam Controller support"
