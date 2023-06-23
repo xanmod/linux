@@ -39,13 +39,13 @@ void __printk_safe_exit(unsigned long *flags)
 
 void __printk_deferred_enter(void)
 {
-	WARN_ON_ONCE(!in_atomic());
+	cant_migrate();
 	this_cpu_inc(printk_context.recursion);
 }
 
 void __printk_deferred_exit(void)
 {
-	WARN_ON_ONCE(!in_atomic());
+	cant_migrate();
 	this_cpu_dec(printk_context.recursion);
 }
 
