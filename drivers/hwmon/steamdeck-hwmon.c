@@ -180,6 +180,76 @@ static const struct hwmon_chip_info steamdeck_hwmon_chip_info = {
 	.info = steamdeck_hwmon_info,
 };
 
+
+static ssize_t
+steamdeck_hwmon_simple_store(struct device *dev, const char *buf, size_t count,
+			     const char *method,
+			     unsigned long upper_limit)
+{
+	struct steamdeck_hwmon *sd = dev_get_drvdata(dev);
+	unsigned long value;
+
+	if (kstrtoul(buf, 10, &value) || value >= upper_limit)
+		return -EINVAL;
+
+	if (ACPI_FAILURE(acpi_execute_simple_method(sd->adev->handle,
+						    (char *)method, value)))
+		return -EIO;
+
+	return count;
+}
+
+static ssize_t
+steamdeck_hwmon_simple_show(struct device *dev, char *buf,
+			    const char *method)
+{
+	struct steamdeck_hwmon *sd = dev_get_drvdata(dev);
+	unsigned long value;
+
+	value = steamdeck_hwmon_get(sd, method);
+	if (value < 0)
+		return value;
+
+	return sprintf(buf, "%ld\n", value);
+}
+
+#define STEAMDECK_HWMON_ATTR_RW(_name, _set_method, _get_method,	\
+				_upper_limit)				\
+	static ssize_t _name##_show(struct device *dev,			\
+				    struct device_attribute *attr,	\
+				    char *buf)				\
+	{								\
+		return steamdeck_hwmon_simple_show(dev, buf,		\
+						   _get_method);	\
+	}								\
+	static ssize_t _name##_store(struct device *dev,		\
+				     struct device_attribute *attr,	\
+				     const char *buf, size_t count)	\
+	{								\
+		return steamdeck_hwmon_simple_store(dev, buf, count,	\
+						    _set_method,	\
+						    _upper_limit);	\
+	}								\
+	static DEVICE_ATTR_RW(_name)
+
+STEAMDECK_HWMON_ATTR_RW(max_battery_charge_level, "FCBL", "SFBL", 101);
+STEAMDECK_HWMON_ATTR_RW(max_battery_charge_rate,  "CHGR", "GCHR", 101);
+
+static struct attribute *steamdeck_hwmon_attributes[] = {
+	&dev_attr_max_battery_charge_level.attr,
+	&dev_attr_max_battery_charge_rate.attr,
+	NULL
+};
+
+static const struct attribute_group steamdeck_hwmon_group = {
+	.attrs = steamdeck_hwmon_attributes,
+};
+
+static const struct attribute_group *steamdeck_hwmon_groups[] = {
+	&steamdeck_hwmon_group,
+	NULL
+};
+
 static int steamdeck_hwmon_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -195,7 +265,7 @@ static int steamdeck_hwmon_probe(struct platform_device *pdev)
 						     "steamdeck_hwmon",
 						     sd,
 						     &steamdeck_hwmon_chip_info,
-						     NULL);
+						     steamdeck_hwmon_groups);
 	if (IS_ERR(hwmon)) {
 		dev_err(dev, "Failed to register HWMON device");
 		return PTR_ERR(hwmon);
