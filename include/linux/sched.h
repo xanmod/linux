@@ -1905,6 +1905,7 @@ static inline int dl_task_check_affinity(struct task_struct *p, const struct cpu
 }
 #endif
 
+extern bool task_is_pi_boosted(const struct task_struct *p);
 extern int yield_to(struct task_struct *p, bool preempt);
 extern void set_user_nice(struct task_struct *p, long nice);
 extern int task_prio(const struct task_struct *p);
