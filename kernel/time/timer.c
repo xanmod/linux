@@ -1470,9 +1470,16 @@ static inline void timer_base_unlock_expiry(struct timer_base *base)
  */
 static void timer_sync_wait_running(struct timer_base *base)
 {
-	if (atomic_read(&base->timer_waiters)) {
+	bool need_preempt;
+
+	need_preempt = task_is_pi_boosted(current);
+	if (need_preempt || atomic_read(&base->timer_waiters)) {
 		raw_spin_unlock_irq(&base->lock);
 		spin_unlock(&base->expiry_lock);
+
+		if (need_preempt)
+			softirq_preempt();
+
 		spin_lock(&base->expiry_lock);
 		raw_spin_lock_irq(&base->lock);
 	}
