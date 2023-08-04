@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 6.4.7 Kernel Configuration
+# Linux/x86 6.4.8 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-12 (Debian 12.3.0-6~bpo12+1) 12.3.0"
 CONFIG_CC_IS_GCC=y
