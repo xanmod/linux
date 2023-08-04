@@ -247,6 +247,19 @@ out:
 }
 EXPORT_SYMBOL(__local_bh_enable_ip);
 
+void softirq_preempt(void)
+{
+	if (WARN_ON_ONCE(!preemptible()))
+		return;
+
+	if (WARN_ON_ONCE(__this_cpu_read(softirq_ctrl.cnt) != SOFTIRQ_OFFSET))
+		return;
+
+	__local_bh_enable(SOFTIRQ_OFFSET, true);
+	/* preemption point */
+	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+}
+
 /*
  * Invoked from ksoftirqd_run() outside of the interrupt disabled section
  * to acquire the per CPU local lock for reentrancy protection.
