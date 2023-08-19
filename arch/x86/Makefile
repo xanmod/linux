@@ -60,6 +60,13 @@ export REALMODE_CFLAGS
 # e.g.: obj-y += foo_$(BITS).o
 export BITS
 
+# More compiler optimizations
+ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
+KBUILD_CFLAGS += -O3 -fexcess-precision=fast -freciprocal-math \
+		 $(call cc-option,-fcx-limited-range)
+KBUILD_RUSTFLAGS += -Copt-level=3
+endif
+
 #
 # Prevent GCC from generating any FP code by mistake.
 #
@@ -67,9 +74,8 @@ export BITS
 #
 #    https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53383
 #
-KBUILD_CFLAGS += -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -mno-avx2 \
-		   -mno-avx512f -O3
-KBUILD_RUSTFLAGS += -Ctarget-feature=-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-avx,-avx2
+KBUILD_CFLAGS += -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -mno-avx2 -mno-avx512f
+KBUILD_RUSTFLAGS += -Ctarget-feature=-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-avx,-avx2,-avx512f
 
 ifeq ($(CONFIG_X86_KERNEL_IBT),y)
 #

@@ -117,8 +117,8 @@ void tcp_rate_skb_delivered(struct sock *sk, struct sk_buff *skb,
 		rs->prior_mstamp     = scb->tx.delivered_mstamp;
 		rs->is_app_limited   = scb->tx.is_app_limited;
 		rs->is_retrans	     = scb->sacked & TCPCB_RETRANS;
-		rs->last_end_seq     = scb->end_seq;
 		rs->tx_in_flight     = scb->tx.in_flight;
+		rs->last_end_seq     = scb->end_seq;
 
 		/* Record send time of most recently ACKed packet: */
 		tp->first_tx_mstamp  = tx_tstamp;

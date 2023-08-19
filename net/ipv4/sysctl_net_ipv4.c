@@ -1390,6 +1390,20 @@ static struct ctl_table ipv4_net_table[] = {
 		.extra2		= SYSCTL_TWO,
 	},
 	{
+		.procname	= "tcp_collapse_max_bytes",
+		.data		= &init_net.ipv4.sysctl_tcp_collapse_max_bytes,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
+		.procname	= "tcp_shrink_window",
+		.data		= &init_net.ipv4.sysctl_tcp_shrink_window,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+	},
+	{
 		.procname       = "tcp_plb_enabled",
 		.data           = &init_net.ipv4.sysctl_tcp_plb_enabled,
 		.maxlen         = sizeof(u8),
@@ -1397,15 +1411,6 @@ static struct ctl_table ipv4_net_table[] = {
 		.proc_handler   = proc_dou8vec_minmax,
 		.extra1         = SYSCTL_ZERO,
 		.extra2         = SYSCTL_ONE,
-	},
-	{
-		.procname       = "tcp_plb_cong_thresh",
-		.data           = &init_net.ipv4.sysctl_tcp_plb_cong_thresh,
-		.maxlen         = sizeof(int),
-		.mode           = 0644,
-		.proc_handler   = proc_dointvec_minmax,
-		.extra1         = SYSCTL_ZERO,
-		.extra2         = &tcp_plb_max_cong_thresh,
 	},
 	{
 		.procname       = "tcp_plb_idle_rehash_rounds",
@@ -1431,18 +1436,13 @@ static struct ctl_table ipv4_net_table[] = {
 		.proc_handler   = proc_dou8vec_minmax,
 	},
 	{
-		.procname	= "tcp_collapse_max_bytes",
-		.data		= &init_net.ipv4.sysctl_tcp_collapse_max_bytes,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
-		.procname	= "tcp_shrink_window",
-		.data		= &init_net.ipv4.sysctl_tcp_shrink_window,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
+		.procname       = "tcp_plb_cong_thresh",
+		.data           = &init_net.ipv4.sysctl_tcp_plb_cong_thresh,
+		.maxlen         = sizeof(int),
+		.mode           = 0644,
+		.proc_handler   = proc_dointvec_minmax,
+		.extra1         = SYSCTL_ZERO,
+		.extra2         = &tcp_plb_max_cong_thresh,
 	},
 	{ }
 };
