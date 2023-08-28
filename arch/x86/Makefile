@@ -63,6 +63,12 @@ export REALMODE_CFLAGS
 # e.g.: obj-y += foo_$(BITS).o
 export BITS
 
+# More compiler optimizations
+ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
+KBUILD_CFLAGS += -O3 $(call cc-option,-fmodulo-sched -fivopts)
+KBUILD_RUSTFLAGS += -Copt-level=3
+endif
+
 #
 # Prevent GCC from generating any FP code by mistake.
 #
