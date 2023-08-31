@@ -254,6 +254,29 @@ double_unlock_hb(struct futex_hash_bucket *hb1, struct futex_hash_bucket *hb2)
 		spin_unlock(&hb2->lock);
 }
 
+static inline void futex_trylock_hblock(spinlock_t *lock)
+{
+	do {
+		ktime_t chill_time;;
+
+		/*
+		 * Current is not longer pi_blocked_on if it owns the lock. It
+		 * can still have pi_blocked_on set if the lock acquiring was
+		 * interrupted by signal or timeout. The trylock operation does
+		 * not clobber pi_blocked_on so it is the only option.
+		 * Should the try-lock operation fail then it needs leave the CPU
+		 * to avoid a busy loop in case it is the task with the highest
+		 * priority.
+		 */
+		if (spin_trylock(lock))
+			return;
+
+		chill_time = ktime_set(0, NSEC_PER_MSEC);
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule_hrtimeout(&chill_time, HRTIMER_MODE_REL_HARD);
+	} while (1);
+}
+
 /* syscalls */
 
 extern int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags, u32

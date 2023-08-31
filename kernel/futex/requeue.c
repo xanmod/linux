@@ -850,8 +850,8 @@ int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 		pi_mutex = &q.pi_state->pi_mutex;
 		ret = rt_mutex_wait_proxy_lock(pi_mutex, to, &rt_waiter);
 
-		/* Current is not longer pi_blocked_on */
-		spin_lock(q.lock_ptr);
+		futex_trylock_hblock(q.lock_ptr);
+
 		if (ret && !rt_mutex_cleanup_proxy_lock(pi_mutex, &rt_waiter))
 			ret = 0;
 
