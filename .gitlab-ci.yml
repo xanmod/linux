@@ -22,60 +22,68 @@ variables:
   KDEB_CHANGELOG_DIST: "bookworm"
   KCONFIG_CONFIG: "CONFIGS/xanmod/gcc/config_$psabi"
 
-linux-6.4-x64v1-xanmod:
+6.4 x64v1:
   tags: [saas-linux-xlarge-amd64]
   stage: build
+  only:
+  - branches
   variables:
     psabi: x86-64-v1
   script:
   - eval $mvcmd && eval $avcmd
   artifacts:
-    name: "$CI_JOB_NAME-$CI_COMMIT_REF_NAME"
+    name: "$CI_JOB_NAME~$CI_COMMIT_SHORT_SHA"
     paths:
     - assets/
     exclude:
     - assets/*dbg*
   timeout: 1h
 
-linux-6.4-x64v2-xanmod:
+6.4 x64v2:
   tags: [saas-linux-xlarge-amd64]
   stage: build
+  only:
+  - branches
   variables:
     psabi: x86-64-v2
   script:
   - eval $mvcmd && eval $avcmd
   artifacts:
-    name: "$CI_JOB_NAME-$CI_COMMIT_REF_NAME"
+    name: "$CI_JOB_NAME~$CI_COMMIT_SHORT_SHA"
     paths:
     - assets/
     exclude:
     - assets/*dbg*
   timeout: 1h
 
-linux-6.4-x64v3-xanmod:
+6.4 x64v3:
   tags: [saas-linux-xlarge-amd64]
   stage: build
+  only:
+  - branches
   variables:
     psabi: x86-64-v3
   script:
   - eval $mvcmd && eval $avcmd
   artifacts:
-    name: "$CI_JOB_NAME-$CI_COMMIT_REF_NAME"
+    name: "$CI_JOB_NAME~$CI_COMMIT_SHORT_SHA"
     paths:
     - assets/
     exclude:
     - assets/*dbg*
   timeout: 1h
 
-linux-6.4-x64v4-xanmod:
+6.4 x64v4:
   tags: [saas-linux-xlarge-amd64]
   stage: build
+  only:
+  - branches
   variables:
     psabi: x86-64-v4
   script:
   - eval $mvcmd && eval $avcmd
   artifacts:
-    name: "$CI_JOB_NAME-$CI_COMMIT_REF_NAME"
+    name: "$CI_JOB_NAME~$CI_COMMIT_SHORT_SHA"
     paths:
     - assets/
     exclude:
