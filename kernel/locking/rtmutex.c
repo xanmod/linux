@@ -1166,13 +1166,10 @@ try_to_take_rt_mutex(struct rt_mutex_base *lock, struct task_struct *task,
 	 * Clear @task->pi_blocked_on. Requires protection by
 	 * @task->pi_lock. Redundant operation for the @waiter == NULL
 	 * case, but conditionals are more expensive than a redundant
-	 * store. But then there is FUTEX and if rt_mutex_wait_proxy_lock()
-	 * did not acquire the lock it try-locks another lock before it clears
-	 * @task->pi_blocked_on so we mustn't clear it here premature.
+	 * store.
 	 */
 	raw_spin_lock(&task->pi_lock);
-	if (waiter)
-		task->pi_blocked_on = NULL;
+	task->pi_blocked_on = NULL;
 	/*
 	 * Finish the lock acquisition. @task is the new owner. If
 	 * other waiters exist we have to insert the highest priority
