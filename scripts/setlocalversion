@@ -116,14 +116,12 @@ if ! test -e include/config/auto.conf; then
 fi
 
 # localversion* files in the build and source directory
-res="$(collect_files localversion*)"
-if test ! "$srctree" -ef .; then
-	res="$res$(collect_files "$srctree"/localversion*)"
-fi
+res_rt="$res_rt$(collect_files $(find "$srctree" -name "localversion-rt"))"
+res_nort="$res_nort$(collect_files $(find "$srctree" -name "localversion*" ! -name "localversion-rt"))"
 
 # CONFIG_LOCALVERSION and LOCALVERSION (if set)
 config_localversion=$(sed -n 's/^CONFIG_LOCALVERSION=\(.*\)$/\1/p' include/config/auto.conf)
-res="${config_localversion}${LOCALVERSION}${res}"
+res="${res_rt}${config_localversion}${LOCALVERSION}${res_nort}"
 
 # scm version string if not at a tagged commit
 if grep -q "^CONFIG_LOCALVERSION_AUTO=y$" include/config/auto.conf; then
