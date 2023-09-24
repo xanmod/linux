@@ -41,9 +41,29 @@ struct steamdeck {
 STEAMDECK_ATTR_RO(firmware_version, "PDFW");
 STEAMDECK_ATTR_RO(board_id, "BOID");
 
+static ssize_t controller_board_power_store(struct device *dev,
+					    struct device_attribute *attr,
+					    const char *buf, size_t count)
+{
+	struct steamdeck *sd = dev_get_drvdata(dev);
+	bool enabled;
+	ssize_t ret = kstrtobool(buf, &enabled);
+
+	if (ret)
+		return ret;
+
+	if (ACPI_FAILURE(acpi_execute_simple_method(sd->adev->handle,
+						    "SCBP", enabled)))
+		return -EIO;
+
+	return count;
+}
+static DEVICE_ATTR_WO(controller_board_power);
+
 static struct attribute *steamdeck_attrs[] = {
 	&dev_attr_firmware_version.attr,
 	&dev_attr_board_id.attr,
+	&dev_attr_controller_board_power.attr,
 	NULL
 };
 
