@@ -16,11 +16,12 @@ int devkmsg_sysctl_set_loglvl(struct ctl_table *table, int write,
 
 #define con_printk(lvl, con, fmt, ...)				\
 	printk(lvl pr_fmt("%s%sconsole [%s%d] " fmt),		\
-	       (con->flags & CON_NO_BKL) ? "" : "legacy ",	\
-	       (con->flags & CON_BOOT) ? "boot" : "",		\
-	       con->name, con->index, ##__VA_ARGS__)
+		(con->flags & CON_NBCON) ? "" : "legacy ",	\
+		(con->flags & CON_BOOT) ? "boot" : "",		\
+		con->name, con->index, ##__VA_ARGS__)
 
 #ifdef CONFIG_PRINTK
+
 #ifdef CONFIG_PRINTK_CALLER
 #define PRINTK_PREFIX_MAX	48
 #else
@@ -43,10 +44,17 @@ enum printk_info_flags {
 };
 
 extern struct printk_ringbuffer *prb;
-extern bool have_bkl_console;
 extern bool printk_threads_enabled;
-
+extern bool have_legacy_console;
 extern bool have_boot_console;
+
+/*
+ * Specifies if the console lock/unlock dance is needed for console
+ * printing. If @have_boot_console is true, the nbcon consoles will
+ * be printed serially along with the legacy consoles because nbcon
+ * consoles cannot print simultaneously with boot consoles.
+ */
+#define serialized_printing (have_legacy_console || have_boot_console)
 
 __printf(4, 0)
 int vprintk_store(int facility, int level,
@@ -58,24 +66,16 @@ __printf(1, 0) int vprintk_deferred(const char *fmt, va_list args);
 
 bool printk_percpu_data_ready(void);
 
-/*
- * The printk_safe_enter()/_exit() macros mark code blocks using locks that
- * would lead to deadlock if an interrupting context were to call printk()
- * while the interrupted context was within such code blocks.
- *
- * When a CPU is in such a code block, an interrupting context calling
- * printk() will only log the new message to the lockless ringbuffer and
- * then trigger console printing using irqwork.
- */
-
 #define printk_safe_enter_irqsave(flags)	\
 	do {					\
-		__printk_safe_enter(&flags);	\
+		local_irq_save(flags);		\
+		__printk_safe_enter();		\
 	} while (0)
 
 #define printk_safe_exit_irqrestore(flags)	\
 	do {					\
-		__printk_safe_exit(&flags);	\
+		__printk_safe_exit();		\
+		local_irq_restore(flags);	\
 	} while (0)
 
 void defer_console_output(void);
@@ -83,22 +83,23 @@ void defer_console_output(void);
 u16 printk_parse_prefix(const char *text, int *level,
 			enum printk_info_flags *flags);
 
-u64 cons_read_seq(struct console *con);
-void cons_nobkl_cleanup(struct console *con);
-bool cons_nobkl_init(struct console *con);
-bool cons_alloc_percpu_data(struct console *con);
-void cons_kthread_create(struct console *con);
-void cons_wake_threads(void);
-void cons_force_seq(struct console *con, u64 seq);
-void console_bkl_kthread_create(void);
+u64 nbcon_seq_read(struct console *con);
+void nbcon_seq_force(struct console *con, u64 seq);
+bool nbcon_alloc(struct console *con);
+void nbcon_init(struct console *con);
+void nbcon_free(struct console *con);
+bool nbcon_console_emit_next_record(struct console *con);
+void nbcon_kthread_create(struct console *con);
+void nbcon_wake_threads(void);
+void nbcon_legacy_kthread_create(void);
 
 /*
  * Check if the given console is currently capable and allowed to print
- * records. If the caller only works with certain types of consoles, the
- * caller is responsible for checking the console type before calling
- * this function.
+ * records. Note that this function does not consider the current context,
+ * which can also play a role in deciding if @con can be used to print
+ * records.
  */
-static inline bool console_is_usable(struct console *con, short flags)
+static inline bool console_is_usable(struct console *con, short flags, bool use_atomic)
 {
 	if (!(flags & CON_ENABLED))
 		return false;
@@ -106,38 +107,48 @@ static inline bool console_is_usable(struct console *con, short flags)
 	if ((flags & CON_SUSPENDED))
 		return false;
 
-	/*
-	 * The usability of a console varies depending on whether
-	 * it is a NOBKL console or not.
-	 */
-
-	if (flags & CON_NO_BKL) {
-		if (have_boot_console)
-			return false;
-
+	if (flags & CON_NBCON) {
+		if (use_atomic) {
+			if (!con->write_atomic)
+				return false;
+		} else {
+			if (!con->write_thread || !con->kthread)
+				return false;
+		}
 	} else {
 		if (!con->write)
 			return false;
-		/*
-		 * Console drivers may assume that per-cpu resources have
-		 * been allocated. So unless they're explicitly marked as
-		 * being able to cope (CON_ANYTIME) don't call them until
-		 * this CPU is officially up.
-		 */
-		if (!cpu_online(raw_smp_processor_id()) && !(flags & CON_ANYTIME))
-			return false;
 	}
+
+	/*
+	 * Console drivers may assume that per-cpu resources have been
+	 * allocated. So unless they're explicitly marked as being able to
+	 * cope (CON_ANYTIME) don't call them until this CPU is officially up.
+	 */
+	if (!cpu_online(raw_smp_processor_id()) && !(flags & CON_ANYTIME))
+		return false;
 
 	return true;
 }
 
 /**
- * cons_kthread_wake - Wake up a printk thread
+ * nbcon_kthread_wake - Wake up a printk thread
  * @con:        Console to operate on
  */
-static inline void cons_kthread_wake(struct console *con)
+static inline void nbcon_kthread_wake(struct console *con)
 {
-	rcuwait_wake_up(&con->rcuwait);
+	/*
+	 * Guarantee any new records can be seen by tasks preparing to wait
+	 * before this context checks if the rcuwait is empty.
+	 *
+	 * The full memory barrier in rcuwait_wake_up()  pairs with the full
+	 * memory barrier within set_current_state() of
+	 * ___rcuwait_wait_event(), which is called after prepare_to_rcuwait()
+	 * adds the waiter but before it has checked the wait condition.
+	 *
+	 * This pairs with nbcon_kthread_func:A.
+	 */
+	rcuwait_wake_up(&con->rcuwait); /* LMM(nbcon_kthread_wake:A) */
 }
 
 #else
@@ -146,9 +157,10 @@ static inline void cons_kthread_wake(struct console *con)
 #define PRINTK_MESSAGE_MAX	0
 #define PRINTKRB_RECORD_MAX	0
 
-static inline void cons_kthread_wake(struct console *con) { }
-static inline void cons_kthread_create(struct console *con) { }
-#define printk_threads_enabled	(false)
+static inline void nbcon_kthread_wake(struct console *con) { }
+static inline void nbcon_kthread_create(struct console *con) { }
+#define printk_threads_enabled (false)
+#define serialized_printing (false)
 
 /*
  * In !PRINTK builds we still export console_sem
@@ -159,14 +171,18 @@ static inline void cons_kthread_create(struct console *con) { }
 #define printk_safe_exit_irqrestore(flags) local_irq_restore(flags)
 
 static inline bool printk_percpu_data_ready(void) { return false; }
-static inline bool cons_nobkl_init(struct console *con) { return true; }
-static inline void cons_nobkl_cleanup(struct console *con) { }
-static inline bool console_is_usable(struct console *con, short flags) { return false; }
-static inline void cons_force_seq(struct console *con, u64 seq) { }
+static inline u64 nbcon_seq_read(struct console *con) { return 0; }
+static inline void nbcon_seq_force(struct console *con, u64 seq) { }
+static inline bool nbcon_alloc(struct console *con) { return false; }
+static inline void nbcon_init(struct console *con) { }
+static inline void nbcon_free(struct console *con) { }
+static bool nbcon_console_emit_next_record(struct console *con) { return false; }
+
+static inline bool console_is_usable(struct console *con, short flags, bool use_atomic) { return false; }
 
 #endif /* CONFIG_PRINTK */
 
-extern bool have_boot_console;
+extern struct printk_buffers printk_shared_pbufs;
 
 /**
  * struct printk_buffers - Buffers to read/format/output printk messages.
@@ -194,29 +210,10 @@ struct printk_message {
 	unsigned long		dropped;
 };
 
-/**
- * struct cons_context_data - console context data
- * @wctxt:		Write context per priority level
- * @pbufs:		Buffer for storing the text
- *
- * Used for early boot and for per CPU data.
- *
- * The write contexts are allocated to avoid having them on stack, e.g. in
- * warn() or panic().
- */
-struct cons_context_data {
-	struct cons_write_context	wctxt[CONS_PRIO_MAX];
-	struct printk_buffers	pbufs;
-};
-
+bool other_cpu_in_panic(void);
 bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
 			     bool is_extended, bool may_supress);
 
 #ifdef CONFIG_PRINTK
-
-void console_prepend_dropped(struct printk_message *pmsg,
-			     unsigned long dropped);
-
+void console_prepend_dropped(struct printk_message *pmsg, unsigned long dropped);
 #endif
-
-bool other_cpu_in_panic(void);

@@ -21,7 +21,7 @@ static int show_console_dev(struct seq_file *m, void *v)
 		{ CON_ENABLED,		'E' },
 		{ CON_CONSDEV,		'C' },
 		{ CON_BOOT,		'B' },
-		{ CON_NO_BKL,		'N' },
+		{ CON_NBCON,		'N' },
 		{ CON_PRINTBUFFER,	'p' },
 		{ CON_BRL,		'b' },
 		{ CON_ANYTIME,		'a' },
@@ -59,8 +59,8 @@ static int show_console_dev(struct seq_file *m, void *v)
 	seq_setwidth(m, 21 - 1);
 	seq_printf(m, "%s%d", con->name, con->index);
 	seq_pad(m, ' ');
-	if (con->flags & CON_NO_BKL) {
-		if (con->write_thread || con->write_atomic)
+	if (con->flags & CON_NBCON) {
+		if (con->write_atomic || con->write_thread)
 			con_write = 'W';
 	} else {
 		if (con->write)

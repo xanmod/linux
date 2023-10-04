@@ -12,41 +12,30 @@
 
 #include "internal.h"
 
-struct printk_context {
-	local_lock_t cpu;
-	int recursion;
-};
-
-static DEFINE_PER_CPU(struct printk_context, printk_context) = {
-	.cpu = INIT_LOCAL_LOCK(cpu),
-};
+static DEFINE_PER_CPU(int, printk_context);
 
 /* Can be preempted by NMI. */
-void __printk_safe_enter(unsigned long *flags)
+void __printk_safe_enter(void)
 {
-	WARN_ON_ONCE(in_nmi());
-	local_lock_irqsave(&printk_context.cpu, *flags);
-	this_cpu_inc(printk_context.recursion);
+	this_cpu_inc(printk_context);
 }
 
 /* Can be preempted by NMI. */
-void __printk_safe_exit(unsigned long *flags)
+void __printk_safe_exit(void)
 {
-	WARN_ON_ONCE(in_nmi());
-	this_cpu_dec(printk_context.recursion);
-	local_unlock_irqrestore(&printk_context.cpu, *flags);
+	this_cpu_dec(printk_context);
 }
 
 void __printk_deferred_enter(void)
 {
 	cant_migrate();
-	this_cpu_inc(printk_context.recursion);
+	this_cpu_inc(printk_context);
 }
 
 void __printk_deferred_exit(void)
 {
 	cant_migrate();
-	this_cpu_dec(printk_context.recursion);
+	this_cpu_dec(printk_context);
 }
 
 asmlinkage int vprintk(const char *fmt, va_list args)
@@ -61,7 +50,7 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	 * Use the main logbuf even in NMI. But avoid calling console
 	 * drivers that might have their own locks.
 	 */
-	if (this_cpu_read(printk_context.recursion) || in_nmi())
+	if (this_cpu_read(printk_context) || in_nmi())
 		return vprintk_deferred(fmt, args);
 
 	/* No obstacles. */

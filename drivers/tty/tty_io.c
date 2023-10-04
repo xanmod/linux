@@ -3540,9 +3540,11 @@ static ssize_t show_cons_active(struct device *dev,
 	for_each_console(c) {
 		if (!c->device)
 			continue;
-		if (c->flags & CON_NO_BKL) {
-			if (!(c->write_thread || c->write_atomic))
+		if (c->flags & CON_NBCON) {
+			if (!c->write_atomic &&
+			    !(c->write_thread && c->kthread)) {
 				continue;
+			}
 		} else {
 			if (!c->write)
 				continue;

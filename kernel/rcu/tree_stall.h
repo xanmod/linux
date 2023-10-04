@@ -583,7 +583,7 @@ static void rcu_check_gp_kthread_expired_fqs_timer(void)
 
 static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
 {
-	enum cons_prio prev_prio;
+	enum nbcon_prio prev_prio;
 	int cpu;
 	unsigned long flags;
 	unsigned long gpa;
@@ -599,7 +599,7 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
 	if (rcu_stall_is_suppressed())
 		return;
 
-	prev_prio = cons_atomic_enter(CONS_PRIO_EMERGENCY);
+	prev_prio = nbcon_atomic_enter(NBCON_PRIO_EMERGENCY);
 
 	/*
 	 * OK, time to rat on our buddy...
@@ -656,7 +656,7 @@ static void print_other_cpu_stall(unsigned long gp_seq, unsigned long gps)
 
 	rcu_force_quiescent_state();  /* Kick them all. */
 
-	cons_atomic_exit(CONS_PRIO_EMERGENCY, prev_prio);
+	nbcon_atomic_exit(NBCON_PRIO_EMERGENCY, prev_prio);
 }
 
 static void print_cpu_stall(unsigned long gps)

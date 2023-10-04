@@ -56,6 +56,7 @@
 #include <linux/kprobes.h>
 #include <linux/lockdep.h>
 #include <linux/context_tracking.h>
+#include <linux/console.h>
 
 #include <asm/sections.h>
 
@@ -3967,8 +3968,12 @@ static void
 print_usage_bug(struct task_struct *curr, struct held_lock *this,
 		enum lock_usage_bit prev_bit, enum lock_usage_bit new_bit)
 {
+	enum nbcon_prio prev_prio;
+
 	if (!debug_locks_off() || debug_locks_silent)
 		return;
+
+	prev_prio = nbcon_atomic_enter(NBCON_PRIO_EMERGENCY);
 
 	pr_warn("\n");
 	pr_warn("================================\n");
@@ -3998,6 +4003,8 @@ print_usage_bug(struct task_struct *curr, struct held_lock *this,
 
 	pr_warn("\nstack backtrace:\n");
 	dump_stack();
+
+	nbcon_atomic_exit(NBCON_PRIO_EMERGENCY, prev_prio);
 }
 
 /*
