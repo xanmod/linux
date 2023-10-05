@@ -2335,7 +2335,7 @@ pl011_console_write(struct console *co, const char *s, unsigned int count)
 	if (uap->port.sysrq || oops_in_progress)
 		locked = uart_port_trylock_irqsave(&uap->port, &flags);
 	else
-		uart_port_trylock_irqsave(&uap->port, &flags);
+		uart_port_lock_irqsave(&uap->port, &flags);
 
 	/*
 	 *	First save the CR then disable the interrupts
