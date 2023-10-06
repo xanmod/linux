@@ -870,6 +870,7 @@ EXPORT_SYMBOL_GPL(nbcon_exit_unsafe);
 /**
  * nbcon_emit_next_record - Emit a record in the acquired context
  * @wctxt:	The write context that will be handed to the write function
+ * @in_kthread:	True if called from kthread printer context.
  *
  * Return:	True if this context still owns the console. False if
  *		ownership was handed over or taken.

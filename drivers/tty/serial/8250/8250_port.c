@@ -557,6 +557,9 @@ static int serial8250_em485_init(struct uart_8250_port *p)
 	if (!p->em485)
 		return -ENOMEM;
 
+	if (uart_console(&p->port))
+		dev_warn(p->port.dev, "no atomic printing for rs485 consoles\n");
+
 	hrtimer_init(&p->em485->stop_tx_timer, CLOCK_MONOTONIC,
 		     HRTIMER_MODE_REL);
 	hrtimer_init(&p->em485->start_tx_timer, CLOCK_MONOTONIC,
@@ -709,15 +712,21 @@ static void serial8250_set_sleep(struct uart_8250_port *p, int sleep)
 	serial8250_rpm_put(p);
 }
 
-static void serial8250_clear_IER(struct uart_8250_port *up)
+/* Only to be used by write_atomic(), which does not require port lock. */
+static void __serial8250_clear_IER(struct uart_8250_port *up)
 {
-	/* Port locked to synchronize UART_IER access against the console. */
-	lockdep_assert_held_once(&up->port.lock);
-
 	if (up->capabilities & UART_CAP_UUE)
 		serial_out(up, UART_IER, UART_IER_UUE);
 	else
 		serial_out(up, UART_IER, 0);
+}
+
+static inline void serial8250_clear_IER(struct uart_8250_port *up)
+{
+	/* Port locked to synchronize UART_IER access against the console. */
+	lockdep_assert_held_once(&up->port.lock);
+
+	__serial8250_clear_IER(up);
 }
 
 #ifdef CONFIG_SERIAL_8250_RSA
@@ -3397,14 +3406,17 @@ static void serial8250_console_fifo_write(struct uart_8250_port *up,
  *	Doing runtime PM is really a bad idea for the kernel console.
  *	Thus, we assume the function is called when device is powered up.
  */
-static void __serial8250_console_write(struct uart_8250_port *up, const char *s,
-				       unsigned int count)
+void serial8250_console_write(struct uart_8250_port *up, const char *s,
+			      unsigned int count)
 {
 	struct uart_8250_em485 *em485 = up->em485;
 	struct uart_port *port = &up->port;
+	unsigned long flags;
 	unsigned int ier, use_fifo;
 
 	touch_nmi_watchdog();
+
+	uart_port_lock_irqsave(port, &flags);
 
 	/*
 	 *	First save the IER then disable the interrupts
@@ -3472,17 +3484,6 @@ static void __serial8250_console_write(struct uart_8250_port *up, const char *s,
 	 */
 	if (up->msr_saved_flags)
 		serial8250_modem_status(up);
-}
-
-void serial8250_console_write(struct uart_8250_port *up, const char *s,
-			      unsigned int count)
-{
-	struct uart_port *port = &up->port;
-	unsigned long flags;
-
-	uart_port_lock_irqsave(port, &flags);
-
-	__serial8250_console_write(up, s, count);
 
 	uart_port_unlock_irqrestore(port, flags);
 }
@@ -3490,10 +3491,43 @@ void serial8250_console_write(struct uart_8250_port *up, const char *s,
 bool serial8250_console_write_atomic(struct uart_8250_port *up,
 				     struct nbcon_write_context *wctxt)
 {
+	struct uart_port *port = &up->port;
+	unsigned int ier;
+
+	/* Atomic console not supported for rs485 mode. */
+	if (up->em485)
+		return false;
+
+	/* Atomic console does not support handling modem control. */
+	if (up->msr_saved_flags)
+		return false;
+
+	touch_nmi_watchdog();
+
 	if (!nbcon_enter_unsafe(wctxt))
 		return false;
 
-	__serial8250_console_write(up, wctxt->outbuf, wctxt->len);
+	/*
+	 *	First save the IER then disable the interrupts
+	 */
+	ier = serial_port_in(port, UART_IER);
+	__serial8250_clear_IER(up);
+
+	/* check scratch reg to see if port powered off during system sleep */
+	if (up->canary && (up->canary != serial_port_in(port, UART_SCR))) {
+		serial8250_console_restore(up);
+		up->canary = 0;
+	}
+
+	uart_console_write(port, wctxt->outbuf, wctxt->len, serial8250_console_putchar);
+
+	/*
+	 *	Finally, wait for transmitter to become empty
+	 *	and restore the IER
+	 */
+	wait_for_xmitr(up, UART_LSR_BOTH_EMPTY);
+
+	serial_port_out(port, UART_IER, ier);
 
 	return nbcon_exit_unsafe(wctxt);
 }
