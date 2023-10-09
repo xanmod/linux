@@ -62,8 +62,7 @@ export BITS
 
 # More compiler optimizations
 ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
-KBUILD_CFLAGS += -O3 -fexcess-precision=fast -freciprocal-math \
-		 $(call cc-option,-fcx-limited-range)
+KBUILD_CFLAGS += -O3
 KBUILD_RUSTFLAGS += -Copt-level=3
 endif
 
