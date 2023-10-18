@@ -898,14 +898,15 @@ static inline void hrtick_rq_init(struct rq *rq)
 
 #if defined(CONFIG_SMP) && defined(TIF_POLLING_NRFLAG)
 /*
- * Atomically set TIF_NEED_RESCHED and test for TIF_POLLING_NRFLAG,
+ * Atomically set TIF_NEED_RESCHED[_LAZY] and test for TIF_POLLING_NRFLAG,
  * this avoids any races wrt polling state changes and thereby avoids
  * spurious IPIs.
  */
-static inline bool set_nr_and_not_polling(struct task_struct *p)
+static inline bool set_nr_and_not_polling(struct task_struct *p, int tif_bit)
 {
 	struct thread_info *ti = task_thread_info(p);
-	return !(fetch_or(&ti->flags, _TIF_NEED_RESCHED) & _TIF_POLLING_NRFLAG);
+
+	return !(fetch_or(&ti->flags, 1 << tif_bit) & _TIF_POLLING_NRFLAG);
 }
 
 /*
@@ -922,7 +923,7 @@ static bool set_nr_if_polling(struct task_struct *p)
 	for (;;) {
 		if (!(val & _TIF_POLLING_NRFLAG))
 			return false;
-		if (val & _TIF_NEED_RESCHED)
+		if (val & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY))
 			return true;
 		if (try_cmpxchg(&ti->flags, &val, val | _TIF_NEED_RESCHED))
 			break;
@@ -931,9 +932,9 @@ static bool set_nr_if_polling(struct task_struct *p)
 }
 
 #else
-static inline bool set_nr_and_not_polling(struct task_struct *p)
+static inline bool set_nr_and_not_polling(struct task_struct *p, int tif_bit)
 {
-	set_tsk_need_resched(p);
+	set_tsk_thread_flag(p, tif_bit);
 	return true;
 }
 
@@ -1038,69 +1039,48 @@ void wake_up_q(struct wake_q_head *head)
  * might also involve a cross-CPU call to trigger the scheduler on
  * the target CPU.
  */
-void resched_curr(struct rq *rq)
+static void __resched_curr(struct rq *rq, int lazy)
 {
+	int cpu, tif_bit = TIF_NEED_RESCHED + lazy;
 	struct task_struct *curr = rq->curr;
-	int cpu;
 
 	lockdep_assert_rq_held(rq);
 
-	if (test_tsk_need_resched(curr))
+	if (unlikely(test_tsk_thread_flag(curr, tif_bit)))
 		return;
 
 	cpu = cpu_of(rq);
 
 	if (cpu == smp_processor_id()) {
-		set_tsk_need_resched(curr);
-		set_preempt_need_resched();
+		set_tsk_thread_flag(curr, tif_bit);
+		if (!lazy)
+			set_preempt_need_resched();
 		return;
 	}
 
-	if (set_nr_and_not_polling(curr))
-		smp_send_reschedule(cpu);
-	else
+	if (set_nr_and_not_polling(curr, tif_bit)) {
+		if (!lazy)
+			smp_send_reschedule(cpu);
+	} else {
 		trace_sched_wake_idle_without_ipi(cpu);
+	}
 }
 
-#ifdef CONFIG_PREEMPT_LAZY
-
-static int tsk_is_polling(struct task_struct *p)
+void resched_curr(struct rq *rq)
 {
-#ifdef TIF_POLLING_NRFLAG
-	return test_tsk_thread_flag(p, TIF_POLLING_NRFLAG);
-#else
-	return 0;
-#endif
+	__resched_curr(rq, 0);
 }
 
 void resched_curr_lazy(struct rq *rq)
 {
-	struct task_struct *curr = rq->curr;
-	int cpu;
+	int lazy = IS_ENABLED(CONFIG_PREEMPT_BUILD_AUTO) && !sched_feat(FORCE_NEED_RESCHED) ?
+		TIF_NEED_RESCHED_LAZY_OFFSET : 0;
 
-	if (!sched_feat(PREEMPT_LAZY)) {
-		resched_curr(rq);
-		return;
-	}
-
-	if (test_tsk_need_resched(curr))
+	if (lazy && unlikely(test_tsk_thread_flag(rq->curr, TIF_NEED_RESCHED)))
 		return;
 
-	if (test_tsk_need_resched_lazy(curr))
-		return;
-
-	set_tsk_need_resched_lazy(curr);
-
-	cpu = cpu_of(rq);
-	if (cpu == smp_processor_id())
-		return;
-
-	/* NEED_RESCHED_LAZY must be visible before we test polling */
-	smp_mb();
-	if (!tsk_is_polling(curr))
-		smp_send_reschedule(cpu);
+	__resched_curr(rq, lazy);
 }
-#endif
 
 void resched_cpu(int cpu)
 {
@@ -1172,7 +1152,7 @@ static void wake_up_idle_cpu(int cpu)
 	if (cpu == smp_processor_id())
 		return;
 
-	if (set_nr_and_not_polling(rq->idle))
+	if (set_nr_and_not_polling(rq->idle, TIF_NEED_RESCHED))
 		smp_send_reschedule(cpu);
 	else
 		trace_sched_wake_idle_without_ipi(cpu);
@@ -2460,7 +2440,6 @@ void migrate_disable(void)
 	preempt_disable();
 	this_rq()->nr_pinned++;
 	p->migration_disabled = 1;
-	preempt_lazy_disable();
 	preempt_enable();
 }
 EXPORT_SYMBOL_GPL(migrate_disable);
@@ -2496,7 +2475,6 @@ void migrate_enable(void)
 	barrier();
 	p->migration_disabled = 0;
 	this_rq()->nr_pinned--;
-	preempt_lazy_enable();
 	preempt_enable();
 }
 EXPORT_SYMBOL_GPL(migrate_enable);
@@ -4823,9 +4801,6 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->on_cpu = 0;
 #endif
 	init_task_preempt_count(p);
-#ifdef CONFIG_HAVE_PREEMPT_LAZY
-	task_thread_info(p)->preempt_lazy_count = 0;
-#endif
 #ifdef CONFIG_SMP
 	plist_node_init(&p->pushable_tasks, MAX_PRIO);
 	RB_CLEAR_NODE(&p->pushable_dl_tasks);
@@ -6703,7 +6678,6 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 
 	next = pick_next_task(rq, prev, &rf);
 	clear_tsk_need_resched(prev);
-	clear_tsk_need_resched_lazy(prev);
 	clear_preempt_need_resched();
 #ifdef CONFIG_SCHED_DEBUG
 	rq->last_seen_need_resched_ns = 0;
@@ -6930,30 +6904,6 @@ static void __sched notrace preempt_schedule_common(void)
 	} while (need_resched());
 }
 
-#ifdef CONFIG_PREEMPT_LAZY
-/*
- * If TIF_NEED_RESCHED is then we allow to be scheduled away since this is
- * set by a RT task. Oterwise we try to avoid beeing scheduled out as long as
- * preempt_lazy_count counter >0.
- */
-static __always_inline int preemptible_lazy(void)
-{
-	if (test_thread_flag(TIF_NEED_RESCHED))
-		return 1;
-	if (current_thread_info()->preempt_lazy_count)
-		return 0;
-	return 1;
-}
-
-#else
-
-static inline int preemptible_lazy(void)
-{
-	return 1;
-}
-
-#endif
-
 #ifdef CONFIG_PREEMPTION
 /*
  * This is the entry point to schedule() from in-kernel preemption
@@ -6966,8 +6916,6 @@ asmlinkage __visible void __sched notrace preempt_schedule(void)
 	 * we do not want to preempt the current task. Just return..
 	 */
 	if (likely(!preemptible()))
-		return;
-	if (!preemptible_lazy())
 		return;
 	preempt_schedule_common();
 }
@@ -7014,9 +6962,6 @@ asmlinkage __visible void __sched notrace preempt_schedule_notrace(void)
 	enum ctx_state prev_ctx;
 
 	if (likely(!preemptible()))
-		return;
-
-	if (!preemptible_lazy())
 		return;
 
 	do {
@@ -8985,7 +8930,6 @@ static void __init preempt_dynamic_init(void)
 		WARN_ON_ONCE(preempt_dynamic_mode == preempt_dynamic_undefined); \
 		return preempt_dynamic_mode == preempt_dynamic_##mode;		 \
 	}									 \
-	EXPORT_SYMBOL_GPL(preempt_model_##mode)
 
 PREEMPT_MODEL_ACCESSOR(none);
 PREEMPT_MODEL_ACCESSOR(voluntary);
@@ -9434,9 +9378,7 @@ void __init init_idle(struct task_struct *idle, int cpu)
 
 	/* Set the preempt count _outside_ the spinlocks! */
 	init_idle_preempt_count(idle, cpu);
-#ifdef CONFIG_HAVE_PREEMPT_LAZY
-	task_thread_info(idle)->preempt_lazy_count = 0;
-#endif
+
 	/*
 	 * The idle tasks have their own, simple scheduling class:
 	 */

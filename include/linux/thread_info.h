@@ -59,6 +59,16 @@ enum syscall_work_bit {
 
 #include <asm/thread_info.h>
 
+#ifdef CONFIG_PREEMPT_BUILD_AUTO
+# define TIF_NEED_RESCHED_LAZY		TIF_ARCH_RESCHED_LAZY
+# define _TIF_NEED_RESCHED_LAZY		_TIF_ARCH_RESCHED_LAZY
+# define TIF_NEED_RESCHED_LAZY_OFFSET	(TIF_NEED_RESCHED_LAZY - TIF_NEED_RESCHED)
+#else
+# define TIF_NEED_RESCHED_LAZY		TIF_NEED_RESCHED
+# define _TIF_NEED_RESCHED_LAZY		_TIF_NEED_RESCHED
+# define TIF_NEED_RESCHED_LAZY_OFFSET	0
+#endif
+
 #ifdef __KERNEL__
 
 #ifndef arch_set_restart_data
@@ -178,26 +188,6 @@ static __always_inline unsigned long read_ti_thread_flags(struct thread_info *ti
 #endif /* !CONFIG_GENERIC_ENTRY */
 
 #ifdef _ASM_GENERIC_BITOPS_INSTRUMENTED_NON_ATOMIC_H
-# ifdef CONFIG_PREEMPT_LAZY
-
-static __always_inline bool tif_need_resched(void)
-{
-	return read_thread_flags() & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY);
-}
-
-static __always_inline bool tif_need_resched_now(void)
-{
-	return arch_test_bit(TIF_NEED_RESCHED,
-			     (unsigned long *)(&current_thread_info()->flags));
-}
-
-static __always_inline bool tif_need_resched_lazy(void)
-{
-	return arch_test_bit(TIF_NEED_RESCHED_LAZY,
-			     (unsigned long *)(&current_thread_info()->flags));
-}
-
-# else /* !CONFIG_PREEMPT_LAZY */
 
 static __always_inline bool tif_need_resched(void)
 {
@@ -205,38 +195,14 @@ static __always_inline bool tif_need_resched(void)
 			     (unsigned long *)(&current_thread_info()->flags));
 }
 
-static __always_inline bool tif_need_resched_now(void)
-{
-	return tif_need_resched();
-}
-
 static __always_inline bool tif_need_resched_lazy(void)
 {
-	return false;
+	return IS_ENABLED(CONFIG_PREEMPT_BUILD_AUTO) &&
+		arch_test_bit(TIF_NEED_RESCHED_LAZY,
+			      (unsigned long *)(&current_thread_info()->flags));
 }
 
-# endif /* CONFIG_PREEMPT_LAZY */
-#else /* !_ASM_GENERIC_BITOPS_INSTRUMENTED_NON_ATOMIC_H */
-# ifdef CONFIG_PREEMPT_LAZY
-
-static __always_inline bool tif_need_resched(void)
-{
-	return read_thread_flags() & (_TIF_NEED_RESCHED | _TIF_NEED_RESCHED_LAZY);
-}
-
-static __always_inline bool tif_need_resched_now(void)
-{
-	return test_bit(TIF_NEED_RESCHED,
-			(unsigned long *)(&current_thread_info()->flags));
-}
-
-static __always_inline bool tif_need_resched_lazy(void)
-{
-	return test_bit(TIF_NEED_RESCHED_LAZY,
-			(unsigned long *)(&current_thread_info()->flags));
-}
-
-# else /* !CONFIG_PREEMPT_LAZY */
+#else
 
 static __always_inline bool tif_need_resched(void)
 {
@@ -244,17 +210,13 @@ static __always_inline bool tif_need_resched(void)
 			(unsigned long *)(&current_thread_info()->flags));
 }
 
-static __always_inline bool tif_need_resched_now(void)
-{
-	return tif_need_resched();
-}
-
 static __always_inline bool tif_need_resched_lazy(void)
 {
-	return false;
+	return IS_ENABLED(CONFIG_PREEMPT_BUILD_AUTO) &&
+		test_bit(TIF_NEED_RESCHED_LAZY,
+			 (unsigned long *)(&current_thread_info()->flags));
 }
 
-# endif /* !CONFIG_PREEMPT_LAZY */
 #endif /* _ASM_GENERIC_BITOPS_INSTRUMENTED_NON_ATOMIC_H */
 
 #ifndef CONFIG_HAVE_ARCH_WITHIN_STACK_FRAMES

@@ -81,7 +81,6 @@ struct trace_entry {
 	unsigned char		flags;
 	unsigned char		preempt_count;
 	int			pid;
-	unsigned char		preempt_lazy_count;
 };
 
 #define TRACE_EVENT_TYPE_MAX						\
@@ -170,27 +169,20 @@ static inline void tracing_generic_entry_update(struct trace_entry *entry,
 						unsigned int trace_ctx)
 {
 	entry->preempt_count		= trace_ctx & 0xff;
-	entry->preempt_lazy_count	= (trace_ctx >> 16) & 0xff;
 	entry->pid			= current->pid;
 	entry->type			= type;
-	entry->flags			= trace_ctx >> 24;
+	entry->flags =			trace_ctx >> 16;
 }
 
 unsigned int tracing_gen_ctx_irq_test(unsigned int irqs_status);
 
 enum trace_flag_type {
 	TRACE_FLAG_IRQS_OFF		= 0x01,
-	TRACE_FLAG_IRQS_NOSUPPORT	= 0x02,
-	TRACE_FLAG_NEED_RESCHED		= 0x04,
+	TRACE_FLAG_NEED_RESCHED		= 0x02,
+	TRACE_FLAG_NEED_RESCHED_LAZY	= 0x04,
 	TRACE_FLAG_HARDIRQ		= 0x08,
 	TRACE_FLAG_SOFTIRQ		= 0x10,
-#ifdef CONFIG_PREEMPT_LAZY
-	TRACE_FLAG_PREEMPT_RESCHED	= 0x00,
-	TRACE_FLAG_NEED_RESCHED_LAZY	= 0x20,
-#else
-	TRACE_FLAG_NEED_RESCHED_LAZY	= 0x00,
 	TRACE_FLAG_PREEMPT_RESCHED	= 0x20,
-#endif
 	TRACE_FLAG_NMI			= 0x40,
 	TRACE_FLAG_BH_OFF		= 0x80,
 };
@@ -213,11 +205,11 @@ static inline unsigned int tracing_gen_ctx(void)
 
 static inline unsigned int tracing_gen_ctx_flags(unsigned long irqflags)
 {
-	return tracing_gen_ctx_irq_test(TRACE_FLAG_IRQS_NOSUPPORT);
+	return tracing_gen_ctx_irq_test(0);
 }
 static inline unsigned int tracing_gen_ctx(void)
 {
-	return tracing_gen_ctx_irq_test(TRACE_FLAG_IRQS_NOSUPPORT);
+	return tracing_gen_ctx_irq_test(0);
 }
 #endif
 

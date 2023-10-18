@@ -63,7 +63,7 @@ static __always_inline bool __must_check current_set_polling_and_test(void)
 	 */
 	smp_mb__after_atomic();
 
-	return unlikely(tif_need_resched());
+	return unlikely(need_resched());
 }
 
 static __always_inline bool __must_check current_clr_polling_and_test(void)
@@ -76,7 +76,7 @@ static __always_inline bool __must_check current_clr_polling_and_test(void)
 	 */
 	smp_mb__after_atomic();
 
-	return unlikely(tif_need_resched());
+	return unlikely(need_resched());
 }
 
 #else
@@ -85,11 +85,11 @@ static inline void __current_clr_polling(void) { }
 
 static inline bool __must_check current_set_polling_and_test(void)
 {
-	return unlikely(tif_need_resched());
+	return unlikely(need_resched());
 }
 static inline bool __must_check current_clr_polling_and_test(void)
 {
-	return unlikely(tif_need_resched());
+	return unlikely(need_resched());
 }
 #endif
 

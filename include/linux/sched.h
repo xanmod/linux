@@ -2050,17 +2050,17 @@ static inline void update_tsk_thread_flag(struct task_struct *tsk, int flag,
 	update_ti_thread_flag(task_thread_info(tsk), flag, value);
 }
 
-static inline int test_and_set_tsk_thread_flag(struct task_struct *tsk, int flag)
+static inline bool test_and_set_tsk_thread_flag(struct task_struct *tsk, int flag)
 {
 	return test_and_set_ti_thread_flag(task_thread_info(tsk), flag);
 }
 
-static inline int test_and_clear_tsk_thread_flag(struct task_struct *tsk, int flag)
+static inline bool test_and_clear_tsk_thread_flag(struct task_struct *tsk, int flag)
 {
 	return test_and_clear_ti_thread_flag(task_thread_info(tsk), flag);
 }
 
-static inline int test_tsk_thread_flag(struct task_struct *tsk, int flag)
+static inline bool test_tsk_thread_flag(struct task_struct *tsk, int flag)
 {
 	return test_ti_thread_flag(task_thread_info(tsk), flag);
 }
@@ -2073,49 +2073,14 @@ static inline void set_tsk_need_resched(struct task_struct *tsk)
 static inline void clear_tsk_need_resched(struct task_struct *tsk)
 {
 	clear_tsk_thread_flag(tsk,TIF_NEED_RESCHED);
+	if (IS_ENABLED(CONFIG_PREEMPT_BUILD_AUTO))
+		clear_tsk_thread_flag(tsk, TIF_NEED_RESCHED_LAZY);
 }
 
-static inline int test_tsk_need_resched(struct task_struct *tsk)
+static inline bool test_tsk_need_resched(struct task_struct *tsk)
 {
 	return unlikely(test_tsk_thread_flag(tsk,TIF_NEED_RESCHED));
 }
-
-#ifdef CONFIG_PREEMPT_LAZY
-static inline void set_tsk_need_resched_lazy(struct task_struct *tsk)
-{
-	set_tsk_thread_flag(tsk,TIF_NEED_RESCHED_LAZY);
-}
-
-static inline void clear_tsk_need_resched_lazy(struct task_struct *tsk)
-{
-	clear_tsk_thread_flag(tsk,TIF_NEED_RESCHED_LAZY);
-}
-
-static inline int test_tsk_need_resched_lazy(struct task_struct *tsk)
-{
-	return unlikely(test_tsk_thread_flag(tsk,TIF_NEED_RESCHED_LAZY));
-}
-
-static inline int need_resched_lazy(void)
-{
-	return test_thread_flag(TIF_NEED_RESCHED_LAZY);
-}
-
-static inline int need_resched_now(void)
-{
-	return test_thread_flag(TIF_NEED_RESCHED);
-}
-
-#else
-static inline void clear_tsk_need_resched_lazy(struct task_struct *tsk) { }
-static inline int need_resched_lazy(void) { return 0; }
-
-static inline int need_resched_now(void)
-{
-	return test_thread_flag(TIF_NEED_RESCHED);
-}
-
-#endif
 
 /*
  * cond_resched() and cond_resched_lock(): latency reduction via
@@ -2293,7 +2258,7 @@ static inline int rwlock_needbreak(rwlock_t *lock)
 
 static __always_inline bool need_resched(void)
 {
-	return unlikely(tif_need_resched());
+	return unlikely(tif_need_resched_lazy() || tif_need_resched());
 }
 
 /*

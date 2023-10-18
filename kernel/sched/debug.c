@@ -333,6 +333,23 @@ static const struct file_operations sched_debug_fops = {
 	.release	= seq_release,
 };
 
+static ssize_t sched_hog_write(struct file *filp, const char __user *ubuf,
+			       size_t cnt, loff_t *ppos)
+{
+	unsigned long end = jiffies + 60 * HZ;
+
+	for (; time_before(jiffies, end) && !signal_pending(current);)
+		cpu_relax();
+
+	return cnt;
+}
+
+static const struct file_operations sched_hog_fops = {
+	.write		= sched_hog_write,
+	.open		= simple_open,
+	.llseek		= default_llseek,
+};
+
 static struct dentry *debugfs_sched;
 
 static __init int sched_init_debug(void)
@@ -373,6 +390,8 @@ static __init int sched_init_debug(void)
 #endif
 
 	debugfs_create_file("debug", 0444, debugfs_sched, NULL, &sched_debug_fops);
+
+	debugfs_create_file("hog", 0200, debugfs_sched, NULL, &sched_hog_fops);
 
 	return 0;
 }
