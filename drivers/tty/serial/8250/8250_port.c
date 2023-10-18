@@ -3498,10 +3498,6 @@ bool serial8250_console_write_atomic(struct uart_8250_port *up,
 	if (up->em485)
 		return false;
 
-	/* Atomic console does not support handling modem control. */
-	if (up->msr_saved_flags)
-		return false;
-
 	touch_nmi_watchdog();
 
 	if (!nbcon_enter_unsafe(wctxt))
