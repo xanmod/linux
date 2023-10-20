@@ -1390,13 +1390,6 @@ static struct ctl_table ipv4_net_table[] = {
 		.extra2		= SYSCTL_TWO,
 	},
 	{
-		.procname	= "tcp_collapse_max_bytes",
-		.data		= &init_net.ipv4.sysctl_tcp_collapse_max_bytes,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_douintvec_minmax,
-	},
-	{
 		.procname       = "tcp_plb_enabled",
 		.data           = &init_net.ipv4.sysctl_tcp_plb_enabled,
 		.maxlen         = sizeof(u8),
