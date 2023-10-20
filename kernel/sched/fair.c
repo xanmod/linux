@@ -6176,18 +6176,6 @@ enqueue_throttle:
 
 static void set_next_buddy(struct sched_entity *se);
 
-static inline void dur_avg_update(struct task_struct *p, bool task_sleep)
-{
-	u64 dur;
-
-	if (!task_sleep)
-		return;
-
-	dur = p->se.sum_exec_runtime - p->se.prev_sleep_sum_runtime;
-	p->se.prev_sleep_sum_runtime = p->se.sum_exec_runtime;
-	update_avg(&p->se.dur_avg, dur);
-}
-
 /*
  * The dequeue_task method is called before nr_running is
  * decreased. We remove the task from the rbtree and
@@ -6260,7 +6248,6 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 dequeue_throttle:
 	util_est_update(&rq->cfs, p, task_sleep);
-	dur_avg_update(p, task_sleep);
 	hrtick_update(rq);
 }
 
@@ -6395,46 +6382,6 @@ static int wake_wide(struct task_struct *p)
 }
 
 /*
- * Wake up the task on current CPU, if the following conditions are met:
- *
- * 1. waker A is the only running task on this_cpu
- * 2. A is a short duration task (waker will fall asleep soon)
- * 3. wakee B is a short duration task (impact of B on A is minor)
- * 4. A and B wake up each other alternately
- */
-static bool
-wake_on_current(int this_cpu, struct task_struct *p)
-{
-	if (!sched_feat(SIS_CURRENT))
-		return false;
-
-	if (cpu_rq(this_cpu)->nr_running > 1)
-		return false;
-
-	/*
-	 * If a task switches in and then voluntarily relinquishes the
-	 * CPU quickly, it is regarded as a short duration task. In that
-	 * way, the short waker is likely to relinquish the CPU soon, which
-	 * provides room for the wakee. Meanwhile, a short wakee would bring
-	 * minor impact to the current rq. Put the short waker and wakee together
-	 * bring benefit to cache-share task pairs and avoid migration overhead.
-	 */
-	if (!current->se.dur_avg || current->se.dur_avg >= sysctl_sched_migration_cost)
-		return false;
-
-	if (!p->se.dur_avg || p->se.dur_avg >= sysctl_sched_migration_cost)
-		return false;
-
-	if (current->wakee_flips || p->wakee_flips)
-		return false;
-
-	if (current->last_wakee != p || p->last_wakee != current)
-		return false;
-
-	return true;
-}
-
-/*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
  * soonest. For the purpose of speed we only consider the waking and previous
  * CPU.
@@ -6526,9 +6473,6 @@ static int wake_affine(struct sched_domain *sd, struct task_struct *p,
 
 	if (sched_feat(WA_WEIGHT) && target == nr_cpumask_bits)
 		target = wake_affine_weight(sd, p, this_cpu, prev_cpu, sync);
-
-	if (target == nr_cpumask_bits && wake_on_current(this_cpu, p))
-		target = this_cpu;
 
 	schedstat_inc(p->stats.nr_wakeups_affine_attempts);
 	if (target != this_cpu)
@@ -7050,9 +6994,6 @@ static int select_idle_sibling(struct task_struct *p, int prev, int target)
 				return i;
 		}
 	}
-
-	if (smp_processor_id() == target && wake_on_current(target, p))
-		return target;
 
 	i = select_idle_cpu(p, sd, has_idle_core, target);
 	if ((unsigned)i < nr_cpumask_bits)
