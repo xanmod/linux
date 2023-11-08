@@ -54,7 +54,7 @@ extern bool have_boot_console;
  * be printed serially along with the legacy consoles because nbcon
  * consoles cannot print simultaneously with boot consoles.
  */
-#define serialized_printing (have_legacy_console || have_boot_console)
+#define printing_via_unlock (have_legacy_console || have_boot_console)
 
 __printf(4, 0)
 int vprintk_store(int facility, int level,
@@ -88,7 +88,9 @@ void nbcon_seq_force(struct console *con, u64 seq);
 bool nbcon_alloc(struct console *con);
 void nbcon_init(struct console *con);
 void nbcon_free(struct console *con);
-bool nbcon_console_emit_next_record(struct console *con);
+enum nbcon_prio nbcon_get_default_prio(void);
+void nbcon_atomic_flush_all(void);
+bool nbcon_atomic_emit_next_record(struct console *con);
 void nbcon_kthread_create(struct console *con);
 void nbcon_wake_threads(void);
 void nbcon_legacy_kthread_create(void);
@@ -160,7 +162,7 @@ static inline void nbcon_kthread_wake(struct console *con)
 static inline void nbcon_kthread_wake(struct console *con) { }
 static inline void nbcon_kthread_create(struct console *con) { }
 #define printk_threads_enabled (false)
-#define serialized_printing (false)
+#define printing_via_unlock (false)
 
 /*
  * In !PRINTK builds we still export console_sem
@@ -176,7 +178,9 @@ static inline void nbcon_seq_force(struct console *con, u64 seq) { }
 static inline bool nbcon_alloc(struct console *con) { return false; }
 static inline void nbcon_init(struct console *con) { }
 static inline void nbcon_free(struct console *con) { }
-static bool nbcon_console_emit_next_record(struct console *con) { return false; }
+enum nbcon_prio nbcon_get_default_prio(void) { return NBCON_PRIO_NONE; }
+static inline void nbcon_atomic_flush_all(void) { }
+static bool nbcon_atomic_emit_next_record(struct console *con) { return false; }
 
 static inline bool console_is_usable(struct console *con, short flags, bool use_atomic) { return false; }
 
@@ -211,6 +215,7 @@ struct printk_message {
 };
 
 bool other_cpu_in_panic(void);
+bool this_cpu_in_panic(void);
 bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
 			     bool is_extended, bool may_supress);
 

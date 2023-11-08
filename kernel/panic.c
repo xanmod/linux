@@ -275,7 +275,6 @@ static void panic_other_cpus_shutdown(bool crash_kexec)
  */
 void panic(const char *fmt, ...)
 {
-	enum nbcon_prio prev_prio;
 	static char buf[1024];
 	va_list args;
 	long i, i_next = 0, len;
@@ -322,8 +321,6 @@ void panic(const char *fmt, ...)
 
 	if (old_cpu != PANIC_CPU_INVALID && old_cpu != this_cpu)
 		panic_smp_self_stop();
-
-	prev_prio = nbcon_atomic_enter(NBCON_PRIO_PANIC);
 
 	console_verbose();
 	bust_spinlocks(1);
@@ -385,8 +382,6 @@ void panic(const char *fmt, ...)
 	if (_crash_kexec_post_notifiers)
 		__crash_kexec(NULL);
 
-	nbcon_atomic_flush_all();
-
 	console_unblank();
 
 	/*
@@ -411,7 +406,6 @@ void panic(const char *fmt, ...)
 		 * We can't use the "normal" timers since we just panicked.
 		 */
 		pr_emerg("Rebooting in %d seconds..\n", panic_timeout);
-		nbcon_atomic_flush_all();
 
 		for (i = 0; i < panic_timeout * 1000; i += PANIC_TIMER_STEP) {
 			touch_nmi_watchdog();
@@ -430,7 +424,6 @@ void panic(const char *fmt, ...)
 		 */
 		if (panic_reboot_mode != REBOOT_UNDEFINED)
 			reboot_mode = panic_reboot_mode;
-		nbcon_atomic_flush_all();
 		emergency_restart();
 	}
 #ifdef __sparc__
@@ -443,7 +436,6 @@ void panic(const char *fmt, ...)
 	}
 #endif
 #if defined(CONFIG_S390)
-	nbcon_atomic_flush_all();
 	disabled_wait();
 #endif
 	pr_emerg("---[ end Kernel panic - not syncing: %s ]---\n", buf);
@@ -451,7 +443,7 @@ void panic(const char *fmt, ...)
 	/* Do not scroll important messages printed above */
 	suppress_printk = 1;
 
-	nbcon_atomic_exit(NBCON_PRIO_PANIC, prev_prio);
+	nbcon_atomic_flush_unsafe();
 
 	local_irq_enable();
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
@@ -614,10 +606,6 @@ bool oops_may_print(void)
 	return pause_on_oops_flag == 0;
 }
 
-static int oops_printing_cpu = -1;
-static int oops_nesting;
-static enum nbcon_prio oops_prev_prio;
-
 /*
  * Called when the architecture enters its oops handler, before it prints
  * anything.  If this is the first CPU to oops, and it's oopsing the first
@@ -634,38 +622,7 @@ static enum nbcon_prio oops_prev_prio;
  */
 void oops_enter(void)
 {
-	enum nbcon_prio prev_prio;
-	int cur_cpu = get_cpu();
-	int old_cpu = -1;
-
-	/*
-	 * If this turns out to be the first CPU in oops, this is the
-	 * beginning of the outermost atomic printing section. Otherwise
-	 * it is the beginning of an inner atomic printing section.
-	 */
-	prev_prio = nbcon_atomic_enter(NBCON_PRIO_EMERGENCY);
-
-	old_cpu = cmpxchg(&oops_printing_cpu, old_cpu, cur_cpu);
-	if (old_cpu == -1) {
-		/*
-		 * This is the first CPU in oops so it will be the printer.
-		 * Save the outermost @prev_prio in order to restore it on the
-		 * outermost matching oops_exit(), when @oops_nesting == 0.
-		 */
-		oops_prev_prio = prev_prio;
-
-		/*
-		 * Enter an inner atomic printing section that ends at the end
-		 * of this function. In this case, the nbcon_atomic_enter()
-		 * above began the outermost atomic printing section.
-		 */
-		prev_prio = nbcon_atomic_enter(NBCON_PRIO_EMERGENCY);
-	}
-
-	/* Track nesting when this CPU is the printer. */
-	if (old_cpu == -1 || old_cpu == cur_cpu)
-		oops_nesting++;
-
+	nbcon_cpu_emergency_enter();
 	tracing_off();
 	/* can't trust the integrity of the kernel anymore: */
 	debug_locks_off();
@@ -673,9 +630,6 @@ void oops_enter(void)
 
 	if (sysctl_oops_all_cpu_backtrace)
 		trigger_all_cpu_backtrace();
-
-	/* Exit inner atomic printing section. */
-	nbcon_atomic_exit(NBCON_PRIO_EMERGENCY, prev_prio);
 }
 
 static void print_oops_end_marker(void)
@@ -691,23 +645,7 @@ void oops_exit(void)
 {
 	do_oops_enter_exit();
 	print_oops_end_marker();
-
-	/*
-	 * Reading @oops_printing_cpu is a data race if this CPU is not the
-	 * printer. But that is OK because in that situation the condition
-	 * will correctly evaluate to false regardless which value was read.
-	 */
-	if (oops_printing_cpu == smp_processor_id()) {
-		oops_nesting--;
-		if (oops_nesting == 0) {
-			oops_printing_cpu = -1;
-
-			/* Exit outermost atomic printing section. */
-			nbcon_atomic_exit(NBCON_PRIO_EMERGENCY, oops_prev_prio);
-		}
-	}
-	put_cpu();
-
+	nbcon_cpu_emergency_exit();
 	kmsg_dump(KMSG_DUMP_OOPS);
 }
 
@@ -719,9 +657,7 @@ struct warn_args {
 void __warn(const char *file, int line, void *caller, unsigned taint,
 	    struct pt_regs *regs, struct warn_args *args)
 {
-	enum nbcon_prio prev_prio;
-
-	prev_prio = nbcon_atomic_enter(NBCON_PRIO_EMERGENCY);
+	nbcon_cpu_emergency_enter();
 
 	disable_trace_on_warning();
 
@@ -754,7 +690,7 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 	/* Just a warning, don't kill lockdep. */
 	add_taint(taint, LOCKDEP_STILL_OK);
 
-	nbcon_atomic_exit(NBCON_PRIO_EMERGENCY, prev_prio);
+	nbcon_cpu_emergency_exit();
 }
 
 #ifdef CONFIG_BUG
