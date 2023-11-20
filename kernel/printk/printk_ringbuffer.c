@@ -1477,7 +1477,7 @@ static inline u64 __ulseq_to_u64seq(u32 ulseq)
 	 * sequence. It needs to be expanded to 64bit. Get the first sequence
 	 * number from the ringbuffer and fold it.
 	 */
-	seq = rb_first_seq - ((u32)rb_first_seq - ulseq);
+	seq = rb_first_seq - ((s32)((u32)rb_first_seq - ulseq));
 
 	return seq;
 }
