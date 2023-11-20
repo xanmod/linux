@@ -52,6 +52,13 @@ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
 	case DEV_DOWN:
 		dev_info(dev, "Stopping device qat_dev%d\n", accel_id);
 
+		if (!adf_dev_started(accel_dev)) {
+			dev_info(&GET_DEV(accel_dev), "Device qat_dev%d already down\n",
+				 accel_id);
+
+			break;
+		}
+
 		ret = adf_dev_down(accel_dev, true);
 		if (ret < 0)
 			return -EINVAL;
@@ -61,7 +68,9 @@ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
 		dev_info(dev, "Starting device qat_dev%d\n", accel_id);
 
 		ret = adf_dev_up(accel_dev, true);
-		if (ret < 0) {
+		if (ret == -EALREADY) {
+			break;
+		} else if (ret) {
 			dev_err(dev, "Failed to start device qat_dev%d\n",
 				accel_id);
 			adf_dev_down(accel_dev, true);
