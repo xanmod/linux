@@ -22,6 +22,8 @@
 #include <linux/efi.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/psp-sev.h>
+#include <uapi/linux/sev-guest.h>
 
 #include <asm/cpu_entry_area.h>
 #include <asm/stacktrace.h>
@@ -510,6 +512,33 @@ static enum es_result vc_slow_virt_to_phys(struct ghcb *ghcb, struct es_em_ctxt 
 	*paddr = pa;
 
 	return ES_OK;
+}
+
+static enum es_result vc_ioio_check(struct es_em_ctxt *ctxt, u16 port, size_t size)
+{
+	BUG_ON(size > 4);
+
+	if (user_mode(ctxt->regs)) {
+		struct thread_struct *t = &current->thread;
+		struct io_bitmap *iobm = t->io_bitmap;
+		size_t idx;
+
+		if (!iobm)
+			goto fault;
+
+		for (idx = port; idx < port + size; ++idx) {
+			if (test_bit(idx, iobm->bitmap))
+				goto fault;
+		}
+	}
+
+	return ES_OK;
+
+fault:
+	ctxt->fi.vector = X86_TRAP_GP;
+	ctxt->fi.error_code = 0;
+
+	return ES_EXCEPTION;
 }
 
 /* Include code shared with pre-decompression boot stage */
@@ -1552,6 +1581,9 @@ static enum es_result vc_handle_mmio(struct ghcb *ghcb, struct es_em_ctxt *ctxt)
 			return ES_DECODE_FAILED;
 	}
 
+	if (user_mode(ctxt->regs))
+		return ES_UNSUPPORTED;
+
 	switch (mmio) {
 	case MMIO_WRITE:
 		memcpy(ghcb->shared_buffer, reg_data, bytes);
@@ -2175,7 +2207,7 @@ static int __init init_sev_config(char *str)
 }
 __setup("sev=", init_sev_config);
 
-int snp_issue_guest_request(u64 exit_code, struct snp_req_data *input, unsigned long *fw_err)
+int snp_issue_guest_request(u64 exit_code, struct snp_req_data *input, struct snp_guest_request_ioctl *rio)
 {
 	struct ghcb_state state;
 	struct es_em_ctxt ctxt;
@@ -2183,8 +2215,7 @@ int snp_issue_guest_request(u64 exit_code, struct snp_req_data *input, unsigned 
 	struct ghcb *ghcb;
 	int ret;
 
-	if (!fw_err)
-		return -EINVAL;
+	rio->exitinfo2 = SEV_RET_NO_FW_CALL;
 
 	/*
 	 * __sev_get_ghcb() needs to run with IRQs disabled because it is using
@@ -2209,16 +2240,16 @@ int snp_issue_guest_request(u64 exit_code, struct snp_req_data *input, unsigned 
 	if (ret)
 		goto e_put;
 
-	*fw_err = ghcb->save.sw_exit_info_2;
-	switch (*fw_err) {
+	rio->exitinfo2 = ghcb->save.sw_exit_info_2;
+	switch (rio->exitinfo2) {
 	case 0:
 		break;
 
-	case SNP_GUEST_REQ_ERR_BUSY:
+	case SNP_GUEST_VMM_ERR(SNP_GUEST_VMM_ERR_BUSY):
 		ret = -EAGAIN;
 		break;
 
-	case SNP_GUEST_REQ_INVALID_LEN:
+	case SNP_GUEST_VMM_ERR(SNP_GUEST_VMM_ERR_INVALID_LEN):
 		/* Number of expected pages are returned in RBX */
 		if (exit_code == SVM_VMGEXIT_EXT_GUEST_REQUEST) {
 			input->data_npages = ghcb_get_rbx(ghcb);
