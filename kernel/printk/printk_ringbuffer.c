@@ -1457,33 +1457,6 @@ fail_reopen:
 	return false;
 }
 
-#ifdef CONFIG_64BIT
-
-#define __u64seq_to_ulseq(u64seq) (u64seq)
-#define __ulseq_to_u64seq(ulseq) (ulseq)
-
-#else /* CONFIG_64BIT */
-
-static u64 prb_first_seq(struct printk_ringbuffer *rb);
-
-#define __u64seq_to_ulseq(u64seq) ((u32)u64seq)
-static inline u64 __ulseq_to_u64seq(u32 ulseq)
-{
-	u64 rb_first_seq = prb_first_seq(prb);
-	u64 seq;
-
-	/*
-	 * The provided sequence is only the lower 32 bits of the ringbuffer
-	 * sequence. It needs to be expanded to 64bit. Get the first sequence
-	 * number from the ringbuffer and fold it.
-	 */
-	seq = rb_first_seq - ((s32)((u32)rb_first_seq - ulseq));
-
-	return seq;
-}
-
-#endif /* CONFIG_64BIT */
-
 /*
  * @last_finalized_seq value guarantees that all records up to and including
  * this sequence number are finalized and can be read. The only exception are
@@ -1501,8 +1474,9 @@ static inline u64 __ulseq_to_u64seq(u32 ulseq)
  * directly print or trigger deferred printing of all available unprinted
  * records, all printk() messages will get printed.
  */
-static u64 desc_last_finalized_seq(struct prb_desc_ring *desc_ring)
+static u64 desc_last_finalized_seq(struct printk_ringbuffer *rb)
 {
+	struct prb_desc_ring *desc_ring = &rb->desc_ring;
 	unsigned long ulseq;
 
 	/*
@@ -1513,7 +1487,7 @@ static u64 desc_last_finalized_seq(struct prb_desc_ring *desc_ring)
 	ulseq = atomic_long_read_acquire(&desc_ring->last_finalized_seq
 					); /* LMM(desc_last_finalized_seq:A) */
 
-	return __ulseq_to_u64seq(ulseq);
+	return __ulseq_to_u64seq(rb, ulseq);
 }
 
 static bool _prb_read_valid(struct printk_ringbuffer *rb, u64 *seq,
@@ -1527,7 +1501,7 @@ static bool _prb_read_valid(struct printk_ringbuffer *rb, u64 *seq,
 static void desc_update_last_finalized(struct printk_ringbuffer *rb)
 {
 	struct prb_desc_ring *desc_ring = &rb->desc_ring;
-	u64 old_seq = desc_last_finalized_seq(desc_ring);
+	u64 old_seq = desc_last_finalized_seq(rb);
 	unsigned long oldval;
 	unsigned long newval;
 	u64 finalized_seq;
@@ -1576,7 +1550,7 @@ try_again:
 	 */
 	if (!atomic_long_try_cmpxchg_release(&desc_ring->last_finalized_seq,
 				&oldval, newval)) { /* LMM(desc_update_last_finalized:A) */
-		old_seq = __ulseq_to_u64seq(oldval);
+		old_seq = __ulseq_to_u64seq(rb, oldval);
 		goto try_again;
 	}
 }
@@ -1883,6 +1857,8 @@ static bool copy_data(struct prb_data_ring *data_ring,
  * descriptor. However, it also verifies that the record is finalized and has
  * the sequence number @seq. On success, 0 is returned.
  *
+ * For the panic CPU, committed descriptors are also considered finalized.
+ *
  * Error return values:
  * -EINVAL: A finalized record with sequence number @seq does not exist.
  * -ENOENT: A finalized record with sequence number @seq exists, but its data
@@ -1901,15 +1877,24 @@ static int desc_read_finalized_seq(struct prb_desc_ring *desc_ring,
 
 	/*
 	 * An unexpected @id (desc_miss) or @seq mismatch means the record
-	 * does not exist. A descriptor in the reserved or committed state
-	 * means the record does not yet exist for the reader.
+	 * does not exist. A descriptor in the reserved state means the
+	 * record does not yet exist for the reader.
 	 */
 	if (d_state == desc_miss ||
 	    d_state == desc_reserved ||
-	    d_state == desc_committed ||
 	    s != seq) {
 		return -EINVAL;
 	}
+
+	/*
+	 * A descriptor in the committed state means the record does not yet
+	 * exist for the reader. However, for the panic CPU, committed
+	 * records are also handled as finalized records since they contain
+	 * message data in a consistent state and may contain additional
+	 * hints as to the cause of the panic.
+	 */
+	if (d_state == desc_committed && !this_cpu_in_panic())
+		return -EINVAL;
 
 	/*
 	 * A descriptor in the reusable state may no longer have its data
@@ -1969,7 +1954,7 @@ static int prb_read(struct printk_ringbuffer *rb, u64 seq,
 }
 
 /* Get the sequence number of the tail descriptor. */
-static u64 prb_first_seq(struct printk_ringbuffer *rb)
+u64 prb_first_seq(struct printk_ringbuffer *rb)
 {
 	struct prb_desc_ring *desc_ring = &rb->desc_ring;
 	enum desc_state d_state;
@@ -2047,7 +2032,7 @@ u64 prb_next_reserve_seq(struct printk_ringbuffer *rb)
 	 */
 
 try_again:
-	last_finalized_seq = desc_last_finalized_seq(desc_ring);
+	last_finalized_seq = desc_last_finalized_seq(rb);
 
 	/*
 	 * @head_id is loaded after @last_finalized_seq to ensure that it is
@@ -2088,14 +2073,22 @@ try_again:
 			 * value. Probably no record has been finalized yet.
 			 * This means the ringbuffer is not yet full and the
 			 * @head_id value can be used directly (subtracting
-			 * off its initial value).
-			 *
+			 * off the id value corresponding to seq=0).
+			 */
+
+			/*
 			 * Because of hack#2 of the bootstrapping phase, the
 			 * @head_id initial value must be handled separately.
 			 */
 			if (head_id == DESC0_ID(desc_ring->count_bits))
 				return 0;
 
+			/*
+			 * The @head_id is initialized such that the first
+			 * increment will yield the first record (seq=0).
+			 * Therefore use the initial value +1 as the base to
+			 * subtract from @head_id.
+			 */
 			last_finalized_id = DESC0_ID(desc_ring->count_bits) + 1;
 		} else {
 			/* Record must have been overwritten. Try again. */
@@ -2103,8 +2096,17 @@ try_again:
 		}
 	}
 
+	/*
+	 * @diff is the number of records beyond the last record available
+	 * to readers.
+	 */
 	diff = head_id - last_finalized_id;
 
+	/*
+	 * @head_id points to the most recently reserved record, but this
+	 * function returns the sequence number that will be assigned to the
+	 * next (not yet reserved) record. Thus +1 is needed.
+	 */
 	return (last_finalized_seq + diff + 1);
 }
 
@@ -2153,6 +2155,12 @@ static bool _prb_read_valid(struct printk_ringbuffer *rb, u64 *seq,
 			 * non-existent/non-finalized record unless it is
 			 * at or beyond the head, in which case it is not
 			 * possible to continue.
+			 *
+			 * Note that new messages printed on panic CPU are
+			 * finalized when we are here. The only exception
+			 * might be the last message without trailing newline.
+			 * But it would have the sequence number returned
+			 * by "prb_next_reserve_seq() - 1".
 			 */
 			if (this_cpu_in_panic() && ((*seq + 1) < prb_next_reserve_seq(rb)))
 				(*seq)++;
@@ -2271,10 +2279,9 @@ u64 prb_first_valid_seq(struct printk_ringbuffer *rb)
  */
 u64 prb_next_seq(struct printk_ringbuffer *rb)
 {
-	struct prb_desc_ring *desc_ring = &rb->desc_ring;
 	u64 seq;
 
-	seq = desc_last_finalized_seq(desc_ring);
+	seq = desc_last_finalized_seq(rb);
 
 	/*
 	 * Begin searching after the last finalized record.

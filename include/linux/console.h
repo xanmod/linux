@@ -299,7 +299,8 @@ struct nbcon_write_context {
  *
  * @write_atomic:	Write callback for atomic context
  * @write_thread:	Write callback for non-atomic context
- * @uart_port:		Callback to provide the associated uart port
+ * @driver_enter:	Callback to begin synchronization with driver code
+ * @driver_exit:	Callback to finish synchronization with driver code
  * @nbcon_state:	State for nbcon consoles
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
  * @pbufs:		Pointer to nbcon private buffer
@@ -332,7 +333,8 @@ struct console {
 						struct nbcon_write_context *wctxt);
 	bool			(*write_thread)(struct console *con,
 						struct nbcon_write_context *wctxt);
-	struct uart_port *	(*uart_port)(struct console *con);
+	void			(*driver_enter)(struct console *con, unsigned long *flags);
+	void			(*driver_exit)(struct console *con, unsigned long flags);
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
 	struct printk_buffers	*pbufs;

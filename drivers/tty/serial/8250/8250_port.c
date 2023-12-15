@@ -3517,13 +3517,11 @@ bool serial8250_console_write_thread(struct uart_8250_port *up,
 	if (!nbcon_enter_unsafe(wctxt))
 		return false;
 
-	/*
-	 *	First save the IER then disable the interrupts
-	 */
+	/* First save IER then disable the interrupts. */
 	ier = serial_port_in(port, UART_IER);
 	serial8250_clear_IER(up);
 
-	/* check scratch reg to see if port powered off during system sleep */
+	/* Check scratch reg if port powered off during system sleep. */
 	if (up->canary && (up->canary != serial_port_in(port, UART_SCR))) {
 		serial8250_console_restore(up);
 		up->canary = 0;
@@ -3571,30 +3569,25 @@ bool serial8250_console_write_thread(struct uart_8250_port *up,
 	while (!nbcon_enter_unsafe(wctxt))
 		nbcon_reacquire(wctxt);
 
-	/*
-	 *	Finally, wait for transmitter to become empty
-	 *	and restore the IER
-	 */
+	/* Finally, wait for transmitter to become empty and restore IER. */
 	wait_for_xmitr(up, UART_LSR_BOTH_EMPTY);
-
 	if (em485) {
 		mdelay(port->rs485.delay_rts_after_send);
 		if (em485->tx_stopped)
 			up->rs485_stop_tx(up);
 	}
-
 	serial_port_out(port, UART_IER, ier);
 
 	/*
-	 *	The receive handling will happen properly because the
-	 *	receive ready bit will still be set; it is not cleared
-	 *	on read.  However, modem control will not, we must
-	 *	call it if we have saved something in the saved flags
-	 *	while processing with interrupts off.
+	 * The receive handling will happen properly because the receive ready
+	 * bit will still be set; it is not cleared on read.  However, modem
+	 * control will not, we must call it if we have saved something in the
+	 * saved flags while processing with interrupts off.
 	 */
 	if (up->msr_saved_flags)
 		serial8250_modem_status(up);
 
+	/* Success if no handover/takeover and message fully printed. */
 	return (nbcon_exit_unsafe(wctxt) && done);
 }
 
@@ -3614,12 +3607,14 @@ bool serial8250_console_write_atomic(struct uart_8250_port *up,
 		return false;
 
 	/*
-	 *	First save the IER then disable the interrupts
+	 * First save IER then disable the interrupts. The special variant to
+	 * clear IER is used because atomic printing may occur without holding
+	 * the port lock.
 	 */
 	ier = serial_port_in(port, UART_IER);
 	__serial8250_clear_IER(up);
 
-	/* check scratch reg to see if port powered off during system sleep */
+	/* Check scratch reg if port powered off during system sleep. */
 	if (up->canary && (up->canary != serial_port_in(port, UART_SCR))) {
 		serial8250_console_restore(up);
 		up->canary = 0;
@@ -3629,14 +3624,11 @@ bool serial8250_console_write_atomic(struct uart_8250_port *up,
 		uart_console_write(port, "\n", 1, serial8250_console_putchar);
 	uart_console_write(port, wctxt->outbuf, wctxt->len, serial8250_console_putchar);
 
-	/*
-	 *	Finally, wait for transmitter to become empty
-	 *	and restore the IER
-	 */
+	/* Finally, wait for transmitter to become empty and restore IER. */
 	wait_for_xmitr(up, UART_LSR_BOTH_EMPTY);
-
 	serial_port_out(port, UART_IER, ier);
 
+	/* Success if no handover/takeover. */
 	return nbcon_exit_unsafe(wctxt);
 }
 #endif /* CONFIG_SERIAL_8250_LEGACY_CONSOLE */
