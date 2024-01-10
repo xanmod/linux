@@ -725,15 +725,6 @@ static inline void tcp_fast_path_check(struct sock *sk)
 		tcp_fast_path_on(tp);
 }
 
-static inline void tcp_set_ecn_low_from_dst(struct sock *sk,
-					    const struct dst_entry *dst)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-
-	if (dst_feature(dst, RTAX_FEATURE_ECN_LOW))
-		tp->ecn_flags |= TCP_ECN_LOW;
-}
-
 /* Compute the actual rto_min value */
 static inline u32 tcp_rto_min(struct sock *sk)
 {
