@@ -304,7 +304,6 @@ struct nbcon_write_context {
  * @nbcon_state:	State for nbcon consoles
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
  * @pbufs:		Pointer to nbcon private buffer
- * @locked_port:	True, if the port lock is locked by nbcon
  * @kthread:		Printer kthread for this console
  * @rcuwait:		RCU-safe wait object for @kthread waking
  * @irq_work:		Defer @kthread waking to IRQ work context
@@ -338,7 +337,6 @@ struct console {
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
 	struct printk_buffers	*pbufs;
-	bool			locked_port;
 	struct task_struct	*kthread;
 	struct rcuwait		rcuwait;
 	struct irq_work		irq_work;
