@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 6.6.13 Kernel Configuration
+# Linux/x86 6.6.14 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-13 (Debian 13.2.0-9) 13.2.0"
 CONFIG_CC_IS_GCC=y
