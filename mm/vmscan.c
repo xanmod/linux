@@ -192,7 +192,7 @@ struct scan_control {
 #define prefetchw_prev_lru_folio(_folio, _base, _field) do { } while (0)
 #endif
 
-bool sysctl_workingset_protection __read_mostly = false;
+bool sysctl_workingset_protection __read_mostly = true;
 u8 sysctl_anon_min_ratio  __read_mostly = CONFIG_ANON_MIN_RATIO;
 u8 sysctl_clean_low_ratio __read_mostly = CONFIG_CLEAN_LOW_RATIO;
 u8 sysctl_clean_min_ratio __read_mostly = CONFIG_CLEAN_MIN_RATIO;
