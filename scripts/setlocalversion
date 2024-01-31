@@ -149,10 +149,8 @@ if [ -z "${KERNELVERSION}" ]; then
 fi
 
 # localversion* files in the build and source directory
-file_localversion="$(collect_files localversion*)"
-if test ! "$srctree" -ef .; then
-	file_localversion="${file_localversion}$(collect_files "$srctree"/localversion*)"
-fi
+file_localversion_rt="${file_localversion_rt}$(collect_files $(find "$srctree" -name "localversion-rt"))"
+file_localversion_nort="${file_localversion_nort}$(collect_files $(find "$srctree" -name "localversion*" ! -name "localversion-rt"))"
 
 if ${no_local}; then
 	echo "${KERNELVERSION}$(scm_version --no-dirty)"
@@ -182,4 +180,4 @@ elif [ "${LOCALVERSION+set}" != "set" ]; then
 	scm_version="$(scm_version --short)"
 fi
 
-echo "${KERNELVERSION}${config_localversion}${LOCALVERSION}${scm_version}${file_localversion}"
+echo "${KERNELVERSION}${file_localversion_rt}${config_localversion}${LOCALVERSION}${scm_version}${file_localversion_nort}"
