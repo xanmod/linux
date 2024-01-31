@@ -3543,8 +3543,15 @@ static ssize_t show_cons_active(struct device *dev,
 	for_each_console(c) {
 		if (!c->device)
 			continue;
-		if (!c->write)
-			continue;
+		if (c->flags & CON_NBCON) {
+			if (!c->write_atomic &&
+			    !(c->write_thread && c->kthread)) {
+				continue;
+			}
+		} else {
+			if (!c->write)
+				continue;
+		}
 		if ((c->flags & CON_ENABLED) == 0)
 			continue;
 		cs[i++] = c;

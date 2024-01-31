@@ -247,6 +247,19 @@ out:
 }
 EXPORT_SYMBOL(__local_bh_enable_ip);
 
+void softirq_preempt(void)
+{
+	if (WARN_ON_ONCE(!preemptible()))
+		return;
+
+	if (WARN_ON_ONCE(__this_cpu_read(softirq_ctrl.cnt) != SOFTIRQ_OFFSET))
+		return;
+
+	__local_bh_enable(SOFTIRQ_OFFSET, true);
+	/* preemption point */
+	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+}
+
 /*
  * Invoked from ksoftirqd_run() outside of the interrupt disabled section
  * to acquire the per CPU local lock for reentrancy protection.
@@ -619,6 +632,24 @@ static inline void tick_irq_exit(void)
 #endif
 }
 
+#ifdef CONFIG_PREEMPT_RT
+DEFINE_PER_CPU(struct task_struct *, timersd);
+DEFINE_PER_CPU(unsigned long, pending_timer_softirq);
+
+static void wake_timersd(void)
+{
+        struct task_struct *tsk = __this_cpu_read(timersd);
+
+        if (tsk)
+                wake_up_process(tsk);
+}
+
+#else
+
+static inline void wake_timersd(void) { }
+
+#endif
+
 static inline void __irq_exit_rcu(void)
 {
 #ifndef __ARCH_IRQ_EXIT_IRQS_DISABLED
@@ -630,6 +661,10 @@ static inline void __irq_exit_rcu(void)
 	preempt_count_sub(HARDIRQ_OFFSET);
 	if (!in_interrupt() && local_softirq_pending())
 		invoke_softirq();
+
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) && local_pending_timers() &&
+	    !(in_nmi() | in_hardirq()))
+		wake_timersd();
 
 	tick_irq_exit();
 }
@@ -963,12 +998,70 @@ static struct smp_hotplug_thread softirq_threads = {
 	.thread_comm		= "ksoftirqd/%u",
 };
 
+#ifdef CONFIG_PREEMPT_RT
+static void timersd_setup(unsigned int cpu)
+{
+        sched_set_fifo_low(current);
+}
+
+static int timersd_should_run(unsigned int cpu)
+{
+        return local_pending_timers();
+}
+
+static void run_timersd(unsigned int cpu)
+{
+	unsigned int timer_si;
+
+	ksoftirqd_run_begin();
+
+	timer_si = local_pending_timers();
+	__this_cpu_write(pending_timer_softirq, 0);
+	or_softirq_pending(timer_si);
+
+	__do_softirq();
+
+	ksoftirqd_run_end();
+}
+
+static void raise_ktimers_thread(unsigned int nr)
+{
+	trace_softirq_raise(nr);
+	__this_cpu_or(pending_timer_softirq, 1 << nr);
+}
+
+void raise_hrtimer_softirq(void)
+{
+	raise_ktimers_thread(HRTIMER_SOFTIRQ);
+}
+
+void raise_timer_softirq(void)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	raise_ktimers_thread(TIMER_SOFTIRQ);
+	wake_timersd();
+	local_irq_restore(flags);
+}
+
+static struct smp_hotplug_thread timer_threads = {
+        .store                  = &timersd,
+        .setup                  = timersd_setup,
+        .thread_should_run      = timersd_should_run,
+        .thread_fn              = run_timersd,
+        .thread_comm            = "ktimers/%u",
+};
+#endif
+
 static __init int spawn_ksoftirqd(void)
 {
 	cpuhp_setup_state_nocalls(CPUHP_SOFTIRQ_DEAD, "softirq:dead", NULL,
 				  takeover_tasklets);
 	BUG_ON(smpboot_register_percpu_thread(&softirq_threads));
-
+#ifdef CONFIG_PREEMPT_RT
+	BUG_ON(smpboot_register_percpu_thread(&timer_threads));
+#endif
 	return 0;
 }
 early_initcall(spawn_ksoftirqd);

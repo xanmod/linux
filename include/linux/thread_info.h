@@ -59,6 +59,16 @@ enum syscall_work_bit {
 
 #include <asm/thread_info.h>
 
+#ifdef CONFIG_PREEMPT_BUILD_AUTO
+# define TIF_NEED_RESCHED_LAZY		TIF_ARCH_RESCHED_LAZY
+# define _TIF_NEED_RESCHED_LAZY		_TIF_ARCH_RESCHED_LAZY
+# define TIF_NEED_RESCHED_LAZY_OFFSET	(TIF_NEED_RESCHED_LAZY - TIF_NEED_RESCHED)
+#else
+# define TIF_NEED_RESCHED_LAZY		TIF_NEED_RESCHED
+# define _TIF_NEED_RESCHED_LAZY		_TIF_NEED_RESCHED
+# define TIF_NEED_RESCHED_LAZY_OFFSET	0
+#endif
+
 #ifdef __KERNEL__
 
 #ifndef arch_set_restart_data
@@ -185,12 +195,26 @@ static __always_inline bool tif_need_resched(void)
 			     (unsigned long *)(&current_thread_info()->flags));
 }
 
+static __always_inline bool tif_need_resched_lazy(void)
+{
+	return IS_ENABLED(CONFIG_PREEMPT_BUILD_AUTO) &&
+		arch_test_bit(TIF_NEED_RESCHED_LAZY,
+			      (unsigned long *)(&current_thread_info()->flags));
+}
+
 #else
 
 static __always_inline bool tif_need_resched(void)
 {
 	return test_bit(TIF_NEED_RESCHED,
 			(unsigned long *)(&current_thread_info()->flags));
+}
+
+static __always_inline bool tif_need_resched_lazy(void)
+{
+	return IS_ENABLED(CONFIG_PREEMPT_BUILD_AUTO) &&
+		test_bit(TIF_NEED_RESCHED_LAZY,
+			 (unsigned long *)(&current_thread_info()->flags));
 }
 
 #endif /* _ASM_GENERIC_BITOPS_INSTRUMENTED_NON_ATOMIC_H */

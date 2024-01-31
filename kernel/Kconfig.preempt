@@ -11,6 +11,13 @@ config PREEMPT_BUILD
 	select PREEMPTION
 	select UNINLINE_SPIN_UNLOCK if !ARCH_INLINE_SPIN_UNLOCK
 
+config PREEMPT_BUILD_AUTO
+	bool
+	select PREEMPT_BUILD
+
+config HAVE_PREEMPT_AUTO
+	bool
+
 choice
 	prompt "Preemption Model"
 	default PREEMPT_NONE
@@ -67,9 +74,17 @@ config PREEMPT
 	  embedded system with latency requirements in the milliseconds
 	  range.
 
+config PREEMPT_AUTO
+	bool "Automagic preemption mode with runtime tweaking support"
+	depends on HAVE_PREEMPT_AUTO
+	select PREEMPT_BUILD_AUTO
+	help
+	  Add some sensible blurb here
+
 config PREEMPT_RT
 	bool "Fully Preemptible Kernel (Real-Time)"
 	depends on EXPERT && ARCH_SUPPORTS_RT
+	select PREEMPT_BUILD_AUTO if HAVE_PREEMPT_AUTO
 	select PREEMPTION
 	help
 	  This option turns the kernel into a real-time kernel by replacing
@@ -95,7 +110,7 @@ config PREEMPTION
 
 config PREEMPT_DYNAMIC
 	bool "Preemption behaviour defined on boot"
-	depends on HAVE_PREEMPT_DYNAMIC && !PREEMPT_RT
+	depends on HAVE_PREEMPT_DYNAMIC && !PREEMPT_RT && !PREEMPT_AUTO
 	select JUMP_LABEL if HAVE_PREEMPT_DYNAMIC_KEY
 	select PREEMPT_BUILD
 	default y if HAVE_PREEMPT_DYNAMIC_CALL

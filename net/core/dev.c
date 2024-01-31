@@ -4705,15 +4705,6 @@ static void rps_trigger_softirq(void *data)
 
 #endif /* CONFIG_RPS */
 
-/* Called from hardirq (IPI) context */
-static void trigger_rx_softirq(void *data)
-{
-	struct softnet_data *sd = data;
-
-	__raise_softirq_irqoff(NET_RX_SOFTIRQ);
-	smp_store_release(&sd->defer_ipi_scheduled, 0);
-}
-
 /*
  * After we queued a packet into sd->input_pkt_queue,
  * we need to make sure this queue is serviced soon.
@@ -6681,6 +6672,32 @@ static void skb_defer_free_flush(struct softnet_data *sd)
 		skb = next;
 	}
 }
+
+#ifndef CONFIG_PREEMPT_RT
+
+/* Called from hardirq (IPI) context */
+static void trigger_rx_softirq(void *data)
+{
+	struct softnet_data *sd = data;
+
+	__raise_softirq_irqoff(NET_RX_SOFTIRQ);
+	smp_store_release(&sd->defer_ipi_scheduled, 0);
+}
+
+#else
+
+static void trigger_rx_softirq(struct work_struct *defer_work)
+{
+	struct softnet_data *sd;
+
+	sd = container_of(defer_work, struct softnet_data, defer_work);
+	smp_store_release(&sd->defer_ipi_scheduled, 0);
+	local_bh_disable();
+	skb_defer_free_flush(sd);
+	local_bh_enable();
+}
+
+#endif
 
 static int napi_threaded_poll(void *data)
 {
@@ -11606,7 +11623,11 @@ static int __init net_dev_init(void)
 		INIT_CSD(&sd->csd, rps_trigger_softirq, sd);
 		sd->cpu = i;
 #endif
+#ifndef CONFIG_PREEMPT_RT
 		INIT_CSD(&sd->defer_csd, trigger_rx_softirq, sd);
+#else
+		INIT_WORK(&sd->defer_work, trigger_rx_softirq);
+#endif
 		spin_lock_init(&sd->defer_lock);
 
 		init_gro_hash(&sd->backlog);

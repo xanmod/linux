@@ -16,7 +16,9 @@
 
 #include <linux/atomic.h>
 #include <linux/bits.h>
+#include <linux/irq_work.h>
 #include <linux/rculist.h>
+#include <linux/rcuwait.h>
 #include <linux/types.h>
 
 struct vc_data;
@@ -156,6 +158,8 @@ static inline int con_debug_leave(void)
  *			/dev/kmesg which requires a larger output buffer.
  * @CON_SUSPENDED:	Indicates if a console is suspended. If true, the
  *			printing callbacks must not be called.
+ * @CON_NBCON:		Console can operate outside of the legacy style console_lock
+ *			constraints.
  */
 enum cons_flags {
 	CON_PRINTBUFFER		= BIT(0),
@@ -166,6 +170,111 @@ enum cons_flags {
 	CON_BRL			= BIT(5),
 	CON_EXTENDED		= BIT(6),
 	CON_SUSPENDED		= BIT(7),
+	CON_NBCON		= BIT(8),
+};
+
+/**
+ * struct nbcon_state - console state for nbcon consoles
+ * @atom:	Compound of the state fields for atomic operations
+ *
+ * @req_prio:		The priority of a handover request
+ * @prio:		The priority of the current owner
+ * @unsafe:		Console is busy in a non takeover region
+ * @unsafe_takeover:	A hostile takeover in an unsafe state happened in the
+ *			past. The console cannot be safe until re-initialized.
+ * @cpu:		The CPU on which the owner runs
+ *
+ * To be used for reading and preparing of the value stored in the nbcon
+ * state variable @console::nbcon_state.
+ *
+ * The @prio and @req_prio fields are particularly important to allow
+ * spin-waiting to timeout and give up without the risk of a waiter being
+ * assigned the lock after giving up.
+ */
+struct nbcon_state {
+	union {
+		unsigned int	atom;
+		struct {
+			unsigned int prio		:  2;
+			unsigned int req_prio		:  2;
+			unsigned int unsafe		:  1;
+			unsigned int unsafe_takeover	:  1;
+			unsigned int cpu		: 24;
+		};
+	};
+};
+
+/*
+ * The nbcon_state struct is used to easily create and interpret values that
+ * are stored in the @console::nbcon_state variable. Ensure this struct stays
+ * within the size boundaries of the atomic variable's underlying type in
+ * order to avoid any accidental truncation.
+ */
+static_assert(sizeof(struct nbcon_state) <= sizeof(int));
+
+/**
+ * nbcon_prio - console owner priority for nbcon consoles
+ * @NBCON_PRIO_NONE:		Unused
+ * @NBCON_PRIO_NORMAL:		Normal (non-emergency) usage
+ * @NBCON_PRIO_EMERGENCY:	Emergency output (WARN/OOPS...)
+ * @NBCON_PRIO_PANIC:		Panic output
+ * @NBCON_PRIO_MAX:		The number of priority levels
+ *
+ * A higher priority context can takeover the console when it is
+ * in the safe state. The final attempt to flush consoles in panic()
+ * can be allowed to do so even in an unsafe state (Hope and pray).
+ */
+enum nbcon_prio {
+	NBCON_PRIO_NONE = 0,
+	NBCON_PRIO_NORMAL,
+	NBCON_PRIO_EMERGENCY,
+	NBCON_PRIO_PANIC,
+	NBCON_PRIO_MAX,
+};
+
+struct console;
+struct printk_buffers;
+
+/**
+ * struct nbcon_context - Context for console acquire/release
+ * @console:			The associated console
+ * @spinwait_max_us:		Limit for spin-wait acquire
+ * @prio:			Priority of the context
+ * @allow_unsafe_takeover:	Allow performing takeover even if unsafe. Can
+ *				be used only with NBCON_PRIO_PANIC @prio. It
+ *				might cause a system freeze when the console
+ *				is used later.
+ * @backlog:			Ringbuffer has pending records
+ * @pbufs:			Pointer to the text buffer for this context
+ * @seq:			The sequence number to print for this context
+ */
+struct nbcon_context {
+	/* members set by caller */
+	struct console		*console;
+	unsigned int		spinwait_max_us;
+	enum nbcon_prio		prio;
+	unsigned int		allow_unsafe_takeover	: 1;
+
+	/* members set by emit */
+	unsigned int		backlog			: 1;
+
+	/* members set by acquire */
+	struct printk_buffers	*pbufs;
+	u64			seq;
+};
+
+/**
+ * struct nbcon_write_context - Context handed to the nbcon write callbacks
+ * @ctxt:		The core console context
+ * @outbuf:		Pointer to the text buffer for output
+ * @len:		Length to write
+ * @unsafe_takeover:	If a hostile takeover in an unsafe state has occurred
+ */
+struct nbcon_write_context {
+	struct nbcon_context	__private ctxt;
+	char			*outbuf;
+	unsigned int		len;
+	bool			unsafe_takeover;
 };
 
 /**
@@ -187,6 +296,18 @@ enum cons_flags {
  * @dropped:		Number of unreported dropped ringbuffer records
  * @data:		Driver private data
  * @node:		hlist node for the console list
+ *
+ * @write_atomic:	Write callback for atomic context
+ * @write_thread:	Write callback for non-atomic context
+ * @driver_enter:	Callback to begin synchronization with driver code
+ * @driver_exit:	Callback to finish synchronization with driver code
+ * @nbcon_state:	State for nbcon consoles
+ * @nbcon_seq:		Sequence number of the next record for nbcon to print
+ * @pbufs:		Pointer to nbcon private buffer
+ * @locked_port:	True, if the port lock is locked by nbcon
+ * @kthread:		Printer kthread for this console
+ * @rcuwait:		RCU-safe wait object for @kthread waking
+ * @irq_work:		Defer @kthread waking to IRQ work context
  */
 struct console {
 	char			name[16];
@@ -206,6 +327,21 @@ struct console {
 	unsigned long		dropped;
 	void			*data;
 	struct hlist_node	node;
+
+	/* nbcon console specific members */
+	bool			(*write_atomic)(struct console *con,
+						struct nbcon_write_context *wctxt);
+	bool			(*write_thread)(struct console *con,
+						struct nbcon_write_context *wctxt);
+	void			(*driver_enter)(struct console *con, unsigned long *flags);
+	void			(*driver_exit)(struct console *con, unsigned long flags);
+	atomic_t		__private nbcon_state;
+	atomic_long_t		__private nbcon_seq;
+	struct printk_buffers	*pbufs;
+	bool			locked_port;
+	struct task_struct	*kthread;
+	struct rcuwait		rcuwait;
+	struct irq_work		irq_work;
 };
 
 #ifdef CONFIG_LOCKDEP
@@ -331,6 +467,22 @@ static inline bool console_is_registered(const struct console *con)
 #define for_each_console(con)						\
 	lockdep_assert_console_list_lock_held();			\
 	hlist_for_each_entry(con, &console_list, node)
+
+#ifdef CONFIG_PRINTK
+extern void nbcon_cpu_emergency_enter(void);
+extern void nbcon_cpu_emergency_exit(void);
+extern bool nbcon_can_proceed(struct nbcon_write_context *wctxt);
+extern bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt);
+extern bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt);
+extern void nbcon_reacquire(struct nbcon_write_context *wctxt);
+#else
+static inline void nbcon_cpu_emergency_enter(void) { }
+static inline void nbcon_cpu_emergency_exit(void) { }
+static inline bool nbcon_can_proceed(struct nbcon_write_context *wctxt) { return false; }
+static inline bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt) { return false; }
+static inline bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt) { return false; }
+static inline void nbcon_reacquire(struct nbcon_write_context *wctxt) { }
+#endif
 
 extern int console_set_on_cmdline;
 extern struct console *early_console;

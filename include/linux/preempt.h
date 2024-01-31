@@ -230,15 +230,21 @@ do { \
 #define preempt_enable() \
 do { \
 	barrier(); \
-	if (unlikely(preempt_count_dec_and_test())) \
+	if (unlikely(preempt_count_dec_and_test())) { \
+		instrumentation_begin(); \
 		__preempt_schedule(); \
+		instrumentation_end(); \
+	} \
 } while (0)
 
 #define preempt_enable_notrace() \
 do { \
 	barrier(); \
-	if (unlikely(__preempt_count_dec_and_test())) \
+	if (unlikely(__preempt_count_dec_and_test())) { \
+		instrumentation_begin(); \
 		__preempt_schedule_notrace(); \
+		instrumentation_end(); \
+	} \
 } while (0)
 
 #define preempt_check_resched() \
