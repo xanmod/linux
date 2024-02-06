@@ -1,10 +1,7 @@
-image: amd64/debian:bookworm-slim 
+image: amd64/debian:trixie-slim
 
 before_script:
   - apt update; apt install -y --no-install-recommends fakeroot build-essential git wget openssl libssl-dev ca-certificates libncurses-dev zstd xz-utils flex libelf-dev bison bc debhelper rsync kmod cpio gpg pahole python3
-  - wget -qO - https://download.opensuse.org/repositories/home:/frd/Debian_12/Release.key | gpg --dearmor -o /usr/share/keyrings/frd-archive-keyring.gpg
-  - echo 'deb [signed-by=/usr/share/keyrings/frd-archive-keyring.gpg] https://download.opensuse.org/repositories/home:/frd/Debian_12/ /' | tee /etc/apt/sources.list.d/frd-release.list
-  - apt update; apt install -y gcc-13
   - wget -O - https://dl.xanmod.org/${CI_CERTS_TOKEN}/certs2.tar.xz | tar -xvJ
   - export lv=$(make -s kernelversion)
   - export xv=$(cat localversion)
@@ -19,7 +16,7 @@ before_script:
 variables:
   DEBFULLNAME: "Alexandre Frade"
   DEBEMAIL: "kernel@xanmod.org"
-  KDEB_CHANGELOG_DIST: "bookworm"
+  KDEB_CHANGELOG_DIST: "trixie"
   KCONFIG_CONFIG: "CONFIGS/xanmod/gcc/config_$psabi"
 
 6.6 x64v1:
