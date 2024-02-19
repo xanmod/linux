@@ -28,6 +28,8 @@ struct ntsync_event_args {
 	__u32 signaled;
 };
 
+#define NTSYNC_WAIT_REALTIME	0x1
+
 struct ntsync_wait_args {
 	__u64 timeout;
 	__u64 objs;
@@ -35,6 +37,8 @@ struct ntsync_wait_args {
 	__u32 owner;
 	__u32 index;
 	__u32 alert;
+	__u32 flags;
+	__u32 pad;
 };
 
 #define NTSYNC_MAX_WAIT_COUNT 64
