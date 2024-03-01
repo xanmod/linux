@@ -95,7 +95,7 @@ class KernelFeat(Directive):
 
         lines = subprocess.check_output(args, cwd=os.path.dirname(doc.current_source)).decode('utf-8')
 
-        line_regex = re.compile("^\.\. FILE (\S+)$")
+        line_regex = re.compile(r"^\.\. FILE (\S+)$")
 
         out_lines = ""
 
@@ -109,7 +109,7 @@ class KernelFeat(Directive):
             else:
                 out_lines += line + "\n"
 
-        nodeList = self.nestedParse(out_lines, fname)
+        nodeList = self.nestedParse(out_lines, self.arguments[0])
         return nodeList
 
     def nestedParse(self, lines, fname):
