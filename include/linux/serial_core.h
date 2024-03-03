@@ -488,6 +488,7 @@ struct uart_port {
 	struct uart_icount	icount;			/* statistics */
 
 	struct console		*cons;			/* struct console, if any */
+	bool			nbcon_locked_port;	/* True, if the port is locked by nbcon */
 	/* flags must be updated while holding port mutex */
 	upf_t			flags;
 
