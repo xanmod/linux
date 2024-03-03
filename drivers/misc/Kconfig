@@ -506,14 +506,14 @@ config OPEN_DICE
 
 	  If unsure, say N.
 
-config WINESYNC
-	tristate "Synchronization primitives for Wine"
+config NTSYNC
+	tristate "NT synchronization primitive emulation"
 	help
-	  This module provides kernel support for synchronization primitives
-	  used by Wine. It is not a hardware driver.
+	  This module provides kernel support for emulation of Windows NT
+	  synchronization primitives. It is not a hardware driver.
 
 	  To compile this driver as a module, choose M here: the
-	  module will be called winesync.
+	  module will be called ntsync.
 
 	  If unsure, say N.
 

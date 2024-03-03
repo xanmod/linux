@@ -15203,6 +15203,15 @@ T:	git https://github.com/Paragon-Software-Group/linux-ntfs3.git
 F:	Documentation/filesystems/ntfs3.rst
 F:	fs/ntfs3/
 
+NTSYNC SYNCHRONIZATION PRIMITIVE DRIVER
+M:	Elizabeth Figura <zfigura@codeweavers.com>
+L:	wine-devel@winehq.org
+S:	Supported
+F:	Documentation/userspace-api/ntsync.rst
+F:	drivers/misc/ntsync.c
+F:	include/uapi/linux/ntsync.h
+F:	tools/testing/selftests/drivers/ntsync/
+
 NUBUS SUBSYSTEM
 M:	Finn Thain <fthain@linux-m68k.org>
 L:	linux-m68k@lists.linux-m68k.org
@@ -23231,15 +23240,6 @@ WINBOND CIR DRIVER
 M:	David Härdeman <david@hardeman.nu>
 S:	Maintained
 F:	drivers/media/rc/winbond-cir.c
-
-WINESYNC SYNCHRONIZATION PRIMITIVE DRIVER
-M:	Zebediah Figura <zfigura@codeweavers.com>
-L:	wine-devel@winehq.org
-S:	Supported
-F:	Documentation/userspace-api/winesync.rst
-F:	drivers/misc/winesync.c
-F:	include/uapi/linux/winesync.h
-F:	tools/testing/selftests/drivers/winesync/
 
 WINSYSTEMS EBC-C384 WATCHDOG DRIVER
 L:	linux-watchdog@vger.kernel.org
