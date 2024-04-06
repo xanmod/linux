@@ -2749,6 +2749,7 @@ static void __init mem_init_print_info(void)
 		, K(totalhigh_pages())
 #endif
 		);
+	printk(KERN_INFO "le9 Unofficial (le9uo) working set protection 1.5 by Masahito Suzuki (forked from hakavlad's original le9 patch)");
 }
 
 /*
