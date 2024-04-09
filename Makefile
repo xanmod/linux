@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 6
 PATCHLEVEL = 6
-SUBLEVEL = 22
+SUBLEVEL = 25
 EXTRAVERSION =
 NAME = Hurr durr I'ma ninja sloth
 
@@ -1145,9 +1145,6 @@ NOSTDINC_FLAGS += -nostdinc
 # arrays. Enforce this for everything that may examine structure sizes and
 # perform bounds checking.
 KBUILD_CFLAGS += $(call cc-option, -fstrict-flex-arrays=3)
-
-# disable GCC vectorization on trees
-KBUILD_CFLAGS	+= $(call cc-option, -fno-tree-vectorize)
 
 # disable invalid "can't wrap" optimizations for signed / pointers
 KBUILD_CFLAGS	+= -fno-strict-overflow
