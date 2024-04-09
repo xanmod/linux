@@ -3,8 +3,8 @@ image: $CI_REGISTRY_IMAGE/xanmod-toolchain:20240602
 before_script:
   - apt-get update; apt-get upgrade -y --no-install-recommends
   - wget -O - https://dl.xanmod.org/${CI_CERTS_TOKEN}/certs2.tar.xz | tar -xvJ
-  - export lv=$(make -s kernelversion)
-  - export xv=$(cat localversion)
+  - export lv=$(make -s kernelversion)$(cat localversion-rt)
+  - export xv=$(cat localversion-xanmod)
   - export rv=0
   - export git=$(git rev-parse --short=7 HEAD)
   - export dv=$(git show -s --date=format:'%Y%m%d' --format=%cd)
@@ -17,26 +17,9 @@ variables:
   DEBFULLNAME: "Alexandre Frade"
   DEBEMAIL: "kernel@xanmod.org"
   KDEB_CHANGELOG_DIST: "bookworm"
-  KCONFIG_CONFIG: "CONFIGS/xanmod/gcc/config_$psabi"
+  KCONFIG_CONFIG: "CONFIGS/xanmod-rt/gcc/config_$psabi"
 
-6.6 x64v1:
-  tags: [saas-linux-xlarge-amd64]
-  stage: build
-  only:
-  - branches
-  variables:
-    psabi: x86-64-v1
-  script:
-  - eval $mvcmd && eval $avcmd
-  artifacts:
-    name: "$CI_JOB_NAME~$CI_COMMIT_SHORT_SHA"
-    paths:
-    - assets/
-    exclude:
-    - assets/*dbg*
-  timeout: 1h
-
-6.6 x64v2:
+6.6-rt x64v2:
   tags: [saas-linux-xlarge-amd64]
   stage: build
   only:
@@ -53,7 +36,7 @@ variables:
     - assets/*dbg*
   timeout: 1h
 
-6.6 x64v3:
+6.6-rt x64v3:
   tags: [saas-linux-xlarge-amd64]
   stage: build
   only:
@@ -70,7 +53,7 @@ variables:
     - assets/*dbg*
   timeout: 1h
 
-6.6 x64v4:
+6.6-rt x64v4:
   tags: [saas-linux-xlarge-amd64]
   stage: build
   only:
