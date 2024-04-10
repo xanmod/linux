@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 6.6.25 Kernel Configuration
+# Linux/x86 6.6.26 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-13 (Debian 13.2.0-13) 13.2.0"
 CONFIG_CC_IS_GCC=y
@@ -586,6 +586,9 @@ CONFIG_CPU_SRSO=y
 CONFIG_SLS=y
 # CONFIG_GDS_FORCE_MITIGATION is not set
 CONFIG_MITIGATION_RFDS=y
+# CONFIG_SPECTRE_BHI_ON is not set
+# CONFIG_SPECTRE_BHI_OFF is not set
+CONFIG_SPECTRE_BHI_AUTO=y
 CONFIG_ARCH_HAS_ADD_PAGES=y
 
 #
