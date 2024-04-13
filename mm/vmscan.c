@@ -3962,23 +3962,6 @@ static bool lruvec_is_reclaimable(struct lruvec *lruvec, struct scan_control *sc
 /* to protect the working set of the last N jiffies */
 static unsigned long lru_gen_min_ttl __read_mostly;
 
-static void do_invoke_oom(struct scan_control *sc, bool try_memcg) {
-	struct oom_control oc = {
-		.gfp_mask = sc->gfp_mask,
-		.order = sc->order,
-	};
-
-	if (try_memcg && mem_cgroup_oom_synchronize(true))
-		return;
-
-	if (!mutex_trylock(&oom_lock))
-		return;
-	out_of_memory(&oc);
-	mutex_unlock(&oom_lock);
-}
-#define invoke_oom(sc)         do_invoke_oom(sc, true)
-#define invoke_oom_nomemcg(sc) do_invoke_oom(sc, false)
-
 static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
 {
 	struct mem_cgroup *memcg;
@@ -4007,7 +3990,15 @@ static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
 	 * younger than min_ttl. However, another possibility is all memcgs are
 	 * either too small or below min.
 	 */
-	invoke_oom_nomemcg(sc);
+	if (mutex_trylock(&oom_lock)) {
+		struct oom_control oc = {
+			.gfp_mask = sc->gfp_mask,
+		};
+
+		out_of_memory(&oc);
+
+		mutex_unlock(&oom_lock);
+	}
 }
 
 int vm_workingset_protection_update_handler(struct ctl_table *table, int write,
@@ -4599,7 +4590,7 @@ static int isolate_folios(struct lruvec *lruvec, struct scan_control *sc, int sw
 	 */
 	if (!swappiness)
 		type = LRU_GEN_FILE;
-	else if (sc->clean_below_min || sc->clean_below_low)
+	else if (sc->clean_below_low || sc->clean_below_min)
 		type = LRU_GEN_ANON;
 	else if (min_seq[LRU_GEN_ANON] < min_seq[LRU_GEN_FILE])
 		type = LRU_GEN_ANON;
@@ -4610,7 +4601,7 @@ static int isolate_folios(struct lruvec *lruvec, struct scan_control *sc, int sw
 	else
 		type = get_type_to_scan(lruvec, swappiness, &tier);
 
-	for (i = 0; i < ANON_AND_FILE; i++) {
+	for (i = !swappiness; i < ANON_AND_FILE; i++) {
 		if (tier < 0)
 			tier = get_tier_idx(lruvec, type);
 
@@ -6129,8 +6120,6 @@ again:
 	 */
 	if (reclaimable)
 		pgdat->kswapd_failures = 0;
-	else if (sc->clean_below_min && !sc->priority)
-		invoke_oom(sc);
 }
 
 /*
