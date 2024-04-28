@@ -461,7 +461,7 @@ While most applications need less than a thousand maps, certain
 programs, particularly malloc debuggers, may consume lots of them,
 e.g., up to one or two maps per allocation.
 
-The default value is 65530.
+The XanMod default value is 2147483642.
 
 
 mem_profiling
