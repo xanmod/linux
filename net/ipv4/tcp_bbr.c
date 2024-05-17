@@ -1312,7 +1312,7 @@ static void bbr_bound_cwnd_for_inflight_model(struct sock *sk)
 }
 
 /* How should we multiplicatively cut bw or inflight limits based on ECN? */
-u32 bbr_ecn_cut(struct sock *sk)
+static u32 bbr_ecn_cut(struct sock *sk)
 {
 	struct bbr *bbr = inet_csk_ca(sk);
 
@@ -2033,7 +2033,7 @@ static bool bbr_run_fast_path(struct sock *sk, bool *update_model,
 	return false;
 }
 
-__bpf_kfunc void bbr_main(struct sock *sk, const struct rate_sample *rs)
+__bpf_kfunc static void bbr_main(struct sock *sk, const struct rate_sample *rs)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
