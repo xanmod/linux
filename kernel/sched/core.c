@@ -150,7 +150,7 @@ __read_mostly int sysctl_resched_latency_warn_once = 1;
  * 1: Yield only to better priority/deadline tasks.
  * 2: Re-queue current tasks. (default CFS)
  */
-__read_mostly int sysctl_sched_yield_type = 0;
+__read_mostly int sysctl_sched_yield_type = 2;
 
 /*
  * Number of tasks to iterate in a single balance run.
