@@ -65,7 +65,7 @@ export BITS
 
 # More compiler optimizations
 ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
-KBUILD_CFLAGS += -O3 $(call cc-option,-fmodulo-sched -fivopts)
+KBUILD_CFLAGS += -O3 $(call cc-option,-fmodulo-sched -fmodulo-sched-allow-regmoves -fivopts)
 KBUILD_RUSTFLAGS += -Copt-level=3
 endif
 
