@@ -149,7 +149,7 @@ __read_mostly int sysctl_resched_latency_warn_once = 1;
  * 1: Yield only to better priority/deadline tasks.
  * 2: Re-queue current tasks. (default CFS)
  */
-__read_mostly int sysctl_sched_yield_type = 0;
+__read_mostly int sysctl_sched_yield_type = 2;
 
 /*
  * Number of tasks to iterate in a single balance run.
@@ -11516,7 +11516,7 @@ static ssize_t cpu_max_write(struct kernfs_open_file *of,
 {
 	struct task_group *tg = css_tg(of_css(of));
 	u64 period = tg_get_cfs_period(tg);
-	u64 burst = tg_get_cfs_burst(tg);
+	u64 burst = tg->cfs_bandwidth.burst;
 	u64 quota;
 	int ret;
 

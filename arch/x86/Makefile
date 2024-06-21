@@ -62,7 +62,7 @@ export BITS
 
 # More compiler optimizations
 ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
-KBUILD_CFLAGS += -O3
+KBUILD_CFLAGS += -O3 $(call cc-option,-fmodulo-sched -fmodulo-sched-allow-regmoves -fivopts)
 KBUILD_RUSTFLAGS += -Copt-level=3
 endif
 
@@ -282,9 +282,10 @@ PHONY += install
 install:
 	$(call cmd,install)
 
-PHONY += vdso_install
-vdso_install:
-	$(Q)$(MAKE) $(build)=arch/x86/entry/vdso $@
+vdso-install-$(CONFIG_X86_64)		+= arch/x86/entry/vdso/vdso64.so.dbg
+vdso-install-$(CONFIG_X86_X32_ABI)	+= arch/x86/entry/vdso/vdsox32.so.dbg
+vdso-install-$(CONFIG_X86_32)		+= arch/x86/entry/vdso/vdso32.so.dbg
+vdso-install-$(CONFIG_IA32_EMULATION)	+= arch/x86/entry/vdso/vdso32.so.dbg
 
 archprepare: checkbin
 checkbin:

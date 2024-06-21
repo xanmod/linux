@@ -1,7 +1,7 @@
-image: amd64/debian:trixie-slim
+image: $CI_REGISTRY_IMAGE/xanmod-toolchain:20240602
 
 before_script:
-  - apt update; apt install -y --no-install-recommends fakeroot build-essential git wget openssl libssl-dev ca-certificates libncurses-dev zstd xz-utils flex libelf-dev bison bc debhelper rsync kmod cpio gpg pahole python3
+  - apt-get update; apt-get upgrade -y --no-install-recommends
   - wget -O - https://dl.xanmod.org/${CI_CERTS_TOKEN}/certs2.tar.xz | tar -xvJ
   - export lv=$(make -s kernelversion)
   - export xv=$(cat localversion)
@@ -16,7 +16,7 @@ before_script:
 variables:
   DEBFULLNAME: "Alexandre Frade"
   DEBEMAIL: "kernel@xanmod.org"
-  KDEB_CHANGELOG_DIST: "trixie"
+  KDEB_CHANGELOG_DIST: "bookworm"
   KCONFIG_CONFIG: "CONFIGS/xanmod/gcc/config_$psabi"
 
 6.6 x64v1:
