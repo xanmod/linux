@@ -1,4 +1,4 @@
-image: $CI_REGISTRY_IMAGE/xanmod-toolchain:20240602
+image: $CI_REGISTRY_IMAGE/xanmod-toolchain:20240628
 
 before_script:
   - apt-get update; apt-get upgrade -y --no-install-recommends
