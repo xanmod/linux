@@ -191,7 +191,7 @@ struct scan_control {
 /*
  * From 0 .. 200.  Higher means more swappy.
  */
-int vm_swappiness = 30;
+int vm_swappiness = 1;
 
 #ifdef CONFIG_MEMCG
 
