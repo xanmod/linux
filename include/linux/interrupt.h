@@ -610,6 +610,7 @@ extern void raise_softirq_irqoff(unsigned int nr);
 extern void raise_softirq(unsigned int nr);
 
 #ifdef CONFIG_PREEMPT_RT
+DECLARE_PER_CPU(struct task_struct *, timersd);
 extern void raise_timer_softirq(void);
 extern void raise_hrtimer_softirq(void);
 
