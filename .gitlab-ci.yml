@@ -1,4 +1,4 @@
-image: $CI_REGISTRY_IMAGE/xanmod-toolchain:20240628
+image: $CI_REGISTRY_IMAGE/xanmod-toolchain:latest
 
 before_script:
   - apt-get update; apt-get upgrade -y --no-install-recommends
@@ -10,7 +10,7 @@ before_script:
   - export dv=$(git show -s --date=format:'%Y%m%d' --format=%cd)
   - export jobs=$((2*$(nproc))); echo $jobs
   - pvcmd="cat $KCONFIG_CONFIG | grep 'LOCALVERSION='" && export pv=$(eval $pvcmd | cut -d'"' -f2)
-  - export mvcmd="make -j$jobs CC='gcc-13' HOSTCC='gcc-13' KDEB_PKGVERSION='$lv$pv$xv-$rv~$dv.g$git' bindeb-pkg 2>&1 | tee ../build-$lv$pv$xv-$rv~$dv.g"$git"_amd64.log && xz -e9 ../build-*$pv*"
+  - export mvcmd="make -j$jobs CC='gcc-14' HOSTCC='gcc-14' KDEB_PKGVERSION='$lv$pv$xv-$rv~$dv.g$git' bindeb-pkg 2>&1 | tee ../build-$lv$pv$xv-$rv~$dv.g"$git"_amd64.log && xz -e9 ../build-*$pv*"
   - export avcmd="mkdir -p assets/ && mv ../*$pv* assets/"
 
 variables:
