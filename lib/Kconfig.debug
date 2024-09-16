@@ -190,7 +190,7 @@ config DYNAMIC_DEBUG_CORE
 
 config SYMBOLIC_ERRNAME
 	bool "Support symbolic error names in printf"
-	default y if PRINTK
+	default n
 	help
 	  If you say Y here, the kernel's printf implementation will
 	  be able to print symbolic error names such as ENOSPC instead
@@ -200,7 +200,7 @@ config SYMBOLIC_ERRNAME
 config DEBUG_BUGVERBOSE
 	bool "Verbose BUG() reporting (adds 70K)" if DEBUG_KERNEL && EXPERT
 	depends on BUG && (GENERIC_BUG || HAVE_DEBUG_BUGVERBOSE)
-	default y
+	default n
 	help
 	  Say Y here to make BUG() panics output the file name and line number
 	  of the BUG call as well as the EIP and oops trace.  This aids
