@@ -1,8 +1,8 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 6.11.3 Kernel Configuration
+# Linux/x86 6.11.4 Kernel Configuration
 #
-CONFIG_CC_VERSION_TEXT="gcc-14 (Debian 14.2.0-3) 14.2.0"
+CONFIG_CC_VERSION_TEXT="gcc-14 (Debian 14.2.0-6) 14.2.0"
 CONFIG_CC_IS_GCC=y
 CONFIG_GCC_VERSION=140200
 CONFIG_CLANG_VERSION=0
