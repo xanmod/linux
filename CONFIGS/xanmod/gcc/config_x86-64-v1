@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/x86 6.11.4 Kernel Configuration
+# Linux/x86 6.11.5 Kernel Configuration
 #
 CONFIG_CC_VERSION_TEXT="gcc-14 (Debian 14.2.0-6) 14.2.0"
 CONFIG_CC_IS_GCC=y
@@ -12417,7 +12417,7 @@ CONFIG_HAVE_SAMPLE_FTRACE_DIRECT=y
 CONFIG_HAVE_SAMPLE_FTRACE_DIRECT_MULTI=y
 CONFIG_ARCH_HAS_DEVMEM_IS_ALLOWED=y
 CONFIG_STRICT_DEVMEM=y
-CONFIG_IO_STRICT_DEVMEM=y
+# CONFIG_IO_STRICT_DEVMEM is not set
 
 #
 # x86 Debugging
